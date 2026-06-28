@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# agent working files
+.opencode-local/
+
+# playwright report
+/playwright-report/
+
+# e2e screenshots
+*.png

@@ -1,0 +1,76 @@
+// ============================================================
+// Header - Top navigation/app bar for the Expense Tracker
+//
+// Includes tab navigation between Summary (/), Balances
+// (/available-balance), and Payout (/payout) using Next.js
+// Link + usePathname.
+// ============================================================
+
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+
+interface HeaderProps {
+  /** Optional title override. Defaults to "Expense Tracker" */
+  title?: string;
+  /** Whether to show the bottom tab navigation. Default true. */
+  showTabs?: boolean;
+}
+
+export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderProps) {
+  const pathname = usePathname();
+
+  return (
+    <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur-md dark:border-zinc-700 dark:bg-zinc-900/80">
+      <div className="mx-auto flex max-w-4xl items-center justify-between px-4 pt-3 sm:px-6">
+        <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
+          {title}
+        </h1>
+        <div className="flex items-center gap-2">
+          {/* App version / status indicator */}
+          <span className="hidden rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 sm:inline-block">
+            PWA
+          </span>
+        </div>
+      </div>
+
+      {showTabs && (
+        <nav className="mx-auto flex max-w-4xl gap-1 px-4 pb-0 sm:px-6">
+          <TabLink href="/" active={pathname === '/'}>
+            Summary
+          </TabLink>
+          <TabLink href="/available-balance" active={pathname === '/available-balance'}>
+            Balances
+          </TabLink>
+          <TabLink href="/payout" active={pathname === '/payout'}>
+            Payout
+          </TabLink>
+          <TabLink href="/settings" active={pathname === '/settings'}>
+            Settings
+          </TabLink>
+        </nav>
+      )}
+    </header>
+  );
+}
+
+// ============================================================
+// Tab link sub-component
+// ============================================================
+
+function TabLink({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className={`rounded-t-lg px-4 py-2 text-sm font-medium transition-colors ${
+        active
+          ? 'bg-white text-blue-700 dark:bg-zinc-800 dark:text-blue-400'
+          : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200'
+      }`}
+    >
+      {children}
+    </Link>
+  );
+}
