@@ -5,11 +5,11 @@
 
 'use client';
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Header } from '@/components/layout/Header';
 import { TransactionList } from '@/components/summary/TransactionList';
 
-export default function TransactionsPage() {
+function TransactionsPageContent() {
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
       <Header />
@@ -24,5 +24,13 @@ export default function TransactionsPage() {
         Expense Tracker &middot; Data stored locally in your browser
       </footer>
     </div>
+  );
+}
+
+export default function TransactionsPage() {
+  return (
+    <Suspense fallback={null}>
+      <TransactionsPageContent />
+    </Suspense>
   );
 }
