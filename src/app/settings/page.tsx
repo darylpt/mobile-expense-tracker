@@ -14,6 +14,7 @@ import { Input } from '@/components/common/Input';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useCategories } from '@/hooks/useCategories';
 import { getAllTransactions } from '@/lib/idb';
+import { formatCurrency } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
 
 export default function SettingsPage() {
@@ -221,10 +222,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete }: AccountsSectio
                 >
                   <td className="py-2 pr-4 font-medium">{account.name}</td>
                   <td className="py-2 px-2 text-right tabular-nums">
-                    ₱{(account.startingBalance ?? 0).toLocaleString('en-PH', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
+{formatCurrency(account.startingBalance ?? 0)}
                   </td>
                   <td className="py-2 pl-2 text-right">
                     <div className="flex justify-end gap-1">

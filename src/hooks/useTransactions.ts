@@ -14,22 +14,15 @@ import {
   calculateCategoryBreakdown,
   calculateAccountBreakdown,
 } from '@/lib/utils';
-import {
-  calculateAccountBalances,
-  calculateIncomeBreakdown,
-  calculateExpenseBreakdown,
-} from '@/lib/aggregations';
+import { calculateAccountBalances } from '@/lib/aggregations';
 import type {
   MonthlySummary,
   CategoryBreakdownItem,
   AccountBreakdownItem,
   AccountBalanceRow,
-  IncomeBreakdownRow,
-  ExpenseBreakdownRow,
 } from '@/types';
 
-// ponytail: default empty — callers that need budget targets pass them in
-export function useTransactions(budgetTargets: Record<string, number> = {}) {
+export function useTransactions() {
   const ctx = useTransactionContext();
 
   // Transactions filtered by the currently selected month/year
@@ -70,18 +63,6 @@ export function useTransactions(budgetTargets: Record<string, number> = {}) {
     [monthTransactions, ctx.transactions, ctx.accounts, ctx.monthYear]
   );
 
-  // Income breakdown by category
-  const incomeBreakdown = useMemo<IncomeBreakdownRow[]>(
-    () => calculateIncomeBreakdown(monthTransactions),
-    [monthTransactions]
-  );
-
-  // Expense breakdown by category
-  const expenseBreakdown = useMemo(
-    () => calculateExpenseBreakdown(monthTransactions, budgetTargets),
-    [monthTransactions, budgetTargets]
-  );
-
   return {
     // Raw data from context
     transactions: ctx.transactions,
@@ -98,8 +79,6 @@ export function useTransactions(budgetTargets: Record<string, number> = {}) {
 
     // Summary/Dashboard aggregations (Task 3)
     accountBalances,
-    incomeBreakdown,
-    expenseBreakdown,
 
     // Actions
     addTransaction: ctx.addTransaction,

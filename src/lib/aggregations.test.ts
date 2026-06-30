@@ -7,7 +7,8 @@ import {
   calculateIncomeBreakdown,
   calculateExpenseBreakdown,
 } from './aggregations';
-import type { Transaction, Account, MonthYear } from '@/types';
+import { tx } from './test-utils';
+import type { Account, MonthYear } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -20,22 +21,6 @@ const ACCOUNTS: Account[] = [
   { id: 'landbank', name: 'Landbank', startingBalance: 0 },
   { id: 'dragonfi', name: 'DragonFi', startingBalance: 0 },
 ];
-
-/**
- * Build a transaction quickly without repeating defaults.
- */
-function tx(overrides: Partial<Transaction> & { date: string; type: Transaction['type']; amount: number }): Transaction {
-  return {
-    id: `tx-${Math.random().toString(36).slice(2, 8)}`,
-    category: 'Other',
-    fromAccount: null,
-    toAccount: null,
-    description: '',
-    createdAt: 0,
-    updatedAt: 0,
-    ...overrides,
-  };
-}
 
 const JUNE_2026: MonthYear = { month: 5, year: 2026 };
 const MAY_2026: MonthYear = { month: 4, year: 2026 };
@@ -230,6 +215,27 @@ describe('calculateIncomeBreakdown', () => {
     expect(total.percentage).toBe(100);
   });
 
+  it('includes categories with no activity when allCategories is provided', () => {
+    const txs: Transaction[] = [
+      tx({ date: '2026-06-01', type: 'income', amount: 45000, category: 'Paycheck', toAccount: 'gotyme' }),
+    ];
+    const result = calculateIncomeBreakdown(txs, ['Paycheck', 'Bonus', 'Interest']);
+    // 3 category rows + Total
+    expect(result).toHaveLength(4);
+
+    const paycheck = result.find((r) => r.category === 'Paycheck')!;
+    expect(paycheck.amount).toBe(45000);
+    expect(paycheck.percentage).toBeCloseTo(100, 1);
+
+    const bonus = result.find((r) => r.category === 'Bonus')!;
+    expect(bonus.amount).toBe(0);
+    expect(bonus.percentage).toBe(0);
+
+    const interest = result.find((r) => r.category === 'Interest')!;
+    expect(interest.amount).toBe(0);
+    expect(interest.percentage).toBe(0);
+  });
+
   it('handles single income category', () => {
     const txs: Transaction[] = [
       tx({ date: '2026-06-01', type: 'income', amount: 1000, category: 'Paycheck', toAccount: 'gotyme' }),
@@ -296,6 +302,30 @@ describe('calculateExpenseBreakdown', () => {
     expect(total.amount).toBe(2000);
     expect(total.difference).toBe(3000);
     expect(total.percentage).toBe(100);
+  });
+
+  it('includes categories with no activity when allCategories is provided', () => {
+    const budgets = { Food: 3000, Transportation: 2000 };
+    const txs: Transaction[] = [
+      tx({ date: '2026-06-02', type: 'expense', amount: 1500, category: 'Food', fromAccount: 'cash' }),
+    ];
+    const result = calculateExpenseBreakdown(txs, budgets, ['Food', 'Transportation', 'Entertainment']);
+    // 3 category rows + Total
+    expect(result).toHaveLength(4);
+
+    const food = result.find((r) => r.category === 'Food')!;
+    expect(food.amount).toBe(1500);
+    expect(food.planned).toBe(3000);
+
+    const transportation = result.find((r) => r.category === 'Transportation')!;
+    expect(transportation.amount).toBe(0);
+    expect(transportation.planned).toBe(2000);
+    expect(transportation.difference).toBe(2000);
+
+    const entertainment = result.find((r) => r.category === 'Entertainment')!;
+    expect(entertainment.amount).toBe(0);
+    expect(entertainment.planned).toBe(0);
+    expect(entertainment.difference).toBe(0);
   });
 
   it('handles budget target not set (defaults to 0)', () => {

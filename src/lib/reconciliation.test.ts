@@ -3,7 +3,8 @@
 // ============================================================
 
 import { calculateExpectedBalances } from './reconciliation';
-import type { Transaction, Account } from '@/types';
+import { tx } from './test-utils';
+import type { Account } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -16,21 +17,6 @@ const ACCOUNTS: Account[] = [
   { id: 'landbank', name: 'Landbank', startingBalance: 0 },
   { id: 'dragonfi', name: 'DragonFi', startingBalance: 0 },
 ];
-
-function tx(
-  overrides: Partial<Transaction> & { date: string; type: Transaction['type']; amount: number }
-): Transaction {
-  return {
-    id: `tx-${Math.random().toString(36).slice(2, 8)}`,
-    category: 'Other',
-    fromAccount: null,
-    toAccount: null,
-    description: '',
-    createdAt: 0,
-    updatedAt: 0,
-    ...overrides,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Tests

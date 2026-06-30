@@ -194,7 +194,8 @@ export function calculateAccountBalances(
  * Returns rows sorted by amount descending, with a TOTAL row appended.
  */
 export function calculateIncomeBreakdown(
-  transactions: Transaction[]
+  transactions: Transaction[],
+  allCategories: string[] = []
 ): IncomeBreakdownRow[] {
   const incomeTxs = transactions.filter((tx) => tx.type === 'income');
   const totalIncome = incomeTxs.reduce((sum, tx) => sum + tx.amount, 0);
@@ -203,6 +204,13 @@ export function calculateIncomeBreakdown(
   const byCategory = new Map<string, number>();
   for (const tx of incomeTxs) {
     byCategory.set(tx.category, (byCategory.get(tx.category) ?? 0) + tx.amount);
+  }
+
+  // Include categories with no activity (zero amount)
+  for (const cat of allCategories) {
+    if (!byCategory.has(cat)) {
+      byCategory.set(cat, 0);
+    }
   }
 
   const rows: IncomeBreakdownRow[] = [...byCategory.entries()]
@@ -238,7 +246,8 @@ export function calculateIncomeBreakdown(
  */
 export function calculateExpenseBreakdown(
   transactions: Transaction[],
-  budgetTargets: Record<string, number> = {}
+  budgetTargets: Record<string, number> = {},
+  allCategories: string[] = []
 ): ExpenseBreakdownRow[] {
   const expenseTxs = transactions.filter((tx) => tx.type === 'expense');
   const totalExpenses = expenseTxs.reduce((sum, tx) => sum + tx.amount, 0);
@@ -247,6 +256,13 @@ export function calculateExpenseBreakdown(
   const byCategory = new Map<string, number>();
   for (const tx of expenseTxs) {
     byCategory.set(tx.category, (byCategory.get(tx.category) ?? 0) + tx.amount);
+  }
+
+  // Include categories with no activity (zero amount)
+  for (const cat of allCategories) {
+    if (!byCategory.has(cat)) {
+      byCategory.set(cat, 0);
+    }
   }
 
   const rows: ExpenseBreakdownRow[] = [...byCategory.entries()]

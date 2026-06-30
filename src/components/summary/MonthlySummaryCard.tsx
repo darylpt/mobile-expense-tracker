@@ -11,7 +11,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useCategories } from '@/hooks/useCategories';
 import { getAllBudgetTargets, setBudgetTarget } from '@/lib/idb';
-import { calculateExpenseBreakdown } from '@/lib/aggregations';
+import { calculateIncomeBreakdown, calculateExpenseBreakdown } from '@/lib/aggregations';
 import {
   formatCurrency,
   formatMonthYear,
@@ -27,7 +27,6 @@ export function MonthlySummaryCard() {
     setMonthYear,
     isLoading,
     accountBalances,
-    incomeBreakdown,
     monthTransactions,
   } = useTransactions();
 
@@ -73,10 +72,23 @@ export function MonthlySummaryCard() {
     return () => { cancelled = true; };
   }, [monthStr, getCategoriesByType, budgetVersion]);
 
-  // Compute expense breakdown with resolved budget targets
+  // Compute income breakdown with all income categories (including zero-amount)
+  const incomeBreakdown = useMemo(
+    () => calculateIncomeBreakdown(
+      monthTransactions,
+      getCategoriesByType('income').map((c) => c.name)
+    ),
+    [monthTransactions, getCategoriesByType]
+  );
+
+  // Compute expense breakdown with all expense categories (including zero-amount)
   const expenseBreakdown = useMemo(
-    () => calculateExpenseBreakdown(monthTransactions, budgetTargets),
-    [monthTransactions, budgetTargets]
+    () => calculateExpenseBreakdown(
+      monthTransactions,
+      budgetTargets,
+      getCategoriesByType('expense').map((c) => c.name)
+    ),
+    [monthTransactions, budgetTargets, getCategoriesByType]
   );
 
   // ── Editor handlers ─────────────────────────────────────────

@@ -39,7 +39,6 @@ export interface Category {
 export interface MonthlySummary {
   totalIncome: number;
   totalExpenses: number;
-  totalTransfers: number;
   netBalance: number;
   incomeCount: number;
   expenseCount: number;

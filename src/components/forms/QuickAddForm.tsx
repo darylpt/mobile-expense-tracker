@@ -11,7 +11,7 @@ import { useTransactions } from '@/hooks/useTransactions';
 import { useCategories } from '@/hooks/useCategories';
 import { useAccounts } from '@/hooks/useAccounts';
 import { Button } from '@/components/common/Button';
-import { TransactionFormFields, type FormState } from './TransactionFormFields';
+import { TransactionFormFields, validateTransactionForm, type FormState } from './TransactionFormFields';
 import { getToday } from '@/lib/utils';
 import type { TransactionType } from '@/types';
 
@@ -73,41 +73,13 @@ export function QuickAddForm() {
     setError(null);
 
     // Validation
+    const validationError = validateTransactionForm(form);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     const amountNum = parseFloat(form.amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      setError('Please enter a valid positive amount.');
-      return;
-    }
-    if (!form.date) {
-      setError('Please select a date.');
-      return;
-    }
-    if (!form.category) {
-      setError('Please select a category.');
-      return;
-    }
-
-    if (form.type === 'income') {
-      if (!form.toAccount) {
-        setError('Please select a destination account (To Account).');
-        return;
-      }
-    } else if (form.type === 'expense') {
-      if (!form.fromAccount) {
-        setError('Please select a source account (From Account).');
-        return;
-      }
-    } else if (form.type === 'transaction') {
-      if (!form.fromAccount || !form.toAccount) {
-        setError('Please select both From Account and To Account.');
-        return;
-      }
-      if (form.fromAccount === form.toAccount) {
-        setError('From Account and To Account must be different.');
-        return;
-      }
-    }
-
     setIsSubmitting(true);
     try {
       // Build the payload: use null for empty account fields

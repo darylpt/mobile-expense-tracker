@@ -115,7 +115,6 @@ export function sortTransactionsByDate(txs: Transaction[]): Transaction[] {
 export function calculateMonthlySummary(txs: Transaction[]): MonthlySummary {
   let totalIncome = 0;
   let totalExpenses = 0;
-  let totalTransfers = 0;
   let incomeCount = 0;
   let expenseCount = 0;
   let transferCount = 0;
@@ -131,7 +130,6 @@ export function calculateMonthlySummary(txs: Transaction[]): MonthlySummary {
         expenseCount++;
         break;
       case 'transaction':
-        totalTransfers += tx.amount;
         transferCount++;
         break;
     }
@@ -140,7 +138,6 @@ export function calculateMonthlySummary(txs: Transaction[]): MonthlySummary {
   return {
     totalIncome,
     totalExpenses,
-    totalTransfers,
     netBalance: totalIncome - totalExpenses,
     incomeCount,
     expenseCount,

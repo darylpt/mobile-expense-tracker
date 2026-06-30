@@ -48,6 +48,29 @@ const TYPE_OPTIONS = [
 ];
 
 // ============================================================
+// Shared validation — used by QuickAddForm and EditTransactionModal
+// ============================================================
+
+/** Returns an error string if the form is invalid, or null if OK. */
+export function validateTransactionForm(form: FormState): string | null {
+  const amountNum = parseFloat(form.amount);
+  if (isNaN(amountNum) || amountNum <= 0) return 'Please enter a valid positive amount.';
+  if (!form.date) return 'Please select a date.';
+  if (!form.category) return 'Please select a category.';
+
+  if (form.type === 'income') {
+    if (!form.toAccount) return 'Please select a destination account (To Account).';
+  } else if (form.type === 'expense') {
+    if (!form.fromAccount) return 'Please select a source account (From Account).';
+  } else if (form.type === 'transaction') {
+    if (!form.fromAccount || !form.toAccount) return 'Please select both From Account and To Account.';
+    if (form.fromAccount === form.toAccount) return 'From Account and To Account must be different.';
+  }
+
+  return null;
+}
+
+// ============================================================
 // TransactionFormFields Component
 // ============================================================
 
