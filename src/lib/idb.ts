@@ -6,7 +6,7 @@
 
 import { openDB, type IDBPDatabase } from 'idb';
 import type { Transaction, Account, Category, CashDenomination, Payout, BudgetTarget } from '@/types';
-import { DB_NAME, DB_VERSION, STORES, DEFAULT_ACCOUNTS, DEFAULT_CATEGORIES, SEED_TRANSACTIONS } from './constants';
+import { DB_NAME, DB_VERSION, STORES, DEFAULT_ACCOUNTS, DEFAULT_CATEGORIES, DEFAULT_BUDGET_TARGETS, SEED_TRANSACTIONS } from './constants';
 import { generateId } from './utils';
 
 /** Schema type for our IndexedDB database */
@@ -489,20 +489,38 @@ export async function getAllBudgetTargets(): Promise<BudgetTarget[]> {
 // ============================================================
 
 /**
- * Seed the transactions store with demo data if it's currently empty.
+ * Seed the stores with demo data if they are currently empty.
  * Safe to call on every app mount — only seeds when there are zero rows.
  */
 export async function seedTransactionsIfEmpty(): Promise<void> {
   const db = await getDB();
-  const count = await db.count(STORES.TRANSACTIONS);
-  if (count > 0) return;
 
-  for (const tx of SEED_TRANSACTIONS) {
-    await db.add(STORES.TRANSACTIONS, {
-      ...tx,
-      id: generateId(),
-      createdAt: new Date(tx.date).getTime(),
-      updatedAt: new Date(tx.date).getTime(),
-    });
+  // ── Seed transactions ──
+  const txCount = await db.count(STORES.TRANSACTIONS);
+  if (txCount === 0) {
+    for (const tx of SEED_TRANSACTIONS) {
+      await db.add(STORES.TRANSACTIONS, {
+        ...tx,
+        id: generateId(),
+        createdAt: new Date(tx.date).getTime(),
+        updatedAt: new Date(tx.date).getTime(),
+      });
+    }
+  }
+
+  // ── Seed budget targets (new install or v3→v4 upgrade) ──
+  const btCount = await db.count(STORES.BUDGET_TARGETS);
+  if (btCount === 0) {
+    const now = Date.now();
+    for (const [category, amount] of Object.entries(DEFAULT_BUDGET_TARGETS)) {
+      await db.add(STORES.BUDGET_TARGETS, {
+        id: generateId(),
+        category,
+        month: null,
+        amount,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
   }
 }

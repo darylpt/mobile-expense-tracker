@@ -1,8 +1,8 @@
 // ============================================================
 // MonthlySummaryCard - Summary / Dashboard screen
 //
-// Top row: month navigation + Income / Expenses / Net cards
-// Then:    Accounts table, Income Breakdown, Expenses Breakdown
+// Month nav (full width) → Summary Stats (1/3) + Accounts (2/3)
+// Then: Income Breakdown (1/2) + Expenses Breakdown (1/2)
 // ============================================================
 
 'use client';
@@ -121,26 +121,37 @@ export function MonthlySummaryCard() {
 
   return (
     <div className="space-y-6">
-      {/* ── lg: grid — Accounts table (left) | Month nav/breakdowns (right) ── */}
+      {/* ── Month navigation — full width, above both cards ── */}
+      <div className="flex items-center justify-center gap-4">
+        <Button variant="ghost" size="sm" onClick={handlePrevMonth} aria-label="Previous month">
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </Button>
+        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+          {formatMonthYear(monthYear)}
+        </h2>
+        <Button variant="ghost" size="sm" onClick={handleNextMonth} aria-label="Next month">
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </Button>
+      </div>
+
+      {/* Row 1: Summary Stats (1/3) | Accounts Table (2/3) */}
       <div className="space-y-6 lg:grid lg:grid-cols-3 lg:gap-6 lg:space-y-0">
-        {/* Left column — col-span-2: Accounts table (widest table) */}
+        <div className="lg:col-span-1">
+          <SummaryStats summary={summary} />
+        </div>
         <div className="lg:col-span-2">
           <AccountsTable rows={accountBalances} />
         </div>
+      </div>
 
-        {/* Right column — col-span-1: Month nav + stats + breakdowns */}
-        <div className="space-y-6 lg:col-span-1">
-          <SummaryHeader
-            monthYear={monthYear}
-            onPrev={handlePrevMonth}
-            onNext={handleNextMonth}
-            summary={summary}
-          />
-
-          <IncomeBreakdownTable rows={incomeBreakdown} />
-
-          <ExpenseBreakdownTable rows={expenseBreakdown} />
-        </div>
+      {/* Row 2: Income Breakdown (1/2) | Expenses Breakdown (1/2) */}
+      <div className="space-y-6 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">
+        <IncomeBreakdownTable rows={incomeBreakdown} />
+        <ExpenseBreakdownTable rows={expenseBreakdown} />
       </div>
 
       {/* ── Budget Targets Editor — full-width below grid ── */}
@@ -202,12 +213,19 @@ export function MonthlySummaryCard() {
 function LoadingSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
+      {/* Month nav skeleton */}
+      <div className="flex items-center justify-center gap-4">
+        <div className="h-8 w-8 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
         <div className="h-6 w-48 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
-        <div className="mt-4 grid grid-cols-3 gap-4">
-          <div className="h-16 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
-          <div className="h-16 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
-          <div className="h-16 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
+        <div className="h-8 w-8 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+      </div>
+      {/* Summary stats skeleton */}
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
+        <div className="h-5 w-20 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+        <div className="mt-4 space-y-3">
+          <div className="h-14 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
+          <div className="h-14 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
+          <div className="h-14 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
         </div>
       </div>
       {[1, 2, 3].map((i) => (
@@ -224,13 +242,10 @@ function LoadingSkeleton() {
 }
 
 // ============================================================
-// Summary header
+// Summary stats (vertical rows)
 // ============================================================
 
-interface SummaryHeaderProps {
-  monthYear: { month: number; year: number };
-  onPrev: () => void;
-  onNext: () => void;
+interface SummaryStatsProps {
   summary: {
     totalIncome: number;
     totalExpenses: number;
@@ -241,61 +256,51 @@ interface SummaryHeaderProps {
   };
 }
 
-function SummaryHeader({ monthYear, onPrev, onNext, summary }: SummaryHeaderProps) {
+function SummaryStats({ summary }: SummaryStatsProps) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
-      {/* Month navigation */}
-      <div className="mb-4 flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={onPrev} aria-label="Previous month">
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </Button>
-        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-          {formatMonthYear(monthYear)}
-        </h2>
-        <Button variant="ghost" size="sm" onClick={onNext} aria-label="Next month">
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </Button>
-      </div>
-
-      {/* Summary grid */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-900/20">
-          <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Income</p>
-          <p className="mt-1 text-lg font-bold text-emerald-800 dark:text-emerald-300">
+      <h2 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">Summary</h2>
+      <div className="flex flex-col gap-3">
+        {/* Income Row */}
+        <div className="flex items-center justify-between border-b border-zinc-100 pb-3 dark:border-zinc-700">
+          <div>
+            <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Income</p>
+            <p className="text-xs text-zinc-400">{summary.incomeCount} {summary.incomeCount === 1 ? 'entry' : 'entries'}</p>
+          </div>
+          <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
             {formatCurrency(summary.totalIncome)}
           </p>
-          <p className="text-xs text-emerald-600 dark:text-emerald-500">
-            {summary.incomeCount} {summary.incomeCount === 1 ? 'entry' : 'entries'}
-          </p>
         </div>
-        <div className="rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
-          <p className="text-xs font-medium text-red-700 dark:text-red-400">Expenses</p>
-          <p className="mt-1 text-lg font-bold text-red-800 dark:text-red-300">
+
+        {/* Expenses Row */}
+        <div className="flex items-center justify-between border-b border-zinc-100 pb-3 dark:border-zinc-700">
+          <div>
+            <p className="text-xs font-medium text-red-600 dark:text-red-400">Expenses</p>
+            <p className="text-xs text-zinc-400">{summary.expenseCount} {summary.expenseCount === 1 ? 'entry' : 'entries'}</p>
+          </div>
+          <p className="text-lg font-bold text-red-700 dark:text-red-300 tabular-nums">
             {formatCurrency(summary.totalExpenses)}
           </p>
-          <p className="text-xs text-red-600 dark:text-red-500">
-            {summary.expenseCount} {summary.expenseCount === 1 ? 'entry' : 'entries'}
-          </p>
         </div>
-        <div className="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
-          <p className="text-xs font-medium text-blue-700 dark:text-blue-400">Net</p>
+
+        {/* Net Row */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-blue-600 dark:text-blue-400">Net</p>
+            <p className="text-xs text-zinc-400">
+              {summary.transferCount > 0
+                ? `${summary.transferCount} transfer${summary.transferCount > 1 ? 's' : ''}`
+                : 'No transfers'}
+            </p>
+          </div>
           <p
-            className={`mt-1 text-lg font-bold ${
+            className={`text-lg font-bold tabular-nums ${
               summary.netBalance >= 0
-                ? 'text-blue-800 dark:text-blue-300'
-                : 'text-red-800 dark:text-red-300'
+                ? 'text-blue-700 dark:text-blue-300'
+                : 'text-red-700 dark:text-red-300'
             }`}
           >
             {formatCurrency(summary.netBalance)}
-          </p>
-          <p className="text-xs text-blue-600 dark:text-blue-500">
-            {summary.transferCount > 0
-              ? `${summary.transferCount} transfer${summary.transferCount > 1 ? 's' : ''}`
-              : 'No transfers'}
           </p>
         </div>
       </div>

@@ -79,6 +79,21 @@ export const SEED_TRANSACTIONS: Array<
   { amount: 5000, date: '2026-05-30', type: 'transaction', category: 'Savings Transfer', fromAccount: 'gotyme', toAccount: 'landbank', description: 'Savings transfer' },
 ];
 
+/** Default budget targets (global, no month override) seeded on first launch */
+export const DEFAULT_BUDGET_TARGETS: Record<string, number> = {
+  Food: 8000,
+  Home: 5000,
+  Personal: 2000,
+  Health: 1000,
+  Transportation: 2000,
+  Savings: 5000,
+  Investment: 1500,
+  'Motor - Gas': 1000,
+  'Motor - Maintenance': 500,
+  Other: 1000,
+  Adjustments: 500,
+};
+
 /** IDB database configuration */
 export const DB_NAME = 'expense-tracker-db';
 export const DB_VERSION = 4;
