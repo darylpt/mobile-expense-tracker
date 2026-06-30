@@ -44,6 +44,9 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
           <TabLink href="/available-balance" active={pathname === '/available-balance'}>
             Balances
           </TabLink>
+          <TabLink href="/transactions" active={pathname === '/transactions'}>
+            Transactions
+          </TabLink>
           <TabLink href="/payout" active={pathname === '/payout'}>
             Payout
           </TabLink>

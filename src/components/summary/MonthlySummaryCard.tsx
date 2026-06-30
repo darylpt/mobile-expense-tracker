@@ -121,8 +121,8 @@ export function MonthlySummaryCard() {
 
   return (
     <div className="space-y-6">
-      {/* ── Month navigation — full width, above both cards ── */}
-      <div className="flex items-center justify-center gap-4">
+      {/* ── Month navigation — full width, left-aligned ── */}
+      <div className="flex items-center justify-start gap-4">
         <Button variant="ghost" size="sm" onClick={handlePrevMonth} aria-label="Previous month">
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -259,7 +259,12 @@ interface SummaryStatsProps {
 function SummaryStats({ summary }: SummaryStatsProps) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
-      <h2 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">Summary</h2>
+      <h2 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">
+        Summary
+        <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-normal text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400">
+          {summary.incomeCount + summary.expenseCount + summary.transferCount}
+        </span>
+      </h2>
       <div className="flex flex-col gap-3">
         {/* Income Row */}
         <div className="flex items-center justify-between border-b border-zinc-100 pb-3 dark:border-zinc-700">
@@ -305,9 +310,6 @@ function SummaryStats({ summary }: SummaryStatsProps) {
         </div>
       </div>
 
-      <div className="mt-3 text-center text-xs text-zinc-500 dark:text-zinc-400">
-        Total transactions: {summary.incomeCount + summary.expenseCount + summary.transferCount}
-      </div>
     </div>
   );
 }

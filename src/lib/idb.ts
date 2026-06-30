@@ -72,6 +72,9 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
   if (dbInstance) return dbInstance;
 
   dbInstance = await openDB<ExpenseTrackerDB>(DB_NAME, DB_VERSION, {
+    // ponytail: no automated migration test. If a user reports data loss on upgrade,
+    // write a test that opens an old-version DB fixture, runs the upgrade path,
+    // and asserts data survives. Classic IndexedDB footgun.
     async upgrade(db, oldVersion, _newVersion, transaction) {
       // ── Create stores if they don't exist yet ──
 

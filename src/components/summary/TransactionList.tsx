@@ -70,7 +70,7 @@ export function TransactionList() {
 
       {sortedTransactions.length === 0 ? (
         <p className="py-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
-          No transactions yet. Add one using the form above!
+          No transactions yet. Add one from the Summary page!
         </p>
       ) : (
         <div className="divide-y divide-zinc-100 dark:divide-zinc-700">

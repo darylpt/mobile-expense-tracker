@@ -125,6 +125,8 @@ export default function PayoutPage() {
     setSavingsSplit((prev) => ({ ...prev, [key]: parseFloat(val) || 0 }));
   };
 
+  // ponytail: does not block save on warnings. Change to block-save when payouts
+  // feed into downstream math (dashboard/reports) — until then, warn-only is fine.
   const handleSave = async () => {
     await addPayout({
       date: getToday(),

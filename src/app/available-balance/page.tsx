@@ -26,6 +26,9 @@ export default function AvailableBalancePage() {
   // ponytail: ephemeral state, resets on page reload for non-Cash accounts
   const [currentBalances, setCurrentBalances] = useState<Record<string, number>>({});
   const [cashUseDenominations, setCashUseDenominations] = useState(true);
+  // ponytail: toggling plain→denomination mode abandons the plain-number value
+  // (denomination grid re-mounts from IDB). Fix: write plain value back to IDB on toggle,
+  // or pass it as initial value to the denomination grid.
 
   const expectedRows = useMemo<ExpectedBalanceRow[]>(
     () => calculateExpectedBalances(transactions, accounts, dateCheck),
