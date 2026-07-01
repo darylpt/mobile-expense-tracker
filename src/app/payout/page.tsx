@@ -22,6 +22,7 @@ interface SplitRow {
   id: string;
   person: string;
   value: number;
+  subSplit: boolean;
 }
 
 interface SavingsSubSplit {
@@ -55,7 +56,7 @@ export default function PayoutPage() {
   const [totalAmount, setTotalAmount] = useState(0);
   const [splitMode, setSplitMode] = useState<'amount' | 'percentage'>('percentage');
   const [splits, setSplits] = useState<SplitRow[]>(() =>
-    DEFAULT_NAMES.map((name) => ({ id: crypto.randomUUID(), person: name, value: 0 }))
+    DEFAULT_NAMES.map((name) => ({ id: crypto.randomUUID(), person: name, value: 0, subSplit: false }))
   );
   const [savingsSplit, setSavingsSplit] = useState<SavingsSubSplit>({ ...DEFAULT_SAVINGS_SPLIT });
   const [savingsOpen, setSavingsOpen] = useState(true);
@@ -63,21 +64,17 @@ export default function PayoutPage() {
 
   // ── Derived ──────────────────────────────────────────────
 
-  const savingsRow = splits.find((s) => s.person.toLowerCase() === 'savings');
-
   const amounts = splits.map((s) =>
     splitMode === 'amount' ? s.value : totalAmount * (s.value / 100)
   );
   const allocated = amounts.reduce((a, b) => a + b, 0);
 
-  const savingsAmount = savingsRow ? amounts[splits.indexOf(savingsRow)] ?? 0 : 0;
-
-  const subSplitAmounts = {
-    emergencyPct: savingsAmount * (savingsSplit.emergencyPct / 100),
-    wantsPct: savingsAmount * (savingsSplit.wantsPct / 100),
-    investmentPct: savingsAmount * (savingsSplit.investmentPct / 100),
-    motorPct: savingsAmount * (savingsSplit.motorPct / 100),
-  };
+  const subSplitAmounts = (base: number) => ({
+    emergencyPct: base * (savingsSplit.emergencyPct / 100),
+    wantsPct: base * (savingsSplit.wantsPct / 100),
+    investmentPct: base * (savingsSplit.investmentPct / 100),
+    motorPct: base * (savingsSplit.motorPct / 100),
+  });
 
   // ── Validation ───────────────────────────────────────────
 
@@ -94,14 +91,14 @@ export default function PayoutPage() {
       );
     }
   }
-  if (savingsRow) {
+  if (splits.some((s) => s.subSplit)) {
     const sum =
       savingsSplit.emergencyPct +
       savingsSplit.wantsPct +
       savingsSplit.investmentPct +
       savingsSplit.motorPct;
     if (Math.abs(sum - 100) > 0.01) {
-      warnings.push(`Savings sub-split sums to ${sum.toFixed(1)}% — should be 100%`);
+      warnings.push(`Sub-split percentages sum to ${sum.toFixed(1)}% — should be 100%`);
     }
   }
 
@@ -118,7 +115,7 @@ export default function PayoutPage() {
   };
 
   const addSplit = () => {
-    setSplits((prev) => [...prev, { id: crypto.randomUUID(), person: '', value: 0 }]);
+    setSplits((prev) => [...prev, { id: crypto.randomUUID(), person: '', value: 0, subSplit: false }]);
   };
 
   const handleSubSplitChange = (key: keyof SavingsSubSplit, val: string) => {
@@ -133,7 +130,7 @@ export default function PayoutPage() {
       totalAmount,
       splitMode,
       splits: splits.map((s) => ({ person: s.person, value: s.value })),
-      savingsSubSplit: savingsRow ? { ...savingsSplit } : undefined,
+      savingsSubSplit: splits.some((s) => s.subSplit) ? { ...savingsSplit } : undefined,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
@@ -216,6 +213,26 @@ export default function PayoutPage() {
                       </div>
                       <button
                         type="button"
+                        onClick={() =>
+                          setSplits((prev) =>
+                            prev.map((s) => (s.id === split.id ? { ...s, subSplit: !s.subSplit } : s))
+                          )
+                        }
+                        className={`mb-1.5 flex h-9 w-9 items-center justify-center rounded-md transition-colors ${
+                          split.subSplit
+                            ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                            : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-300'
+                        }`}
+                        aria-label={split.subSplit ? 'Disable sub-split' : 'Enable sub-split'}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                          <path d="M3.196 12.87l-.825.483a.75.75 0 000 1.294l7.25 4.25a.75.75 0 00.758 0l7.25-4.25a.75.75 0 000-1.294l-.825-.484-5.666 3.322a2.25 2.25 0 01-2.276 0L3.196 12.87z" />
+                          <path d="M3.196 8.87l-.825.483a.75.75 0 000 1.294l7.25 4.25a.75.75 0 00.758 0l7.25-4.25a.75.75 0 000-1.294l-.825-.484-5.666 3.322a2.25 2.25 0 01-2.276 0L3.196 8.87z" />
+                          <path d="M10.38 1.103a.75.75 0 00-.76 0l-7.25 4.25a.75.75 0 000 1.294l7.25 4.25a.75.75 0 00.76 0l7.25-4.25a.75.75 0 000-1.294l-7.25-4.25z" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => removeSplit(split.id)}
                         className="mb-1.5 flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
                         aria-label={`Remove ${split.person || 'person'}`}
@@ -226,8 +243,8 @@ export default function PayoutPage() {
                       </button>
                     </div>
 
-                    {/* ── Savings Sub-Split ──────────────────── */}
-                    {split.person.toLowerCase() === 'savings' && (
+                    {/* ── Sub-Split (per-person toggle) ──────── */}
+                    {split.subSplit && (
                       <div className="border-t border-zinc-100 bg-zinc-50/50 px-4 pb-4 dark:border-zinc-700 dark:bg-zinc-900/30 sm:px-6">
                         <button
                           type="button"
@@ -266,9 +283,9 @@ export default function PayoutPage() {
                                       %
                                     </span>
                                   </div>
-                                  {savingsAmount > 0 && (
+                                  {amounts[idx] > 0 && (
                                     <p className="mt-0.5 text-xs text-zinc-400 tabular-nums">
-                                      {formatCurrency(subSplitAmounts[key])}
+                                      {formatCurrency(subSplitAmounts(amounts[idx])[key])}
                                     </p>
                                   )}
                                 </div>
@@ -347,7 +364,7 @@ export default function PayoutPage() {
                   <tbody>
                     {splits.map((split, idx) => {
                       const amount = amounts[idx] ?? 0;
-                      const isSavings = split.person.toLowerCase() === 'savings';
+                      const ssa = split.subSplit ? subSplitAmounts(amount) : null;
                       return (
                         <Fragment key={split.id}>
                           <tr className="border-b border-zinc-100 text-zinc-800 last:border-0 dark:border-zinc-800 dark:text-zinc-200">
@@ -358,8 +375,8 @@ export default function PayoutPage() {
                               {formatCurrency(amount)}
                             </td>
                           </tr>
-                          {/* Sub-split breakout for Savings */}
-                          {isSavings && savingsAmount > 0 && (
+                          {/* Sub-split breakout */}
+                          {ssa && amount > 0 && (
                             <>
                               {(Object.keys(LABELS) as (keyof SavingsSubSplit)[]).map((key) => (
                                 <tr
@@ -370,7 +387,7 @@ export default function PayoutPage() {
                                     └ {LABELS[key]}
                                   </td>
                                   <td className="py-1.5 px-2 text-right text-xs tabular-nums">
-                                    {formatCurrency(subSplitAmounts[key])}
+                                    {formatCurrency(ssa[key])}
                                   </td>
                                 </tr>
                               ))}

@@ -452,10 +452,10 @@ export function TransactionList() {
                   </span>
                   <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
                     {tx.type === 'income'
-                      ? `→ ${tx.toAccount ?? ''}`
+                      ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
                       : tx.type === 'expense'
-                        ? `${tx.fromAccount ?? ''} →`
-                        : `${tx.fromAccount ?? ''} → ${tx.toAccount ?? ''}`}
+                        ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
+                        : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
