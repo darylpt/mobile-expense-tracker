@@ -138,15 +138,36 @@ export function MonthlySummaryCard() {
         </Button>
       </div>
 
-      {/* Row 1: Summary Stats (1/3) | Accounts Table (2/3) */}
-      <div className="space-y-6 lg:grid lg:grid-cols-3 lg:gap-6 lg:space-y-0">
-        <div className="lg:col-span-1">
-          <SummaryStats summary={summary} />
-        </div>
-        <div className="lg:col-span-2">
-          <AccountsTable rows={accountBalances} />
-        </div>
+      {/* Row 1: Summary stats — compact metric cards, full width */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+        <StatCard
+          label="Income"
+          value={`+${formatCurrency(summary.totalIncome)}`}
+          sub={`${summary.incomeCount} ${summary.incomeCount === 1 ? 'entry' : 'entries'}`}
+          color="text-emerald-700 dark:text-emerald-400"
+        />
+        <StatCard
+          label="Expenses"
+          value={`-${formatCurrency(summary.totalExpenses)}`}
+          sub={`${summary.expenseCount} ${summary.expenseCount === 1 ? 'entry' : 'entries'}`}
+          color="text-red-700 dark:text-red-400"
+        />
+        <StatCard
+          label="Net"
+          value={`${summary.netBalance >= 0 ? '+' : ''}${formatCurrency(Math.abs(summary.netBalance))}`}
+          sub={`${summary.transferCount} transfer${summary.transferCount !== 1 ? 's' : ''}`}
+          color={summary.netBalance >= 0 ? 'text-blue-700 dark:text-blue-300' : 'text-red-700 dark:text-red-300'}
+        />
+        <StatCard
+          label="Transactions"
+          value={String(summary.incomeCount + summary.expenseCount + summary.transferCount)}
+          sub="this month"
+          color="text-zinc-700 dark:text-zinc-300"
+        />
       </div>
+
+      {/* Row 2: Accounts table — full width */}
+      <AccountsTable rows={accountBalances} />
 
       {/* Row 2: Income Breakdown (1/2) | Expenses Breakdown (1/2) */}
       <div className="space-y-6 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">
@@ -214,21 +235,23 @@ function LoadingSkeleton() {
   return (
     <div className="space-y-6">
       {/* Month nav skeleton */}
-      <div className="flex items-center justify-center gap-4">
+      <div className="flex items-center justify-start gap-4">
         <div className="h-8 w-8 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
         <div className="h-6 w-48 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
         <div className="h-8 w-8 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
       </div>
-      {/* Summary stats skeleton */}
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
-        <div className="h-5 w-20 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
-        <div className="mt-4 space-y-3">
-          <div className="h-14 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
-          <div className="h-14 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
-          <div className="h-14 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
-        </div>
+      {/* Metric card skeletons */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="h-20 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
+        ))}
       </div>
-      {[1, 2, 3].map((i) => (
+      {/* Accounts table skeleton */}
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
+        <div className="mb-4 h-6 w-24 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+        <div className="h-32 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
+      </div>
+      {[1, 2].map((i) => (
         <div
           key={i}
           className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6"
@@ -242,74 +265,22 @@ function LoadingSkeleton() {
 }
 
 // ============================================================
-// Summary stats (vertical rows)
+// Compact stat card (used in the metric row)
 // ============================================================
 
-interface SummaryStatsProps {
-  summary: {
-    totalIncome: number;
-    totalExpenses: number;
-    netBalance: number;
-    incomeCount: number;
-    expenseCount: number;
-    transferCount: number;
-  };
+interface StatCardProps {
+  label: string;
+  value: string;
+  sub: string;
+  color: string;
 }
 
-function SummaryStats({ summary }: SummaryStatsProps) {
+function StatCard({ label, value, sub, color }: StatCardProps) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
-      <h2 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">
-        Summary
-        <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-normal text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400">
-          {summary.incomeCount + summary.expenseCount + summary.transferCount}
-        </span>
-      </h2>
-      <div className="flex flex-col gap-3">
-        {/* Income Row */}
-        <div className="flex items-center justify-between border-b border-zinc-100 pb-3 dark:border-zinc-700">
-          <div>
-            <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Income</p>
-            <p className="text-xs text-zinc-400">{summary.incomeCount} {summary.incomeCount === 1 ? 'entry' : 'entries'}</p>
-          </div>
-          <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
-            {formatCurrency(summary.totalIncome)}
-          </p>
-        </div>
-
-        {/* Expenses Row */}
-        <div className="flex items-center justify-between border-b border-zinc-100 pb-3 dark:border-zinc-700">
-          <div>
-            <p className="text-xs font-medium text-red-600 dark:text-red-400">Expenses</p>
-            <p className="text-xs text-zinc-400">{summary.expenseCount} {summary.expenseCount === 1 ? 'entry' : 'entries'}</p>
-          </div>
-          <p className="text-lg font-bold text-red-700 dark:text-red-300 tabular-nums">
-            {formatCurrency(summary.totalExpenses)}
-          </p>
-        </div>
-
-        {/* Net Row */}
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs font-medium text-blue-600 dark:text-blue-400">Net</p>
-            <p className="text-xs text-zinc-400">
-              {summary.transferCount > 0
-                ? `${summary.transferCount} transfer${summary.transferCount > 1 ? 's' : ''}`
-                : 'No transfers'}
-            </p>
-          </div>
-          <p
-            className={`text-lg font-bold tabular-nums ${
-              summary.netBalance >= 0
-                ? 'text-blue-700 dark:text-blue-300'
-                : 'text-red-700 dark:text-red-300'
-            }`}
-          >
-            {formatCurrency(summary.netBalance)}
-          </p>
-        </div>
-      </div>
-
+    <div className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{label}</p>
+      <p className={`mt-1 text-base font-semibold tabular-nums ${color}`}>{value}</p>
+      <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">{sub}</p>
     </div>
   );
 }
