@@ -159,8 +159,7 @@ export default function AvailableBalancePage() {
                             : 'text-red-700 dark:text-red-400'
                         }`}
                       >
-                        {difference >= 0 ? '+' : ''}
-                        {formatCurrency(difference)}
+                        {formatCurrency(Math.abs(difference))}
                       </td>
                     </tr>
                   );

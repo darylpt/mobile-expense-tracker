@@ -142,19 +142,19 @@ export function MonthlySummaryCard() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <StatCard
           label="Income"
-          value={`+${formatCurrency(summary.totalIncome)}`}
+          value={formatCurrency(summary.totalIncome)}
           sub={`${summary.incomeCount} ${summary.incomeCount === 1 ? 'entry' : 'entries'}`}
           color="text-emerald-700 dark:text-emerald-400"
         />
         <StatCard
           label="Expenses"
-          value={`-${formatCurrency(summary.totalExpenses)}`}
+          value={formatCurrency(summary.totalExpenses)}
           sub={`${summary.expenseCount} ${summary.expenseCount === 1 ? 'entry' : 'entries'}`}
           color="text-red-700 dark:text-red-400"
         />
         <StatCard
           label="Net"
-          value={`${summary.netBalance >= 0 ? '+' : ''}${formatCurrency(Math.abs(summary.netBalance))}`}
+          value={formatCurrency(Math.abs(summary.netBalance))}
           sub={`${summary.transferCount} transfer${summary.transferCount !== 1 ? 's' : ''}`}
           color={summary.netBalance >= 0 ? 'text-blue-700 dark:text-blue-300' : 'text-red-700 dark:text-red-300'}
         />
@@ -484,8 +484,7 @@ function ExpenseBreakdownTable({ rows }: { rows: ExpenseRow[] }) {
                         : 'text-red-700 dark:text-red-400'
                     }`}
                   >
-                    {row.difference >= 0 ? '+' : ''}
-                    {formatCurrency(row.difference)}
+                    {formatCurrency(Math.abs(row.difference))}
                   </td>
                   <td className="py-2 pl-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">
                     {row.percentage.toFixed(1)}%

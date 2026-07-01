@@ -272,11 +272,11 @@ export function TransactionList() {
       {/* Desktop summary stats — 4 metric cards                           */}
       {/* ================================================================ */}
       <div className="hidden lg:grid lg:grid-cols-4 lg:gap-4 lg:mb-4">
-        <StatCard label="Income" value={`+${formatCurrency(summaryStats.income)}`} color="text-emerald-700 dark:text-emerald-400" />
-        <StatCard label="Expenses" value={`-${formatCurrency(summaryStats.expenses)}`} color="text-red-700 dark:text-red-400" />
+        <StatCard label="Income" value={formatCurrency(summaryStats.income)} color="text-emerald-700 dark:text-emerald-400" />
+        <StatCard label="Expenses" value={formatCurrency(summaryStats.expenses)} color="text-red-700 dark:text-red-400" />
         <StatCard
           label="Net"
-          value={`${summaryStats.net >= 0 ? '+' : ''}${formatCurrency(Math.abs(summaryStats.net))}`}
+          value={formatCurrency(Math.abs(summaryStats.net))}
           color={summaryStats.net >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}
         />
         <StatCard label="Transfers" value={formatCurrency(summaryStats.transfers)} color="text-zinc-700 dark:text-zinc-300" />
@@ -514,7 +514,7 @@ export function TransactionList() {
                         tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
                         'text-blue-700 dark:text-blue-400'
                       }`}>
-                        {tx.type === 'expense' ? '-' : '+'}{formatCurrency(tx.amount)}
+                        {formatCurrency(tx.amount)}
                       </span>
                       <div className="relative">
                         <button onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
@@ -605,7 +605,7 @@ export function TransactionList() {
                     tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
                     'text-zinc-700 dark:text-zinc-300'
                   }`}>
-                    {tx.type === 'expense' ? '-' : '+'}{formatCurrency(tx.amount)}
+                    {formatCurrency(tx.amount)}
                   </td>
                   <td className="whitespace-nowrap py-2.5 pl-4 text-right">
                     <button
