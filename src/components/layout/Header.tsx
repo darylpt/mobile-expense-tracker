@@ -8,7 +8,7 @@
 
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -21,6 +21,15 @@ interface HeaderProps {
 
 export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderProps) {
   const pathname = usePathname();
+
+  // ponytail: localStorage for tab preferences — simple, no schema, no IndexedDB migration
+  const [tabPrefs, setTabPrefs] = useState({ showBalances: true, showPayout: true });
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('tab_prefs');
+      if (stored) setTabPrefs((prev) => ({ ...prev, ...JSON.parse(stored) }));
+    } catch { /* ignore corrupt data */ }
+  }, []);
 
   return (
     <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur-md dark:border-zinc-700 dark:bg-zinc-900/80">
@@ -41,15 +50,19 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
           <TabLink href="/" active={pathname === '/'}>
             Summary
           </TabLink>
-          <TabLink href="/available-balance" active={pathname === '/available-balance'}>
-            Balances
-          </TabLink>
           <TabLink href="/transactions" active={pathname === '/transactions'}>
             Transactions
           </TabLink>
-          <TabLink href="/payout" active={pathname === '/payout'}>
-            Payout
-          </TabLink>
+          {tabPrefs.showBalances && (
+            <TabLink href="/available-balance" active={pathname === '/available-balance'}>
+              Balances
+            </TabLink>
+          )}
+          {tabPrefs.showPayout && (
+            <TabLink href="/payout" active={pathname === '/payout'}>
+              Payout
+            </TabLink>
+          )}
           <TabLink href="/settings" active={pathname === '/settings'}>
             Settings
           </TabLink>

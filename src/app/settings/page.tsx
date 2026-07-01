@@ -7,7 +7,7 @@
 
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -42,19 +42,23 @@ export default function SettingsPage() {
         {accountsLoading || categoriesLoading ? (
           <LoadingSkeleton />
         ) : (
-          <div className="space-y-6 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">
-            <AccountsSection
-              accounts={accounts}
-              onAdd={addAccount}
-              onUpdate={updateAccount}
-              onDelete={deleteAccount}
-            />
-            <CategoriesSection
-              categories={categories}
-              onAdd={addCategory}
-              onUpdate={updateCategory}
-              onDelete={deleteCategory}
-            />
+          <div className="space-y-6">
+            <TabVisibilitySection />
+
+            <div className="lg:grid lg:grid-cols-2 lg:gap-6">
+              <AccountsSection
+                accounts={accounts}
+                onAdd={addAccount}
+                onUpdate={updateAccount}
+                onDelete={deleteAccount}
+              />
+              <CategoriesSection
+                categories={categories}
+                onAdd={addCategory}
+                onUpdate={updateCategory}
+                onDelete={deleteCategory}
+              />
+            </div>
           </div>
         )}
       </main>
@@ -520,6 +524,78 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete }: Categories
 }
 
 // ============================================================
+// Tab visibility preferences
+
+function TabVisibilitySection() {
+  const [prefs, setPrefs] = useState({ showBalances: true, showPayout: true });
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('tab_prefs');
+      if (stored) setPrefs((prev) => ({ ...prev, ...JSON.parse(stored) }));
+    } catch { /* ignore */ }
+  }, []);
+
+  const toggle = (key: string) => {
+    const next = { ...prefs, [key]: !(prefs as Record<string, boolean>)[key] };
+    setPrefs(next);
+    localStorage.setItem('tab_prefs', JSON.stringify(next));
+  };
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
+      <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+        Tab Visibility
+      </h2>
+      <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+        Show or hide optional tabs in the navigation bar.
+      </p>
+      <div className="flex flex-col gap-3">
+        <ToggleRow
+          label="Balances"
+          checked={prefs.showBalances}
+          onChange={() => toggle('showBalances')}
+        />
+        <ToggleRow
+          label="Payout"
+          checked={prefs.showPayout}
+          onChange={() => toggle('showPayout')}
+        />
+      </div>
+    </section>
+  );
+}
+
+function ToggleRow({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between">
+      <span className="text-sm text-zinc-700 dark:text-zinc-300">{label}</span>
+      <button
+        role="switch"
+        aria-checked={checked}
+        onClick={onChange}
+        className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors ${
+          checked ? 'bg-blue-600' : 'bg-zinc-300 dark:bg-zinc-600'
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+            checked ? 'translate-x-4' : 'translate-x-0'
+          }`}
+        />
+      </button>
+    </label>
+  );
+}
+
 // Loading skeleton
 // ============================================================
 
