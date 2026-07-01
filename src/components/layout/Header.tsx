@@ -23,12 +23,18 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
   const pathname = usePathname();
 
   // ponytail: localStorage for tab preferences — simple, no schema, no IndexedDB migration
+  // Listens for `storage` event so same-page toggles in Settings take effect immediately
   const [tabPrefs, setTabPrefs] = useState({ showBalances: true, showPayout: true });
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('tab_prefs');
-      if (stored) setTabPrefs((prev) => ({ ...prev, ...JSON.parse(stored) }));
-    } catch { /* ignore corrupt data */ }
+    const read = () => {
+      try {
+        const stored = localStorage.getItem('tab_prefs');
+        if (stored) setTabPrefs(JSON.parse(stored));
+      } catch { /* ignore corrupt data */ }
+    };
+    read();
+    window.addEventListener('storage', read);
+    return () => window.removeEventListener('storage', read);
   }, []);
 
   return (

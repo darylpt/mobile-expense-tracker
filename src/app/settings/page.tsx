@@ -540,6 +540,7 @@ function TabVisibilitySection() {
     const next = { ...prefs, [key]: !(prefs as Record<string, boolean>)[key] };
     setPrefs(next);
     localStorage.setItem('tab_prefs', JSON.stringify(next));
+    window.dispatchEvent(new Event('storage'));
   };
 
   return (
