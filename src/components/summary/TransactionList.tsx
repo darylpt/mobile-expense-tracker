@@ -9,7 +9,7 @@
 import React, { useState, useMemo } from 'react';
 import { useTransactionContext } from '@/context/TransactionContext';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { formatCurrency, formatDate, formatMonthYear, getPreviousMonthYear, getNextMonthYear, getCurrentMonthYear } from '@/lib/utils';
+import { formatCurrency, formatMonthYear, getPreviousMonthYear, getNextMonthYear, getCurrentMonthYear } from '@/lib/utils';
 import { Button } from '@/components/common/Button';
 import { EditTransactionModal } from '@/components/forms/EditTransactionModal';
 import type { Transaction, TransactionType } from '@/types';
@@ -21,7 +21,7 @@ export function TransactionList() {
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
-  const editButtonRef = React.useRef<HTMLButtonElement | null>(null);
+  const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
   // ==================================================================
@@ -160,18 +160,9 @@ export function TransactionList() {
     }
   };
 
-  const handleEdit = (tx: Transaction, buttonEl: HTMLButtonElement) => {
-    editButtonRef.current = buttonEl;
+  const handleEdit = (tx: Transaction) => {
     setEditingTx(tx);
   };
-
-  // Restore focus to the Edit button when the modal closes
-  React.useEffect(() => {
-    if (!editingTx && editButtonRef.current) {
-      editButtonRef.current.focus();
-      editButtonRef.current = null;
-    }
-  }, [editingTx]);
 
   // ==================================================================
   // Type chip config
@@ -431,11 +422,11 @@ export function TransactionList() {
           {filteredTransactions.map((tx) => (
             <div
               key={tx.id}
-              className="flex items-center gap-3 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
+              className="flex items-start gap-3 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
             >
               {/* Type indicator dot */}
               <span
-                className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
+                className={`mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
                   tx.type === 'income'
                     ? 'bg-emerald-500'
                     : tx.type === 'expense'
@@ -444,79 +435,78 @@ export function TransactionList() {
                 }`}
               />
 
-              {/* Details */}
+              {/* Main content */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                {/* Line 1: category + amount */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
                     {tx.category}
                   </span>
-                  <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
-                    {tx.type === 'income'
-                      ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
-                      : tx.type === 'expense'
-                        ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
-                        : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                  <span>{formatDate(tx.date)}</span>
-                  {tx.description && (
-                    <>
-                      <span>·</span>
-                      <span className="truncate">{tx.description}</span>
-                    </>
-                  )}
-                </div>
-              </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span
+                      className={`text-sm font-semibold tabular-nums ${
+                        tx.type === 'income'
+                          ? 'text-emerald-700 dark:text-emerald-400'
+                          : tx.type === 'expense'
+                            ? 'text-red-700 dark:text-red-400'
+                            : 'text-blue-700 dark:text-blue-400'
+                      }`}
+                    >
+                      {tx.type === 'expense' ? '-' : '+'}
+                      {formatCurrency(tx.amount)}
+                    </span>
 
-              {/* Amount + edit + delete */}
-              <div className="flex items-center gap-2">
-                <span
-                  className={`text-sm font-semibold ${
-                    tx.type === 'income'
-                      ? 'text-emerald-700 dark:text-emerald-400'
-                      : tx.type === 'expense'
-                        ? 'text-red-700 dark:text-red-400'
-                        : 'text-blue-700 dark:text-blue-400'
-                  }`}
-                >
-                  {tx.type === 'expense' ? '-' : '+'}
-                  {formatCurrency(tx.amount)}
-                </span>
-                {/* Edit button */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={(e) => handleEdit(tx, e.currentTarget)}
-                  aria-label="Edit transaction"
-                  className="text-zinc-400 hover:text-blue-600 dark:text-zinc-500 dark:hover:text-blue-400"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                    />
-                  </svg>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  isLoading={deletingId === tx.id}
-                  onClick={() => handleDelete(tx.id)}
-                  aria-label="Delete transaction"
-                  className="text-zinc-400 hover:text-red-600 dark:text-zinc-500 dark:hover:text-red-400"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </Button>
+                    {/* Three-dot action menu */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
+                        className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+                        aria-label="Transaction actions"
+                      >
+                        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                        </svg>
+                      </button>
+                      {actionMenuId === tx.id && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setActionMenuId(null)} />
+                          <div className="absolute right-0 top-full z-20 mt-1 w-32 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-600 dark:bg-zinc-800">
+                            <button
+                              onClick={() => { setActionMenuId(null); handleEdit(tx); }}
+                              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => { setActionMenuId(null); handleDelete(tx.id); }}
+                              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-700"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Line 2: account flow + date */}
+                <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  {tx.type === 'income'
+                    ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
+                    : tx.type === 'expense'
+                      ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
+                      : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
+                  <span className="mx-1">·</span>
+                  {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </div>
+
+                {/* Line 3: description (optional, truncated only here) */}
+                {tx.description && (
+                  <div className="mt-0.5 truncate text-xs text-zinc-400 dark:text-zinc-500">
+                    {tx.description}
+                  </div>
+                )}
               </div>
             </div>
           ))}
