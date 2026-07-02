@@ -7,13 +7,13 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useCategories } from '@/hooks/useCategories';
-import { getAllTransactions } from '@/lib/idb';
+import { getAllTransactions, exportAllData, importAllData, transactionsToCsv } from '@/lib/idb';
 import { formatCurrency } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
 
@@ -44,6 +44,7 @@ export default function SettingsPage() {
         ) : (
           <div className="space-y-6">
             <TabVisibilitySection />
+            <BackupSection />
 
             <div className="lg:grid lg:grid-cols-2 lg:gap-6">
               <AccountsSection
@@ -593,6 +594,105 @@ function ToggleRow({
         />
       </button>
     </label>
+  );
+}
+
+// ============================================================
+// Backup / Restore
+// ============================================================
+
+function BackupSection() {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const handleExport = async () => {
+    try {
+      const backup = await exportAllData();
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `expense-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setMsg('Export downloaded.');
+    } catch {
+      setMsg('Export failed.');
+    }
+  };
+
+  const handleExportCsv = async () => {
+    try {
+      const { getAllTransactions } = await import('@/lib/idb');
+      const txs = await getAllTransactions();
+      const csv = transactionsToCsv(txs);
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `expense-tracker-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setMsg('CSV downloaded.');
+    } catch {
+      setMsg('CSV export failed.');
+    }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!window.confirm('Import will REPLACE all current data. Are you sure?')) {
+      e.target.value = '';
+      return;
+    }
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text) as Parameters<typeof importAllData>[0];
+      if (!backup.version || !backup.data) throw new Error('Invalid backup file');
+      await importAllData(backup);
+      setMsg('Data imported. Reload the page to see changes.');
+    } catch {
+      setMsg('Import failed — check file format.');
+    }
+    e.target.value = '';
+  };
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
+      <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+        Backup &amp; Restore
+      </h2>
+      <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+        Export all data as JSON, or import from a previous backup. All data lives
+        in your browser — there is no cloud sync.
+      </p>
+
+      <div className="flex flex-wrap gap-3">
+        <Button variant="secondary" size="sm" onClick={handleExport}>
+          Export All (JSON)
+        </Button>
+        <Button variant="secondary" size="sm" onClick={handleExportCsv}>
+          Export Transactions (CSV)
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()}>
+          Import from file…
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".json"
+          onChange={handleImport}
+          className="hidden"
+        />
+      </div>
+
+      {msg && (
+        <p role="status" aria-live="polite" className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
+          {msg}
+        </p>
+      )}
+    </section>
   );
 }
 

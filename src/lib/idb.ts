@@ -488,6 +488,100 @@ export async function getAllBudgetTargets(): Promise<BudgetTarget[]> {
 }
 
 // ============================================================
+// Export / Import
+// ============================================================
+
+/** Shape of a full backup JSON. */
+export interface BackupData {
+  version: 1;
+  exportedAt: string;
+  data: {
+    transactions: Transaction[];
+    accounts: Account[];
+    categories: Category[];
+    cashDenominations: CashDenomination[];
+    payouts: Payout[];
+    budgetTargets: BudgetTarget[];
+  };
+}
+
+const ALL_STORES = [
+  STORES.TRANSACTIONS,
+  STORES.ACCOUNTS,
+  STORES.CATEGORIES,
+  STORES.CASH_DENOMINATIONS,
+  STORES.PAYOUTS,
+  STORES.BUDGET_TARGETS,
+] as const;
+
+/**
+ * Export every store as a portable JSON blob you can save to disk.
+ * Each store gets a full read — no pagination needed (local-only, small data).
+ */
+export async function exportAllData(): Promise<BackupData> {
+  const db = await getDB();
+  const tx = db.transaction(ALL_STORES, 'readonly');
+  const [transactions, accounts, categories, cashDenominations, payouts, budgetTargets] =
+    await Promise.all([
+      tx.objectStore(STORES.TRANSACTIONS).getAll(),
+      tx.objectStore(STORES.ACCOUNTS).getAll(),
+      tx.objectStore(STORES.CATEGORIES).getAll(),
+      tx.objectStore(STORES.CASH_DENOMINATIONS).getAll(),
+      tx.objectStore(STORES.PAYOUTS).getAll(),
+      tx.objectStore(STORES.BUDGET_TARGETS).getAll(),
+    ]);
+  await tx.done;
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    data: { transactions, accounts, categories, cashDenominations, payouts, budgetTargets },
+  };
+}
+
+/**
+ * Import a full backup — clears each store then bulk-adds the supplied records.
+ * Runs inside a single readwrite transaction so it's atomic.
+ */
+export async function importAllData(backup: BackupData): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction(ALL_STORES, 'readwrite');
+  const stores = {
+    [STORES.TRANSACTIONS]: tx.objectStore(STORES.TRANSACTIONS),
+    [STORES.ACCOUNTS]: tx.objectStore(STORES.ACCOUNTS),
+    [STORES.CATEGORIES]: tx.objectStore(STORES.CATEGORIES),
+    [STORES.CASH_DENOMINATIONS]: tx.objectStore(STORES.CASH_DENOMINATIONS),
+    [STORES.PAYOUTS]: tx.objectStore(STORES.PAYOUTS),
+    [STORES.BUDGET_TARGETS]: tx.objectStore(STORES.BUDGET_TARGETS),
+  };
+  // Clear each store
+  for (const s of Object.values(stores)) await s.clear();
+  // Bulk-add
+  for (const record of backup.data.transactions) await stores[STORES.TRANSACTIONS].add(record);
+  for (const record of backup.data.accounts) await stores[STORES.ACCOUNTS].add(record);
+  for (const record of backup.data.categories) await stores[STORES.CATEGORIES].add(record);
+  for (const record of backup.data.cashDenominations) await stores[STORES.CASH_DENOMINATIONS].add(record);
+  for (const record of backup.data.payouts) await stores[STORES.PAYOUTS].add(record);
+  for (const record of backup.data.budgetTargets) await stores[STORES.BUDGET_TARGETS].add(record);
+  await tx.done;
+}
+
+/**
+ * Export transactions as CSV (RFC 4180-ish) for spreadsheet import.
+ * Columns: id, date, type, category, fromAccount, toAccount, amount, description, createdAt, updatedAt
+ */
+export function transactionsToCsv(txs: Transaction[]): string {
+  const header = 'id,date,type,category,fromAccount,toAccount,amount,description,createdAt,updatedAt';
+  const escape = (v: unknown): string => {
+    const s = String(v ?? '');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const rows = txs.map((tx) =>
+    [tx.id, tx.date, tx.type, escape(tx.category), tx.fromAccount ?? '', tx.toAccount ?? '', tx.amount, escape(tx.description ?? ''), tx.createdAt, tx.updatedAt].join(',')
+  );
+  return [header, ...rows].join('\n');
+}
+
+// ============================================================
 // Seeding
 // ============================================================
 
