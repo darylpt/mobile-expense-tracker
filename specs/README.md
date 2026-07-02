@@ -15,6 +15,8 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | Summary card layout restructure | ✅ Done | Month nav pulled out to full-width above cards. Stats converted from 3-column grid to vertical list. Total count in pill badge. |
 | Budget targets seed data | ✅ Done | `DEFAULT_BUDGET_TARGETS` in constants, seeded via `seedTransactionsIfEmpty` on fresh install/v3→v4 upgrade. |
 | Transactions tab | ✅ Done | `/transactions` route created, tab added to Header nav, removed from dashboard. |
+| SonarQube code quality fixes | ✅ Done | 0 ESLint errors, 0 TS errors, 42/42 tests passing. |
+| [`backup-restore.md`](./backup-restore.md) | ✅ Done | JSON export/import of all 6 stores + CSV transaction export. Settings UI. |
 | Subcategory support | ⚪ Not yet scoped | Phase 1.5, lowest priority. |
 | `phase-2-investments.md` | 🔵 Deferred | Stock Portfolio Tracker, Dividend Log, DCA Rotation Log. Out of scope until Phase 1.5 wraps. |
 
