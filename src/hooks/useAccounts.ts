@@ -23,6 +23,19 @@ export function useAccounts() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let mounted = true;
+    getAllAccounts()
+      .then((data) => { if (mounted) setAccounts(data); })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : 'Failed to load accounts';
+        if (mounted) setError(message);
+        console.error('[useAccounts] Error loading accounts:', err);
+      })
+      .finally(() => { if (mounted) setIsLoading(false); });
+    return () => { mounted = false; };
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
       setError(null);
@@ -32,14 +45,8 @@ export function useAccounts() {
       const message = err instanceof Error ? err.message : 'Failed to load accounts';
       setError(message);
       console.error('[useAccounts] Error loading accounts:', err);
-    } finally {
-      setIsLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
 
   const addAccount = useCallback(async (account: Omit<Account, 'id'>): Promise<string> => {
     const id = generateId();
@@ -53,7 +60,7 @@ export function useAccounts() {
       setError(message);
       throw new Error(message);
     }
-  }, [refresh, ctx.refreshTransactions]);
+  }, [refresh, ctx]);
 
   const updateAccount = useCallback(async (account: Account): Promise<void> => {
     try {
@@ -65,7 +72,7 @@ export function useAccounts() {
       setError(message);
       throw new Error(message);
     }
-  }, [refresh, ctx.refreshTransactions]);
+  }, [refresh, ctx]);
 
   const deleteAccount = useCallback(async (id: string): Promise<void> => {
     try {
@@ -77,7 +84,7 @@ export function useAccounts() {
       setError(message);
       throw new Error(message);
     }
-  }, [refresh, ctx.refreshTransactions]);
+  }, [refresh, ctx]);
 
   return {
     accounts,

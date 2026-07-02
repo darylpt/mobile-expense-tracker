@@ -7,7 +7,7 @@
 
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -527,14 +527,13 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete }: Categories
 // Tab visibility preferences
 
 function TabVisibilitySection() {
-  const [prefs, setPrefs] = useState({ showBalances: true, showPayout: true });
-
-  useEffect(() => {
+  const [prefs, setPrefs] = useState(() => {
     try {
       const stored = localStorage.getItem('tab_prefs');
-      if (stored) setPrefs((prev) => ({ ...prev, ...JSON.parse(stored) }));
+      if (stored) return { showBalances: true, showPayout: true, ...JSON.parse(stored) };
     } catch { /* ignore */ }
-  }, []);
+    return { showBalances: true, showPayout: true };
+  });
 
   const toggle = (key: string) => {
     const next = { ...prefs, [key]: !(prefs as Record<string, boolean>)[key] };

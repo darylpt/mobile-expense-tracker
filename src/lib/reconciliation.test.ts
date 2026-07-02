@@ -4,7 +4,7 @@
 
 import { calculateExpectedBalances } from './reconciliation';
 import { tx } from './test-utils';
-import type { Account } from '@/types';
+import type { Account, Transaction } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Fixtures

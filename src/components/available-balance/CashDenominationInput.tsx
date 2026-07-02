@@ -32,7 +32,9 @@ export function CashDenominationInput({ date, onTotalChange }: CashDenominationI
 
   // ponytail: ref keeps the callback fresh without triggering effect re-runs
   const onTotalChangeRef = useRef(onTotalChange);
-  onTotalChangeRef.current = onTotalChange;
+  useEffect(() => {
+    onTotalChangeRef.current = onTotalChange;
+  }, [onTotalChange]);
 
   // Load existing denominations for this date on mount / date change
   useEffect(() => {
@@ -43,7 +45,7 @@ export function CashDenominationInput({ date, onTotalChange }: CashDenominationI
       for (const r of filtered) {
         loaded[r.denomination] = r.count;
       }
-      setCounts((prev) => ({ ...loaded }));
+      setCounts({ ...loaded });
     });
   }, [date]);
 

@@ -86,12 +86,12 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
   }, []);
 
   useEffect(() => {
-    const init = async () => {
-      await seedTransactionsIfEmpty();
-      await refreshTransactions();
-    };
-    init();
-  }, [refreshTransactions]);
+    seedTransactionsIfEmpty()
+      .then(() => refreshTransactions())
+      .catch(() => { /* seed failure handled by refresh fallthrough */ });
+    // refreshTransactions intentionally excluded — stable callback, first mount only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Add a transaction
   const addTransaction = useCallback(

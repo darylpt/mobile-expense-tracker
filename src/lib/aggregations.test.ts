@@ -8,7 +8,7 @@ import {
   calculateExpenseBreakdown,
 } from './aggregations';
 import { tx } from './test-utils';
-import type { Account, MonthYear } from '@/types';
+import type { Account, MonthYear, Transaction } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -23,7 +23,6 @@ const ACCOUNTS: Account[] = [
 ];
 
 const JUNE_2026: MonthYear = { month: 5, year: 2026 };
-const MAY_2026: MonthYear = { month: 4, year: 2026 };
 
 // ---------------------------------------------------------------------------
 // calculateAccountBalances

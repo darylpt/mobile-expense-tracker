@@ -33,34 +33,23 @@ export function EditTransactionModal({ transaction, onClose }: EditTransactionMo
   const { categories } = useCategories();
   const { accounts } = useAccounts();
 
-  const [form, setForm] = useState<FormState>({
-    amount: '',
-    date: '',
-    type: 'expense',
-    category: '',
-    fromAccount: '',
-    toAccount: '',
-    description: '',
+  // Derive form state from transaction directly — no useEffect sync needed
+  const initForm = (tx: Transaction): FormState => ({
+    amount: String(tx.amount),
+    date: tx.date,
+    type: tx.type,
+    category: tx.category,
+    fromAccount: tx.fromAccount ?? '',
+    toAccount: tx.toAccount ?? '',
+    description: tx.description ?? '',
+  });
+
+  const [form, setForm] = useState<FormState>(() => transaction ? initForm(transaction) : {
+    amount: '', date: '', type: 'expense', category: '', fromAccount: '', toAccount: '', description: '',
   });
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
-
-  // Initialise form state from the transaction when it's provided
-  useEffect(() => {
-    if (transaction) {
-      setForm({
-        amount: String(transaction.amount),
-        date: transaction.date,
-        type: transaction.type,
-        category: transaction.category,
-        fromAccount: transaction.fromAccount ?? '',
-        toAccount: transaction.toAccount ?? '',
-        description: transaction.description ?? '',
-      });
-      setError(null);
-    }
-  }, [transaction]);
 
   // Focus trap + Escape key handler
   useEffect(() => {
@@ -174,6 +163,7 @@ export function EditTransactionModal({ transaction, onClose }: EditTransactionMo
 
   return createPortal(
     <div
+      key={transaction.id}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={handleBackdropClick}
     >

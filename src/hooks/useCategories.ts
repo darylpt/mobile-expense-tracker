@@ -20,6 +20,19 @@ export function useCategories() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let mounted = true;
+    getAllCategories()
+      .then((data) => { if (mounted) setCategories(data); })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : 'Failed to load categories';
+        if (mounted) setError(message);
+        console.error('[useCategories] Error loading categories:', err);
+      })
+      .finally(() => { if (mounted) setIsLoading(false); });
+    return () => { mounted = false; };
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
       setError(null);
@@ -29,14 +42,8 @@ export function useCategories() {
       const message = err instanceof Error ? err.message : 'Failed to load categories';
       setError(message);
       console.error('[useCategories] Error loading categories:', err);
-    } finally {
-      setIsLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
 
   /** Get categories filtered by transaction type */
   const getCategoriesByType = useCallback(

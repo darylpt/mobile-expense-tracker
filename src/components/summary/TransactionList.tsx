@@ -62,7 +62,7 @@ export function TransactionList() {
 
   // Current month displayed in the month selector
   const displayMonthYear = useMemo(() => {
-    const monthParam = getMonthParam();
+    const monthParam = searchParams.get('month');
     if (monthParam) {
       const [yearStr, monthStr] = monthParam.split('-');
       return { year: parseInt(yearStr, 10), month: parseInt(monthStr, 10) - 1 };
@@ -110,7 +110,7 @@ export function TransactionList() {
     let result = ctx.transactions;
 
     // Month filter
-    const monthParam = getMonthParam();
+    const monthParam = searchParams.get('month');
     if (monthParam) {
       const [yearStr, monthStr] = monthParam.split('-');
       const year = parseInt(yearStr, 10);
@@ -122,13 +122,14 @@ export function TransactionList() {
     }
 
     // Type filter
-    const selectedTypes = getTypeParam();
+    const typeRaw = searchParams.get('type');
+    const selectedTypes = typeRaw ? (typeRaw.split(',').filter(Boolean) as TransactionType[]) : ['income', 'expense', 'transaction'];
     if (selectedTypes.length < 3) {
       result = result.filter(tx => selectedTypes.includes(tx.type));
     }
 
     // Account filter
-    const accountParam = getAccountParam();
+    const accountParam = searchParams.get('account');
     if (accountParam) {
       const selectedAccounts = accountParam.split(',');
       result = result.filter(tx =>
@@ -138,13 +139,13 @@ export function TransactionList() {
     }
 
     // Category filter
-    const catParam = getCatParam();
+    const catParam = searchParams.get('cat');
     if (catParam) {
       result = result.filter(tx => tx.category === catParam);
     }
 
     // Search text filter
-    const qParam = getQParam();
+    const qParam = searchParams.get('q');
     if (qParam) {
       const lower = qParam.toLowerCase();
       result = result.filter(tx =>

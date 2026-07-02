@@ -15,7 +15,7 @@ import {
   getAllBudgetTargets,
   getDB,
 } from './idb';
-import type { BudgetTarget } from '@/types';
+// ponytail: BudgetTarget type import ready for future test assertions
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -125,7 +125,7 @@ export default function AvailableBalancePage() {
                               <input
                                 type="number"
                                 step="any"
-                                value={current || ''}
+                                value={current.toString()}
                                 placeholder="0"
                                 onChange={(e) => handleCurrentChange(row.accountId, e.target.value)}
                                 className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-right text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
