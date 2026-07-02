@@ -16,6 +16,7 @@ import {
   deleteTransaction as deleteTransactionFromDB,
   seedTransactionsIfEmpty,
 } from '@/lib/idb';
+import { backgroundSync } from '@/lib/sync';
 import { getCurrentMonthYear } from '@/lib/utils';
 
 // ============================================================
@@ -90,6 +91,24 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
       .then(() => refreshTransactions())
       .catch(() => { /* seed failure handled by refresh fallthrough */ });
     // refreshTransactions intentionally excluded — stable callback, first mount only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Background sync: push local changes + pull remote data on mount
+  // Also listen for online/offline transitions
+  useEffect(() => {
+    if (navigator.onLine) {
+      backgroundSync().then(() => refreshTransactions());
+    }
+
+    const handleOnline = () => {
+      backgroundSync().then(() => refreshTransactions());
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+    // ponytail: single shot on mount + online events. No periodic polling.
+    // Add setInterval polling if real-time sync becomes critical.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

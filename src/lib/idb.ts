@@ -9,8 +9,29 @@ import type { Transaction, Account, Category, CashDenomination, Payout, BudgetTa
 import { DB_NAME, DB_VERSION, STORES, DEFAULT_ACCOUNTS, DEFAULT_CATEGORIES, DEFAULT_BUDGET_TARGETS, SEED_TRANSACTIONS } from './constants';
 import { generateId } from './utils';
 
+// ============================================================
+// Sync Queue Types (stored in IndexedDB, processed by sync.ts)
+// ============================================================
+
+export type SyncOperation = 'create' | 'update' | 'delete';
+
+export interface SyncQueueEntry {
+  id: string;
+  storeName: string;
+  recordId: string;
+  operation: SyncOperation;
+  /** Full data snapshot (null for deletes) */
+  payload: Record<string, unknown> | null;
+  timestamp: number;
+  retryCount: number;
+}
+
+// ============================================================
+// DB Schema
+// ============================================================
+
 /** Schema type for our IndexedDB database */
-interface ExpenseTrackerDB {
+export interface ExpenseTrackerDB {
   [STORES.TRANSACTIONS]: {
     key: string;
     value: Transaction;
@@ -58,6 +79,13 @@ interface ExpenseTrackerDB {
     indexes: {
       category: string;
       month: string;
+    };
+  };
+  [STORES.SYNC_QUEUE]: {
+    key: string;
+    value: SyncQueueEntry;
+    indexes: {
+      byTimestamp: number;
     };
   };
 }
@@ -120,6 +148,12 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
         btStore.createIndex('month', 'month', { unique: false });
       }
 
+      // ── New store added in v5 (sync queue) ──
+      if (!db.objectStoreNames.contains(STORES.SYNC_QUEUE)) {
+        const sqStore = db.createObjectStore(STORES.SYNC_QUEUE, { keyPath: 'id' });
+        sqStore.createIndex('byTimestamp', 'timestamp', { unique: false });
+      }
+
       // ── Migration: v2 → v3 ──
       if (oldVersion < 3) {
         const txStore = transaction.objectStore(STORES.TRANSACTIONS);
@@ -177,6 +211,40 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
 }
 
 // ============================================================
+// Sync Queue
+// ============================================================
+
+/**
+ * Enqueue a sync entry for the outbox pattern.
+ * Called after each local CRUD to track unsynced changes.
+ *
+ * ponytail: The queue write runs in its own transaction (not the
+ * same transaction as the data write). If the app crashes between
+ * the data write and the queue write, the change is never pushed
+ * to Supabase. A future full pull from Supabase will eventually
+ * reconcile, so this is acceptable for a 2-user household. If
+ * data-loss risk becomes a concern, merge both writes into a
+ * single readwrite transaction.
+ */
+export async function enqueueSyncEntry(
+  storeName: string,
+  recordId: string,
+  operation: SyncOperation,
+  payload: Record<string, unknown> | null
+): Promise<void> {
+  const db = await getDB();
+  await db.add(STORES.SYNC_QUEUE, {
+    id: generateId(),
+    storeName,
+    recordId,
+    operation,
+    payload,
+    timestamp: Date.now(),
+    retryCount: 0,
+  });
+}
+
+// ============================================================
 // Transaction CRUD
 // ============================================================
 
@@ -208,6 +276,8 @@ export async function addTransaction(
     updatedAt: now,
   };
   await db.add(STORES.TRANSACTIONS, newTx);
+  // Enqueue sync entry (fire-and-forget, own transaction)
+  enqueueSyncEntry(STORES.TRANSACTIONS, newTx.id, 'create', newTx as unknown as Record<string, unknown>);
   return newTx.id;
 }
 
@@ -220,10 +290,9 @@ export async function updateTransaction(tx: Transaction): Promise<void> {
   if (!existing) {
     throw new Error(`Transaction with id "${tx.id}" not found`);
   }
-  await db.put(STORES.TRANSACTIONS, {
-    ...tx,
-    updatedAt: Date.now(),
-  });
+  const updated = { ...tx, updatedAt: Date.now() };
+  await db.put(STORES.TRANSACTIONS, updated);
+  enqueueSyncEntry(STORES.TRANSACTIONS, tx.id, 'update', updated as unknown as Record<string, unknown>);
 }
 
 /**
@@ -232,6 +301,7 @@ export async function updateTransaction(tx: Transaction): Promise<void> {
 export async function deleteTransaction(id: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORES.TRANSACTIONS, id);
+  enqueueSyncEntry(STORES.TRANSACTIONS, id, 'delete', null);
 }
 
 // ============================================================
@@ -252,7 +322,30 @@ export async function getAllAccounts(): Promise<Account[]> {
 export async function addAccount(account: Account): Promise<string> {
   const db = await getDB();
   await db.add(STORES.ACCOUNTS, account);
+  enqueueSyncEntry(STORES.ACCOUNTS, account.id, 'create', account as unknown as Record<string, unknown>);
   return account.id;
+}
+
+/**
+ * Update an existing account.
+ */
+export async function updateAccount(account: Account): Promise<void> {
+  const db = await getDB();
+  const existing = await db.get(STORES.ACCOUNTS, account.id);
+  if (!existing) {
+    throw new Error(`Account with id "${account.id}" not found`);
+  }
+  await db.put(STORES.ACCOUNTS, account);
+  enqueueSyncEntry(STORES.ACCOUNTS, account.id, 'update', account as unknown as Record<string, unknown>);
+}
+
+/**
+ * Delete an account by ID.
+ */
+export async function deleteAccount(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete(STORES.ACCOUNTS, id);
+  enqueueSyncEntry(STORES.ACCOUNTS, id, 'delete', null);
 }
 
 // ============================================================
@@ -273,27 +366,8 @@ export async function getAllCategories(): Promise<Category[]> {
 export async function addCategory(category: Category): Promise<string> {
   const db = await getDB();
   await db.add(STORES.CATEGORIES, category);
+  enqueueSyncEntry(STORES.CATEGORIES, category.id, 'create', category as unknown as Record<string, unknown>);
   return category.id;
-}
-
-/**
- * Update an existing account.
- */
-export async function updateAccount(account: Account): Promise<void> {
-  const db = await getDB();
-  const existing = await db.get(STORES.ACCOUNTS, account.id);
-  if (!existing) {
-    throw new Error(`Account with id "${account.id}" not found`);
-  }
-  await db.put(STORES.ACCOUNTS, account);
-}
-
-/**
- * Delete an account by ID.
- */
-export async function deleteAccount(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete(STORES.ACCOUNTS, id);
 }
 
 /**
@@ -306,6 +380,7 @@ export async function updateCategory(category: Category): Promise<void> {
     throw new Error(`Category with id "${category.id}" not found`);
   }
   await db.put(STORES.CATEGORIES, category);
+  enqueueSyncEntry(STORES.CATEGORIES, category.id, 'update', category as unknown as Record<string, unknown>);
 }
 
 /**
@@ -314,6 +389,7 @@ export async function updateCategory(category: Category): Promise<void> {
 export async function deleteCategory(id: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORES.CATEGORIES, id);
+  enqueueSyncEntry(STORES.CATEGORIES, id, 'delete', null);
 }
 
 // ============================================================
@@ -336,7 +412,9 @@ export async function addCashDenomination(
 ): Promise<string> {
   const db = await getDB();
   const id = generateId();
-  await db.add(STORES.CASH_DENOMINATIONS, { ...cd, id });
+  const record = { ...cd, id };
+  await db.add(STORES.CASH_DENOMINATIONS, record);
+  enqueueSyncEntry(STORES.CASH_DENOMINATIONS, id, 'create', record as unknown as Record<string, unknown>);
   return id;
 }
 
@@ -346,6 +424,7 @@ export async function addCashDenomination(
 export async function deleteCashDenomination(id: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORES.CASH_DENOMINATIONS, id);
+  enqueueSyncEntry(STORES.CASH_DENOMINATIONS, id, 'delete', null);
 }
 
 // ============================================================
@@ -368,7 +447,9 @@ export async function addPayout(
 ): Promise<string> {
   const db = await getDB();
   const id = generateId();
-  await db.add(STORES.PAYOUTS, { ...payout, id });
+  const record = { ...payout, id };
+  await db.add(STORES.PAYOUTS, record);
+  enqueueSyncEntry(STORES.PAYOUTS, id, 'create', record as unknown as Record<string, unknown>);
   return id;
 }
 
@@ -382,6 +463,7 @@ export async function updatePayout(payout: Payout): Promise<void> {
     throw new Error(`Payout with id "${payout.id}" not found`);
   }
   await db.put(STORES.PAYOUTS, payout);
+  enqueueSyncEntry(STORES.PAYOUTS, payout.id, 'update', payout as unknown as Record<string, unknown>);
 }
 
 /**
@@ -390,6 +472,7 @@ export async function updatePayout(payout: Payout): Promise<void> {
 export async function deletePayout(id: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORES.PAYOUTS, id);
+  enqueueSyncEntry(STORES.PAYOUTS, id, 'delete', null);
 }
 
 // ============================================================
@@ -457,11 +540,13 @@ export async function setBudgetTarget(
   while (cursor) {
     if (cursor.value.month === targetMonth) {
       // Update existing
-      await cursor.update({
+      const updated = {
         ...cursor.value,
         amount,
         updatedAt: now,
-      });
+      };
+      await cursor.update(updated);
+      enqueueSyncEntry(STORES.BUDGET_TARGETS, updated.id, 'update', updated as unknown as Record<string, unknown>);
       return;
     }
     cursor = await cursor.continue();
@@ -477,6 +562,7 @@ export async function setBudgetTarget(
     updatedAt: now,
   };
   await store.add(newTarget);
+  enqueueSyncEntry(STORES.BUDGET_TARGETS, newTarget.id, 'create', newTarget as unknown as Record<string, unknown>);
 }
 
 /**

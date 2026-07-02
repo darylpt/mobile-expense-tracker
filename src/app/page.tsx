@@ -37,7 +37,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-zinc-200 py-4 text-center text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-500">
-        Expense Tracker &middot; Data stored locally in your browser
+        Expense Tracker &middot; Local-first sync &middot; Data stored locally &amp; synced when online
       </footer>
     </div>
   );

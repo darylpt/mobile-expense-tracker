@@ -96,7 +96,7 @@ export const DEFAULT_BUDGET_TARGETS: Record<string, number> = {
 
 /** IDB database configuration */
 export const DB_NAME = 'expense-tracker-db';
-export const DB_VERSION = 4;
+export const DB_VERSION = 5;
 
 /** Object store names */
 export const STORES = {
@@ -106,4 +106,5 @@ export const STORES = {
   CASH_DENOMINATIONS: 'cashDenominations',
   PAYOUTS: 'payouts',
   BUDGET_TARGETS: 'budgetTargets',
+  SYNC_QUEUE: 'syncQueue',
 } as const;
