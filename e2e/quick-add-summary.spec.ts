@@ -6,7 +6,7 @@
 // accounts table in real time.
 // ============================================================
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { seedIndexedDB, DEFAULT_SEED, parseCurrency } from './fixtures';
 
 test.beforeEach(async ({ page }) => {
@@ -21,13 +21,13 @@ test.beforeEach(async ({ page }) => {
 // ── Helpers ─────────────────────────────────────────────────
 
 /** Return the amount text from a summary card identified by its heading. */
-async function summaryCardAmount(page: any, heading: string): Promise<string> {
+async function summaryCardAmount(page: Page, heading: string): Promise<string> {
   const card = page.locator(`div.rounded-lg:has(p:text-is("${heading}"))`).first();
   return (await card.locator('p.font-bold').textContent()) ?? '';
 }
 
 /** Return the entry-count text from a summary card. */
-async function summaryCardCount(page: any, heading: string): Promise<string> {
+async function summaryCardCount(page: Page, heading: string): Promise<string> {
   const card = page.locator(`div.rounded-lg:has(p:text-is("${heading}"))`).first();
   return (await card.locator('p.text-xs').first().textContent()) ?? '';
 }
@@ -37,7 +37,7 @@ async function summaryCardCount(page: any, heading: string): Promise<string> {
  * `fields` must use account IDs for fromAccount/toAccount.
  */
 async function addTransaction(
-  page: any,
+  page: Page,
   fields: { type: string; amount: string; category?: string; fromAccount?: string; toAccount?: string },
 ) {
   await page.getByLabel('Type').selectOption(fields.type);
@@ -58,7 +58,7 @@ async function addTransaction(
 }
 
 /** Return a specific cell value from the Accounts table for a given account name and column index. */
-async function accountCell(page: any, accountName: string, colIndex: number): Promise<string> {
+async function accountCell(page: Page, accountName: string, colIndex: number): Promise<string> {
   const row = page
     .locator('table')
     .first()

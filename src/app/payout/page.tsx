@@ -122,8 +122,9 @@ export default function PayoutPage() {
     setSavingsSplit((prev) => ({ ...prev, [key]: parseFloat(val) || 0 }));
   };
 
-  // ponytail: does not block save on warnings. Change to block-save when payouts
-  // feed into downstream math (dashboard/reports) — until then, warn-only is fine.
+  const canSave = warnings.length === 0;
+
+  // ponytail: blocks save when percentages don't sum to 100% (or amounts don't match total)
   const handleSave = async () => {
     await addPayout({
       date: getToday(),
@@ -416,7 +417,7 @@ export default function PayoutPage() {
 
             {/* ── Save Button ──────────────────────────────── */}
             <div className="flex justify-center">
-              <Button onClick={handleSave} size="lg">
+              <Button onClick={handleSave} size="lg" disabled={!canSave}>
                 {saved ? '✓ Saved!' : 'Save Payout'}
               </Button>
             </div>

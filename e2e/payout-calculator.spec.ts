@@ -6,8 +6,8 @@
 // persist across page reloads.
 // ============================================================
 
-import { test, expect } from '@playwright/test';
-import { seedIndexedDB, DEFAULT_SEED, parseCurrency } from './fixtures';
+import { test, expect, type Page } from '@playwright/test';
+import { seedIndexedDB, DEFAULT_SEED } from './fixtures';
 
 test.beforeEach(async ({ page }) => {
   await seedIndexedDB(page, DEFAULT_SEED);
@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
  * Set the percentage for a person row by finding the row that
  * contains the given name as its Person input value.
  */
-async function setPersonPct(page: any, name: string, pct: string) {
+async function setPersonPct(page: Page, name: string, pct: string) {
   // Find the row whose Person input has the given value
   const row = page.locator('div.rounded-xl.overflow-hidden div.divide-y > div').filter({
     has: page.locator('input[placeholder="Name"]'),

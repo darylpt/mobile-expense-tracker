@@ -11,7 +11,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { getAllCashDenominations, addCashDenomination } from '@/lib/idb';
+import { getAllCashDenominations, addCashDenomination, deleteCashDenominationsByDate } from '@/lib/idb';
 import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/common/Button';
 
@@ -65,9 +65,8 @@ export function CashDenominationInput({ date, onTotalChange }: CashDenominationI
   const handleSave = async () => {
     setSaving(true);
     try {
-      // ponytail: saves each denomination individually; no delete-before-save,
-      // so repeated saves accumulate in IndexedDB. On reload the latest count
-      // per denomination wins. Add batch-replace if duplicate records become a concern.
+      // ponytail: cleared existing records for this date before save to prevent duplicates
+      await deleteCashDenominationsByDate(date);
       for (const [denomination, count] of Object.entries(counts)) {
         if (count > 0) {
           await addCashDenomination({

@@ -5,7 +5,7 @@
 // transactions cannot be deleted, while unreferenced ones can.
 // ============================================================
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { seedIndexedDB, DEFAULT_SEED } from './fixtures';
 
 test.beforeEach(async ({ page }) => {
@@ -19,13 +19,13 @@ test.beforeEach(async ({ page }) => {
 // ── Helpers ─────────────────────────────────────────────────
 
 /** Click the Delete button for a table row containing the given name. */
-async function clickDelete(page: any, name: string) {
+async function clickDelete(page: Page, name: string) {
   const row = page.locator('table').locator('tr', { has: page.locator('td', { hasText: name }) });
   await row.locator('button:has-text("Delete")').click();
 }
 
 /** Check if a table row with the given name exists in the visible DOM. */
-async function rowExists(page: any, name: string): Promise<boolean> {
+async function rowExists(page: Page, name: string): Promise<boolean> {
   return page.locator('table').locator('tr', { has: page.locator('td', { hasText: name }) }).count() > 0;
 }
 

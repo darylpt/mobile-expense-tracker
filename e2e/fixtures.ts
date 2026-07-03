@@ -2,7 +2,7 @@
 // Shared test fixtures and seed helpers for E2E tests
 // ============================================================
 
-import { test as base, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
 
 // ── Seed data types ────────────────────────────────────────────
 
@@ -80,9 +80,6 @@ export const DEFAULT_SEED: SeedData = {
 };
 
 // ── IndexedDB seed helper ──────────────────────────────────────
-
-const DB_NAME = 'expense-tracker-db';
-const DB_VERSION = 4;
 
 /**
  * Wipes all IndexedDB data and re-seeds with the given data.

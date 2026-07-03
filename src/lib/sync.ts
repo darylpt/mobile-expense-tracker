@@ -197,7 +197,7 @@ export async function pullStore(storeName: string): Promise<void> {
   }
 
   // Remaining in remoteMap are new remote-only records (skip deleted)
-  for (const [id, remote] of remoteMap.entries()) {
+  for (const [, remote] of remoteMap.entries()) {
     if (!remote.deleted_at) {
       toWrite.push(snakeToCamel(remote));
     }

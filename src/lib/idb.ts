@@ -427,6 +427,23 @@ export async function deleteCashDenomination(id: string): Promise<void> {
   enqueueSyncEntry(STORES.CASH_DENOMINATIONS, id, 'delete', null);
 }
 
+/**
+ * Delete all cash denomination records for a given date.
+ * Used to clear existing records before saving a fresh snapshot.
+ */
+export async function deleteCashDenominationsByDate(date: string): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction(STORES.CASH_DENOMINATIONS, 'readwrite');
+  const store = tx.objectStore(STORES.CASH_DENOMINATIONS);
+  const index = store.index('date');
+  let cursor = await index.openCursor(date);
+  while (cursor) {
+    await cursor.delete();
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+}
+
 // ============================================================
 // Payout CRUD
 // ============================================================
