@@ -6,8 +6,9 @@
 
 import { openDB, type IDBPDatabase } from 'idb';
 import type { Transaction, Account, Category, CashDenomination, Payout, BudgetTarget } from '@/types';
-import { DB_NAME, DB_VERSION, STORES, DEFAULT_ACCOUNTS, DEFAULT_CATEGORIES, DEFAULT_BUDGET_TARGETS, SEED_TRANSACTIONS } from './constants';
+import { DB_NAME, DB_VERSION, STORES } from './constants';
 import { generateId } from './utils';
+import { parseCsv, type ParsedCsv } from './csv-import';
 
 // ============================================================
 // Sync Queue Types (stored in IndexedDB, processed by sync.ts)
@@ -193,17 +194,6 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
         }
       }
 
-      // Seed default data on first creation (oldVersion === 0)
-      if (oldVersion === 0) {
-        // Seed accounts
-        for (const account of DEFAULT_ACCOUNTS) {
-          transaction.objectStore(STORES.ACCOUNTS).add(account);
-        }
-        // Seed categories
-        for (const category of DEFAULT_CATEGORIES) {
-          transaction.objectStore(STORES.CATEGORIES).add(category);
-        }
-      }
     },
   });
 
@@ -685,42 +675,50 @@ export function transactionsToCsv(txs: Transaction[]): string {
 }
 
 // ============================================================
-// Seeding
+// CSV Import
 // ============================================================
 
 /**
- * Seed the stores with demo data if they are currently empty.
- * Safe to call on every app mount — only seeds when there are zero rows.
+ * Parse a CSV string and import all data into IndexedDB atomically.
+ *
+ * Clears all existing stores, then writes the parsed accounts (with
+ * starting balances from carry-overs), categories, and transactions.
+ *
+ * Returns the parsed data (including any parse errors).
  */
-export async function seedTransactionsIfEmpty(): Promise<void> {
+export async function importFromCsv(csvText: string): Promise<ParsedCsv> {
+  const parsed = parseCsv(csvText);
+
   const db = await getDB();
+  const tx = db.transaction(
+    [STORES.ACCOUNTS, STORES.CATEGORIES, STORES.TRANSACTIONS],
+    'readwrite'
+  );
 
-  // ── Seed transactions ──
-  const txCount = await db.count(STORES.TRANSACTIONS);
-  if (txCount === 0) {
-    for (const tx of SEED_TRANSACTIONS) {
-      await db.add(STORES.TRANSACTIONS, {
-        ...tx,
-        id: generateId(),
-        createdAt: new Date(tx.date).getTime(),
-        updatedAt: new Date(tx.date).getTime(),
-      });
-    }
+  const acctStore = tx.objectStore(STORES.ACCOUNTS);
+  const catStore = tx.objectStore(STORES.CATEGORIES);
+  const txStore = tx.objectStore(STORES.TRANSACTIONS);
+
+  await acctStore.clear();
+  await catStore.clear();
+  await txStore.clear();
+
+  const now = Date.now();
+  for (const acct of parsed.accounts) {
+    await acctStore.add(acct);
+  }
+  for (const cat of parsed.categories) {
+    await catStore.add(cat);
+  }
+  for (const t of parsed.transactions) {
+    await txStore.add({
+      ...t,
+      id: generateId(),
+      createdAt: now,
+      updatedAt: now,
+    });
   }
 
-  // ── Seed budget targets (new install or v3→v4 upgrade) ──
-  const btCount = await db.count(STORES.BUDGET_TARGETS);
-  if (btCount === 0) {
-    const now = Date.now();
-    for (const [category, amount] of Object.entries(DEFAULT_BUDGET_TARGETS)) {
-      await db.add(STORES.BUDGET_TARGETS, {
-        id: generateId(),
-        category,
-        month: null,
-        amount,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-  }
+  await tx.done;
+  return parsed;
 }

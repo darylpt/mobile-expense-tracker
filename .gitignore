@@ -48,3 +48,13 @@ next-env.d.ts
 
 # e2e screenshots
 *.png
+
+# obsidian
+/.obsidian/
+
+# repomix output
+/repomix-output.xml
+/repomix-output.md
+
+/specs/data
+/specs/sheets

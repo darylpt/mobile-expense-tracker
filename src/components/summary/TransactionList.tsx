@@ -7,6 +7,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import Link from 'next/link';
 import { useTransactionContext } from '@/context/TransactionContext';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { formatCurrency, formatMonthYear, getPreviousMonthYear, getNextMonthYear, getCurrentMonthYear } from '@/lib/utils';
@@ -476,9 +477,20 @@ export function TransactionList() {
       {/* ================================================================ */}
 
       {ctx.transactions.length === 0 ? (
-        <p className="py-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
-          No transactions yet. Add one from the Summary page!
-        </p>
+        <div className="py-8 text-center">
+          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+            No data yet
+          </p>
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            Import your Google Sheets data to get started.
+          </p>
+          <Link
+            href="/settings"
+            className="mt-3 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Go to Settings → Import
+          </Link>
+        </div>
       ) : filteredTransactions.length === 0 ? (
         <div className="py-4 text-center">
           <p className="text-sm text-zinc-500 dark:text-zinc-400">

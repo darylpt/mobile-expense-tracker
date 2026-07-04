@@ -14,7 +14,6 @@ import {
   addTransaction as addTransactionToDB,
   updateTransaction as updateTransactionInDB,
   deleteTransaction as deleteTransactionFromDB,
-  seedTransactionsIfEmpty,
 } from '@/lib/idb';
 import { backgroundSync } from '@/lib/sync';
 import { getCurrentMonthYear } from '@/lib/utils';
@@ -87,11 +86,28 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
   }, []);
 
   useEffect(() => {
-    seedTransactionsIfEmpty()
-      .then(() => refreshTransactions())
-      .catch(() => { /* seed failure handled by refresh fallthrough */ });
-    // refreshTransactions intentionally excluded — stable callback, first mount only
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    async function load() {
+      try {
+        setError(null);
+        const [txs, accts] = await Promise.all([
+          getAllTransactions(),
+          getAllAccounts(),
+        ]);
+        if (cancelled) return;
+        setTransactions(txs);
+        setAccounts(accts);
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : 'Failed to load data';
+        setError(message);
+        console.error('[TransactionContext] Error loading data:', err);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   // Background sync: push local changes + pull remote data on mount

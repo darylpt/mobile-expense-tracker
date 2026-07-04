@@ -11,6 +11,7 @@
 'use client';
 
 import React, { useState, useMemo, useCallback } from 'react';
+import Link from 'next/link';
 import { useTransactionContext } from '@/context/TransactionContext';
 import { calculateExpectedBalances, type ExpectedBalanceRow } from '@/lib/reconciliation';
 import { getToday, formatCurrency } from '@/lib/utils';
@@ -57,6 +58,28 @@ export default function AvailableBalancePage() {
         <Header title="Available Balance" />
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
           <LoadingSkeleton />
+        </main>
+      </div>
+    );
+  }
+
+  if (accounts.length === 0) {
+    return (
+      <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
+        <Header title="Available Balance" />
+        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center justify-center px-4 py-16">
+          <p className="text-base font-medium text-zinc-900 dark:text-zinc-100">
+            No data yet
+          </p>
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+            Import your Google Sheets data to get started.
+          </p>
+          <Link
+            href="/settings"
+            className="mt-4 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Go to Settings → Import
+          </Link>
         </main>
       </div>
     );

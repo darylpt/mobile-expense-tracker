@@ -8,6 +8,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
+import { useTransactionContext } from '@/context/TransactionContext';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useCategories } from '@/hooks/useCategories';
 import { getAllBudgetTargets, setBudgetTarget } from '@/lib/idb';
@@ -115,8 +117,29 @@ export function MonthlySummaryCard() {
   const handlePrevMonth = () => setMonthYear(getPreviousMonthYear(monthYear));
   const handleNextMonth = () => setMonthYear(getNextMonthYear(monthYear));
 
+  const ctx = useTransactionContext();
+
   if (isLoading) {
     return <LoadingSkeleton />;
+  }
+
+  if (ctx.transactions.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <p className="text-base font-medium text-zinc-900 dark:text-zinc-100">
+          No data yet
+        </p>
+        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+          Import your Google Sheets data to get started.
+        </p>
+        <Link
+          href="/settings"
+          className="mt-4 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          Go to Settings → Import
+        </Link>
+      </div>
+    );
   }
 
   return (

@@ -1,6 +1,6 @@
 # Spec: Local-First Sync with Supabase
 
-**Status:** 🟡 Design proposed, pending user decision
+**Status:** ✅ Done
 
 ---
 

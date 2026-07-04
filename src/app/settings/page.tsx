@@ -13,9 +13,11 @@ import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useCategories } from '@/hooks/useCategories';
-import { getAllTransactions, exportAllData, importAllData, transactionsToCsv } from '@/lib/idb';
+import { getAllTransactions, exportAllData, importAllData, transactionsToCsv, importFromCsv } from '@/lib/idb';
 import { formatCurrency } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
+import { parseCsv, type ParsedCsv } from '@/lib/csv-import';
+import { CsvImportPreview } from '@/components/forms/CsvImportPreview';
 
 export default function SettingsPage() {
   const {
@@ -45,6 +47,7 @@ export default function SettingsPage() {
           <div className="space-y-6">
             <TabVisibilitySection />
             <BackupSection />
+            <ImportSection />
 
             <div className="lg:grid lg:grid-cols-2 lg:gap-6">
               <AccountsSection
@@ -692,6 +695,117 @@ function BackupSection() {
           {msg}
         </p>
       )}
+    </section>
+  );
+}
+
+// ============================================================
+// CSV Import Section
+// ============================================================
+
+function ImportSection() {
+  const [csvText, setCsvText] = useState('');
+  const [parsed, setParsed] = useState<ParsedCsv | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleParse = (text: string) => {
+    setMsg(null);
+    setCsvText(text);
+    if (!text.trim()) {
+      setParsed(null);
+      return;
+    }
+    try {
+      const result = parseCsv(text);
+      setParsed(result);
+    } catch {
+      setParsed(null);
+      setMsg('Failed to parse CSV.');
+    }
+  };
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      handleParse(reader.result as string);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleImport = async () => {
+    if (!parsed || parsed.transactions.length === 0) return;
+    if (!window.confirm('Import will REPLACE all current data. Are you sure?')) return;
+    setIsImporting(true);
+    setMsg(null);
+    try {
+      await importFromCsv(csvText);
+      setMsg('Data imported successfully! Reload the page to see changes.');
+      setParsed(null);
+      setCsvText('');
+    } catch {
+      setMsg('Import failed.');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setCsvText('');
+    setParsed(null);
+    setMsg(null);
+  };
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
+      <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+        Import from Google Sheets
+      </h2>
+      <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+        Paste CSV data below or upload a <code>.csv</code> file. The CSV becomes
+        the single source of truth — all current data will be replaced.
+      </p>
+
+      <textarea
+        value={csvText}
+        onChange={(e) => handleParse(e.target.value)}
+        placeholder={`Paste CSV here...
+Example:
+Date,Amount,Description,Type,Category,From Account,To Account
+1/5/2026,₱1489.00,Monthly salary,,Paycheck,,GoTyme`}
+        rows={6}
+        className="mb-3 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-blue-400"
+      />
+
+      <div className="mb-3">
+        <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()}>
+          Upload CSV file…
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv"
+          onChange={handleFile}
+          className="hidden"
+        />
+      </div>
+
+      {msg && (
+        <p role="status" aria-live="polite" className="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
+          {msg}
+        </p>
+      )}
+
+      <CsvImportPreview
+        parsed={parsed}
+        onImport={handleImport}
+        onCancel={handleCancel}
+        isImporting={isImporting}
+      />
     </section>
   );
 }
