@@ -26,9 +26,11 @@ User opens app
             └─ Click magic link → PKCE exchange → redirected back → session detected → dashboard
 ```
 
-### Invite-only model
+### Auth model
 
-There is **no sign-up form**. Users are invited via the Supabase dashboard (Authentication → Users → Invite). The login page only accepts **existing users**. Supabase's "Enable email confirmations" and "Enable public signups" settings in the dashboard control this externally.
+There is **no sign-up form**, but `shouldCreateUser: true` means the first magic-link sign-in creates the user automatically. Email access is the security gate — anyone who can access the email inbox can sign in. This is sufficient for a 2-user household.
+
+To lock down further (invite-only): set `shouldCreateUser: false` in `AuthContext.tsx` and invite users via Supabase dashboard (Authentication → Users → Invite).
 
 ---
 
@@ -163,7 +165,7 @@ Already present:
 Add to documentation:
 - Supabase dashboard: add `http://localhost:3000/**` to Authentication → Redirect URLs for local dev
 - For production: add the production URL
-- Disable "Allow new user sign-ups" in Supabase Authentication → Settings (invite-only model)
+- Keep "Allow new user sign-ups" enabled in Supabase Authentication → Settings for `shouldCreateUser: true` to work
 
 ## Deferred
 
