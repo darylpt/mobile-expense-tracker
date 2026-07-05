@@ -38,6 +38,8 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
+      data-scroll-behavior="smooth"
     >
       <head>
         {/* Apple-specific PWA meta tags */}
@@ -49,7 +51,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="Expense Tracker" />
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
       </head>
-      <body className="min-h-full flex flex-col" suppressHydrationWarning>
+      <body className="min-h-full flex flex-col">
         <AuthProvider>
           <AuthGuard>
             <TransactionProvider>{children}</TransactionProvider>
