@@ -16,7 +16,12 @@ import {
   deleteTransaction as deleteTransactionFromDB,
 } from '@/lib/idb';
 import { backgroundSync } from '@/lib/sync';
+import { clearAllLocalData } from '@/lib/idb';
 import { getCurrentMonthYear } from '@/lib/utils';
+import { useAuth } from '@/context/AuthContext';
+
+/** localStorage key to track which user's data is cached locally */
+const LAST_USER_KEY = 'lastUserId';
 
 // ============================================================
 // Context shape
@@ -60,6 +65,7 @@ interface TransactionProviderProps {
 }
 
 export function TransactionProvider({ children }: TransactionProviderProps) {
+  const { state: authState, user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -110,23 +116,60 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
     return () => { cancelled = true; };
   }, []);
 
-  // Background sync: push local changes + pull remote data on mount
-  // Also listen for online/offline transitions
+  // Auth lifecycle: manage local cache per user
   useEffect(() => {
-    if (navigator.onLine) {
-      backgroundSync().then(() => refreshTransactions());
+    if (authState === 'disabled') {
+      // No Supabase configured — app works offline as before
+      return;
     }
 
-    const handleOnline = () => {
-      backgroundSync().then(() => refreshTransactions());
-    };
+    if (authState === 'loading') {
+      // Still checking session — wait
+      return;
+    }
 
+    if (authState === 'unauthenticated') {
+      // User signed out or has no session
+      const marker = localStorage.getItem(LAST_USER_KEY);
+      if (marker) {
+        clearAllLocalData().then(() => {
+          localStorage.removeItem(LAST_USER_KEY);
+          refreshTransactions(); // renders empty state
+        });
+      }
+      return;
+    }
+
+    // authenticated
+    if (authState === 'authenticated' && user) {
+      const marker = localStorage.getItem(LAST_USER_KEY);
+      const doSync = async () => {
+        if (marker && marker !== user.id) {
+          // Different user — wipe local cache
+          await clearAllLocalData();
+        }
+        localStorage.setItem(LAST_USER_KEY, user.id);
+        if (navigator.onLine) {
+          await backgroundSync();
+        }
+        await refreshTransactions();
+      };
+      doSync();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authState, user]);
+
+  // Auth-aware online listener: sync when coming back online
+  useEffect(() => {
+    const handleOnline = () => {
+      if (authState === 'authenticated' && user) {
+        backgroundSync().then(() => refreshTransactions());
+      }
+    };
     window.addEventListener('online', handleOnline);
     return () => window.removeEventListener('online', handleOnline);
-    // ponytail: single shot on mount + online events. No periodic polling.
-    // Add setInterval polling if real-time sync becomes critical.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authState, user]);
 
   // Add a transaction
   const addTransaction = useCallback(

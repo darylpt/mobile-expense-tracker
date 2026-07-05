@@ -38,6 +38,7 @@ const FIELD_MAP: Record<string, string> = {
   createdAt: 'created_at',
   updatedAt: 'updated_at',
   deletedAt: 'deleted_at',
+  userId: 'user_id',
   // stored as camelCase in IDB already — no rename needed for these but map for completeness:
   created_at: 'created_at',
   updated_at: 'updated_at',
@@ -90,6 +91,10 @@ function snakeToCamel(record: Record<string, unknown>): Record<string, unknown> 
 export async function processSyncQueue(): Promise<void> {
   if (!navigator.onLine || !supabase) return;
 
+  // Resolve current user — bail if no session
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
   const db = await getDB();
   const tx = db.transaction(STORES.SYNC_QUEUE, 'readwrite');
   const store = tx.objectStore(STORES.SYNC_QUEUE);
@@ -103,8 +108,10 @@ export async function processSyncQueue(): Promise<void> {
       switch (entry.operation) {
         case 'create':
         case 'update': {
+          // Stamp user_id on outgoing payload before transform
+          const payload = { ...entry.payload, userId: user.id };
           // Cast dates from ms-number to ISO string for Postgres
-          const remotePayload = preparePayloadForRemote(entry.payload);
+          const remotePayload = preparePayloadForRemote(payload);
           await supabase.from(tableName).upsert(remotePayload, {
             onConflict: 'id',
             ignoreDuplicates: false,
@@ -149,11 +156,14 @@ export async function processSyncQueue(): Promise<void> {
  *   - Records only in remote (new) → add locally
  *   - Records only in local → keep locally (not yet synced)
  */
-export async function pullStore(storeName: string): Promise<void> {
+export async function pullStore(storeName: string, userId: string): Promise<void> {
   if (!supabase) return;
 
   const tableName = storeNameToTable(storeName);
-  const { data: remoteRecords, error } = await supabase.from(tableName).select('*');
+  const { data: remoteRecords, error } = await supabase
+    .from(tableName)
+    .select('*')
+    .eq('user_id', userId);
 
   if (error) {
     console.error(`[Sync] Failed to pull ${storeName}:`, error);
@@ -225,6 +235,10 @@ export async function pullStore(storeName: string): Promise<void> {
 export async function backgroundSync(): Promise<void> {
   if (!supabase) return; // not configured
 
+  // Resolve current user — bail if no session
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
   try {
     // 1. Push local changes
     await processSyncQueue();
@@ -241,7 +255,7 @@ export async function backgroundSync(): Promise<void> {
 
     // Sequential to avoid concurrent IDB transactions
     for (const store of allStores) {
-      await pullStore(store);
+      await pullStore(store, user.id);
     }
   } catch (err) {
     console.error('[Sync] background sync failed:', err);

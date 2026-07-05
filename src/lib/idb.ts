@@ -200,6 +200,14 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
         }
       }
 
+      // ── Migration: v7 → v8 (user isolation — clear old shared caches) ──
+      if (oldVersion < 8) {
+        for (const storeName of Object.values(STORES)) {
+          const store = transaction.objectStore(storeName);
+          await store.clear();
+        }
+      }
+
       // ── Migration: v2 → v3 ──
       if (oldVersion < 3) {
         const txStore = transaction.objectStore(STORES.TRANSACTIONS);
@@ -243,6 +251,19 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
   });
 
   return dbInstance;
+}
+
+/**
+ * Clear all local IndexedDB stores.
+ * Used on user sign-out or user switch to wipe the previous user's cache.
+ */
+export async function clearAllLocalData(): Promise<void> {
+  const db = await getDB();
+  for (const storeName of Object.values(STORES)) {
+    const tx = db.transaction(storeName, 'readwrite');
+    await tx.objectStore(storeName).clear();
+    await tx.done;
+  }
 }
 
 // ============================================================

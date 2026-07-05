@@ -4,7 +4,7 @@
 
 /** IDB database configuration */
 export const DB_NAME = 'expense-tracker-db';
-export const DB_VERSION = 7;
+export const DB_VERSION = 8;
 
 /** Object store names */
 export const STORES = {
