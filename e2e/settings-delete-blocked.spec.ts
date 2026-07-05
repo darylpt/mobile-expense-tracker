@@ -26,7 +26,7 @@ async function clickDelete(page: Page, name: string) {
 
 /** Check if a table row with the given name exists in the visible DOM. */
 async function rowExists(page: Page, name: string): Promise<boolean> {
-  return page.locator('table').locator('tr', { has: page.locator('td', { hasText: name }) }).count() > 0;
+  return (await page.locator('table').locator('tr', { has: page.locator('td', { hasText: name }) }).count()) > 0;
 }
 
 // ── Tests ──────────────────────────────────────────────────

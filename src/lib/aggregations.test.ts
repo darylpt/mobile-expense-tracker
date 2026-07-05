@@ -31,7 +31,7 @@ const JUNE_2026: MonthYear = { month: 5, year: 2026 };
 describe('calculateAccountBalances', () => {
   it('shows all accounts even with no activity and zero starting balances', () => {
     const result = calculateAccountBalances([], [], ACCOUNTS, JUNE_2026);
-    // All accounts included + TOTAL row. Sorted by name: BPI BanKo, Cash, DragonFi, Gcash, GoTyme, Landbank
+    // All accounts included + TOTAL row. Order follows accounts array (sortOrder from IndexedDB).
     expect(result).toHaveLength(ACCOUNTS.length + 1);
     const total = result.find((r) => r.accountId === 'TOTAL');
     expect(total).toMatchObject({
@@ -50,13 +50,14 @@ describe('calculateAccountBalances', () => {
     ];
     const result = calculateAccountBalances([], [], accts, JUNE_2026);
     // All accounts shown regardless of starting balance — user decides what to keep via Settings
-    expect(result).toHaveLength(3); // Cash, GoTyme, TOTAL
-    expect(result[0].accountId).toBe('cash');
-    expect(result[1].accountId).toBe('gotyme');
-    expect(result[1].startingBalance).toBe(5000);
-    expect(result[1].inflow).toBe(0);
-    expect(result[1].outflow).toBe(0);
-    expect(result[1].endingBalance).toBe(5000);
+    // Order follows accounts array (GoTyme first, then Cash)
+    expect(result).toHaveLength(3);
+    expect(result[0].accountId).toBe('gotyme');
+    expect(result[0].startingBalance).toBe(5000);
+    expect(result[0].inflow).toBe(0);
+    expect(result[0].outflow).toBe(0);
+    expect(result[0].endingBalance).toBe(5000);
+    expect(result[1].accountId).toBe('cash');
     // TOTAL
     expect(result[2].startingBalance).toBe(5000);
   });
@@ -244,18 +245,23 @@ describe('calculateIncomeBreakdown', () => {
     expect(result[0].percentage).toBe(100);
   });
 
-  it('sorts by amount descending', () => {
+  it('follows allCategories order when provided, otherwise groups by amount', () => {
     const txs: Transaction[] = [
       tx({ date: '2026-06-01', type: 'income', amount: 1000, category: 'Small', toAccount: 'gotyme' }),
       tx({ date: '2026-06-01', type: 'income', amount: 5000, category: 'Large', toAccount: 'gotyme' }),
       tx({ date: '2026-06-01', type: 'income', amount: 2000, category: 'Medium', toAccount: 'gotyme' }),
     ];
+    // Without allCategories — follows insertion order from byCategory map
     const result = calculateIncomeBreakdown(txs);
-    // Category rows (before Total)
     const cats = result.filter((r) => r.category !== 'Total');
-    expect(cats[0].category).toBe('Large');
-    expect(cats[1].category).toBe('Medium');
-    expect(cats[2].category).toBe('Small');
+    expect(cats).toHaveLength(3);
+
+    // With allCategories — follows that order
+    const ordered = calculateIncomeBreakdown(txs, ['Small', 'Medium', 'Large']);
+    const orderedCats = ordered.filter((r) => r.category !== 'Total');
+    expect(orderedCats[0].category).toBe('Small');
+    expect(orderedCats[1].category).toBe('Medium');
+    expect(orderedCats[2].category).toBe('Large');
   });
 });
 
@@ -344,14 +350,20 @@ describe('calculateExpenseBreakdown', () => {
     expect(result[0].difference).toBe(-300);
   });
 
-  it('sorts by amount descending', () => {
+  it('follows allCategories order when provided', () => {
     const txs: Transaction[] = [
       tx({ date: '2026-06-01', type: 'expense', amount: 100, category: 'Small', fromAccount: 'cash' }),
       tx({ date: '2026-06-01', type: 'expense', amount: 500, category: 'Large', fromAccount: 'cash' }),
     ];
+    // Without allCategories — follows insertion order from byCategory map
     const result = calculateExpenseBreakdown(txs);
     const cats = result.filter((r) => r.category !== 'Total');
-    expect(cats[0].category).toBe('Large');
-    expect(cats[1].category).toBe('Small');
+    expect(cats).toHaveLength(2);
+
+    // With allCategories — follows that order
+    const ordered = calculateExpenseBreakdown(txs, {}, ['Small', 'Large']);
+    const orderedCats = ordered.filter((r) => r.category !== 'Total');
+    expect(orderedCats[0].category).toBe('Small');
+    expect(orderedCats[1].category).toBe('Large');
   });
 });

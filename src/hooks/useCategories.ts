@@ -12,6 +12,7 @@ import {
   addCategory as addCategoryToDB,
   updateCategory as updateCategoryToDB,
   deleteCategory as deleteCategoryFromDB,
+  moveCategoryTo as moveCategoryToInDB,
 } from '@/lib/idb';
 import { generateId } from '@/lib/utils';
 
@@ -88,6 +89,16 @@ export function useCategories() {
     }
   }, [refresh]);
 
+  const moveCategoryTo = useCallback(async (id: string, targetIndex: number): Promise<void> => {
+    try {
+      await moveCategoryToInDB(id, targetIndex);
+      await refresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to reorder categories';
+      setError(message);
+    }
+  }, [refresh]);
+
   return {
     categories,
     isLoading,
@@ -97,5 +108,6 @@ export function useCategories() {
     addCategory,
     updateCategory,
     deleteCategory,
+    moveCategoryTo,
   };
 }

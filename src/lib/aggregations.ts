@@ -137,22 +137,15 @@ export function calculateAccountBalances(
   // ---- Build result rows ----
   const rows: AccountBalanceRow[] = [];
 
-  // Collect all accounts — show everything, user decides what to keep via Settings
-  const accountIds = new Set(accounts.map((a) => a.id));
-
-  // Sort by name for consistent output
-  const sortedIds = [...accountIds].sort((a, b) =>
-    (names.get(a) ?? a).localeCompare(names.get(b) ?? b)
-  );
-
+  // Use the accounts array order (already sorted by sortOrder from IndexedDB)
   let totalStarting = 0;
   let totalInflow = 0;
   let totalOutflow = 0;
 
-  for (const id of sortedIds) {
-    const sb = startBalance.get(id) ?? 0;
-    const i = inflow.get(id) ?? 0;
-    const o = outflow.get(id) ?? 0;
+  for (const acct of accounts) {
+    const sb = startBalance.get(acct.id) ?? 0;
+    const i = inflow.get(acct.id) ?? 0;
+    const o = outflow.get(acct.id) ?? 0;
     const eb = sb + i - o;
 
     totalStarting += sb;
@@ -160,8 +153,8 @@ export function calculateAccountBalances(
     totalOutflow += o;
 
     rows.push({
-      accountId: id,
-      accountName: names.get(id) ?? id,
+      accountId: acct.id,
+      accountName: names.get(acct.id) ?? acct.id,
       startingBalance: sb,
       inflow: i,
       outflow: o,
@@ -191,7 +184,9 @@ export function calculateAccountBalances(
  * Build an income breakdown for the given month's transactions.
  * Only `type === 'income'` transactions are included.
  *
- * Returns rows sorted by amount descending, with a TOTAL row appended.
+ * Rows follow the `allCategories` order (which respects sortOrder from Settings).
+ * Categories with transactions not in `allCategories` are appended last.
+ * A TOTAL row is appended at the end.
  */
 export function calculateIncomeBreakdown(
   transactions: Transaction[],
@@ -206,20 +201,30 @@ export function calculateIncomeBreakdown(
     byCategory.set(tx.category, (byCategory.get(tx.category) ?? 0) + tx.amount);
   }
 
-  // Include categories with no activity (zero amount)
-  for (const cat of allCategories) {
-    if (!byCategory.has(cat)) {
-      byCategory.set(cat, 0);
-    }
-  }
+  const rows: IncomeBreakdownRow[] = [];
 
-  const rows: IncomeBreakdownRow[] = [...byCategory.entries()]
-    .map(([category, amount]) => ({
-      category,
+  // Emit in allCategories order (respects sortOrder from Settings)
+  const seen = new Set<string>();
+  for (const cat of allCategories) {
+    const amount = byCategory.get(cat) ?? 0;
+    seen.add(cat);
+    rows.push({
+      category: cat,
       amount,
       percentage: totalIncome > 0 ? (amount / totalIncome) * 100 : 0,
-    }))
-    .sort((a, b) => b.amount - a.amount);
+    });
+  }
+
+  // Any extra categories from transactions not in allCategories go last
+  for (const [cat, amount] of byCategory) {
+    if (!seen.has(cat)) {
+      rows.push({
+        category: cat,
+        amount,
+        percentage: totalIncome > 0 ? (amount / totalIncome) * 100 : 0,
+      });
+    }
+  }
 
   // TOTAL row
   rows.push({
@@ -239,7 +244,9 @@ export function calculateIncomeBreakdown(
  * Build an expenses breakdown for the given month's transactions.
  * Only `type === 'expense'` transactions are included.
  *
- * Returns rows sorted by amount descending, with a TOTAL row appended.
+ * Rows follow the `allCategories` order (which respects sortOrder from Settings).
+ * Categories with transactions not in `allCategories` are appended last.
+ * A TOTAL row is appended at the end.
  *
  * "Planned" comes from the provided budget targets map (category → amount).
  * "Difference" = Planned − Amount  (positive = under budget).
@@ -258,25 +265,34 @@ export function calculateExpenseBreakdown(
     byCategory.set(tx.category, (byCategory.get(tx.category) ?? 0) + tx.amount);
   }
 
-  // Include categories with no activity (zero amount)
+  const rows: ExpenseBreakdownRow[] = [];
+
+  // Emit in allCategories order (respects sortOrder from Settings)
+  const seen = new Set<string>();
   for (const cat of allCategories) {
-    if (!byCategory.has(cat)) {
-      byCategory.set(cat, 0);
-    }
+    const amount = byCategory.get(cat) ?? 0;
+    seen.add(cat);
+    rows.push({
+      category: cat,
+      planned: budgetTargets[cat] ?? 0,
+      amount,
+      difference: (budgetTargets[cat] ?? 0) - amount,
+      percentage: totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0,
+    });
   }
 
-  const rows: ExpenseBreakdownRow[] = [...byCategory.entries()]
-    .map(([category, amount]) => {
-      const planned = budgetTargets[category] ?? 0;
-      return {
-        category,
-        planned,
+  // Any extra categories from transactions not in allCategories go last
+  for (const [cat, amount] of byCategory) {
+    if (!seen.has(cat)) {
+      rows.push({
+        category: cat,
+        planned: budgetTargets[cat] ?? 0,
         amount,
-        difference: planned - amount,
+        difference: (budgetTargets[cat] ?? 0) - amount,
         percentage: totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0,
-      };
-    })
-    .sort((a, b) => b.amount - a.amount);
+      });
+    }
+  }
 
   // TOTAL row
   const totalPlanned = rows.reduce((s, r) => s + r.planned, 0);

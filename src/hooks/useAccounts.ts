@@ -12,6 +12,7 @@ import {
   addAccount as addAccountToDB,
   updateAccount as updateAccountToDB,
   deleteAccount as deleteAccountFromDB,
+  moveAccountTo as moveAccountToInDB,
 } from '@/lib/idb';
 import { generateId } from '@/lib/utils';
 import { useTransactionContext } from '@/context/TransactionContext';
@@ -86,6 +87,16 @@ export function useAccounts() {
     }
   }, [refresh, ctx]);
 
+  const moveAccountTo = useCallback(async (id: string, targetIndex: number): Promise<void> => {
+    try {
+      await moveAccountToInDB(id, targetIndex);
+      await refresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to reorder accounts';
+      setError(message);
+    }
+  }, [refresh]);
+
   return {
     accounts,
     isLoading,
@@ -94,5 +105,6 @@ export function useAccounts() {
     addAccount,
     updateAccount,
     deleteAccount,
+    moveAccountTo,
   };
 }

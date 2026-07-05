@@ -68,7 +68,9 @@ Rows where `Category = "Carry Over"` are **not** transactions. They set the `sta
 → Sets `Account("Cash").startingBalance = 34.00`
 → No transaction created
 
-**Only the first occurrence of Carry Over per account is applied.** Subsequent Carry Over rows for the same account (e.g., Feb, Mar, etc.) are silently skipped — the app's running balance replaces the need for monthly carry-overs.
+**Only carry-overs from the first month that has any carry-over rows are applied.** For example, if January has the first batch of carry-overs (Cash, Landbank, etc.), only January carry-overs set starting balances. Accounts that first appear in later months' carry-overs (e.g., a new account opened mid-year) default to `startingBalance: 0` — those later carry-overs represent accumulated running balances, not opening balances.
+
+Only the first occurrence of Carry Over per account within that first month is applied. Subsequent Carry Over rows for the same account (e.g., Feb, Mar, etc.) are silently skipped — the app's running balance replaces the need for monthly carry-overs.
 
 **Account detection:** Carry Over row uses whichever account field is populated — `To Account` wins if both are set (seen with GoTyme/GoTyme(Sona) in the sheet), falls back to `From Account`.
 

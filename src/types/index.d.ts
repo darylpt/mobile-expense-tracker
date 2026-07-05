@@ -26,6 +26,8 @@ export interface Account {
   id: string;
   name: string;
   startingBalance: number;
+  /** Controls display order (lower = first). Assigned during DB migration v6. */
+  sortOrder?: number;
 }
 
 /** Represents a user-defined category */
@@ -33,6 +35,8 @@ export interface Category {
   id: string;             // UUID or unique identifier
   name: string;           // e.g., "Food", "Paycheck"
   type: TransactionType;  // Associates category with a transaction type
+  /** Controls display order (lower = first). Assigned during DB migration v6. */
+  sortOrder?: number;
 }
 
 /** Shape of a monthly summary calculated from transactions */

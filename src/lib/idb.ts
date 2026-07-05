@@ -155,6 +155,51 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
         sqStore.createIndex('byTimestamp', 'timestamp', { unique: false });
       }
 
+      // ── Migration: v5 → v6 (category + account sortOrder) ──
+      if (oldVersion < 6) {
+        if (db.objectStoreNames.contains(STORES.CATEGORIES)) {
+          const catStore = transaction.objectStore(STORES.CATEGORIES);
+          let cursor = await catStore.openCursor();
+          let order = 0;
+          while (cursor) {
+            await cursor.update({ ...cursor.value, sortOrder: order });
+            order += 1000;
+            cursor = await cursor.continue();
+          }
+        }
+        if (db.objectStoreNames.contains(STORES.ACCOUNTS)) {
+          const acctStore = transaction.objectStore(STORES.ACCOUNTS);
+          let cursor = await acctStore.openCursor();
+          let order = 0;
+          while (cursor) {
+            await cursor.update({ ...cursor.value, sortOrder: order });
+            order += 1000;
+            cursor = await cursor.continue();
+          }
+        }
+      }
+
+      // ── Migration: v6 → v7 (fill sortOrder on accounts missed by early v6 migration) ──
+      if (oldVersion < 7 && db.objectStoreNames.contains(STORES.ACCOUNTS)) {
+        const acctStore = transaction.objectStore(STORES.ACCOUNTS);
+        // Check if any account lacks sortOrder
+        let needsMigration = false;
+        let cursor = await acctStore.openCursor();
+        while (cursor) {
+          if (cursor.value.sortOrder === undefined) { needsMigration = true; break; }
+          cursor = await cursor.continue();
+        }
+        if (needsMigration) {
+          let order = 0;
+          cursor = await acctStore.openCursor(); // fresh cursor
+          while (cursor) {
+            await cursor.update({ ...cursor.value, sortOrder: order });
+            order += 1000;
+            cursor = await cursor.continue();
+          }
+        }
+      }
+
       // ── Migration: v2 → v3 ──
       if (oldVersion < 3) {
         const txStore = transaction.objectStore(STORES.TRANSACTIONS);
@@ -299,21 +344,29 @@ export async function deleteTransaction(id: string): Promise<void> {
 // ============================================================
 
 /**
- * Get all accounts.
+ * Get all accounts, sorted by sortOrder then name.
  */
 export async function getAllAccounts(): Promise<Account[]> {
   const db = await getDB();
-  return db.getAll(STORES.ACCOUNTS);
+  const accts = await db.getAll(STORES.ACCOUNTS);
+  return accts.sort((a, b) => {
+    const orderCmp = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+    if (orderCmp !== 0) return orderCmp;
+    return a.name.localeCompare(b.name);
+  });
 }
 
 /**
- * Add a new account.
+ * Add a new account. If sortOrder is not set, assigns it to the end.
  */
 export async function addAccount(account: Account): Promise<string> {
   const db = await getDB();
-  await db.add(STORES.ACCOUNTS, account);
-  enqueueSyncEntry(STORES.ACCOUNTS, account.id, 'create', account as unknown as Record<string, unknown>);
-  return account.id;
+  const all = await db.getAll(STORES.ACCOUNTS);
+  const maxOrder = all.reduce((max, a) => Math.max(max, a.sortOrder ?? 0), 0);
+  const record = { ...account, sortOrder: account.sortOrder ?? maxOrder + 1000 };
+  await db.add(STORES.ACCOUNTS, record);
+  enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record as unknown as Record<string, unknown>);
+  return record.id;
 }
 
 /**
@@ -339,25 +392,70 @@ export async function deleteAccount(id: string): Promise<void> {
 }
 
 // ============================================================
+// Account reordering — moves an account to a target position
+// in the sorted list, then renormalizes all sortOrder values.
+// Self-heals ties/undefined values instead of swapping raw numbers.
+// ============================================================
+
+async function reorderAccountsTo(id: string, targetIndex: number): Promise<void> {
+  const db = await getDB();
+  const all = await db.getAll(STORES.ACCOUNTS);
+  const sorted = all.sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name)
+  );
+
+  const fromIdx = sorted.findIndex((a) => a.id === id);
+  if (fromIdx < 0 || targetIndex < 0 || targetIndex >= sorted.length || fromIdx === targetIndex) return;
+
+  const [item] = sorted.splice(fromIdx, 1);
+  sorted.splice(targetIndex, 0, item);
+
+  const tx = db.transaction(STORES.ACCOUNTS, 'readwrite');
+  const store = tx.objectStore(STORES.ACCOUNTS);
+  const updated = sorted.map((acct, i) => ({ ...acct, sortOrder: i * 1000 }));
+  await Promise.all(updated.map((acct) => store.put(acct)));
+  await tx.done;
+
+  for (const acct of updated) {
+    enqueueSyncEntry(STORES.ACCOUNTS, acct.id, 'update', acct as unknown as Record<string, unknown>);
+  }
+}
+
+/** Move account to a specific position (0-based) in the sorted list. */
+export async function moveAccountTo(id: string, targetIndex: number): Promise<void> {
+  return reorderAccountsTo(id, targetIndex);
+}
+
+// ============================================================
 // Category CRUD
 // ============================================================
 
 /**
- * Get all categories.
+ * Get all categories, sorted by sortOrder then name.
  */
 export async function getAllCategories(): Promise<Category[]> {
   const db = await getDB();
-  return db.getAll(STORES.CATEGORIES);
+  const cats = await db.getAll(STORES.CATEGORIES);
+  return cats.sort((a, b) => {
+    const orderCmp = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+    if (orderCmp !== 0) return orderCmp;
+    return a.name.localeCompare(b.name);
+  });
 }
 
 /**
- * Add a new category.
+ * Add a new category. If sortOrder is not set, assigns it to the end of its type group.
  */
 export async function addCategory(category: Category): Promise<string> {
   const db = await getDB();
-  await db.add(STORES.CATEGORIES, category);
-  enqueueSyncEntry(STORES.CATEGORIES, category.id, 'create', category as unknown as Record<string, unknown>);
-  return category.id;
+  const all = await db.getAll(STORES.CATEGORIES);
+  const maxOrder = all
+    .filter((c) => c.type === category.type)
+    .reduce((max, c) => Math.max(max, c.sortOrder ?? 0), 0);
+  const record = { ...category, sortOrder: category.sortOrder ?? maxOrder + 1000 };
+  await db.add(STORES.CATEGORIES, record);
+  enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record as unknown as Record<string, unknown>);
+  return record.id;
 }
 
 /**
@@ -380,6 +478,43 @@ export async function deleteCategory(id: string): Promise<void> {
   const db = await getDB();
   await db.delete(STORES.CATEGORIES, id);
   enqueueSyncEntry(STORES.CATEGORIES, id, 'delete', null);
+}
+
+// ============================================================
+// Category reordering — moves a category to a target position
+// within its type group, then renormalizes all sortOrder values.
+// ============================================================
+
+async function reorderCategoriesTo(id: string, targetIndex: number): Promise<void> {
+  const db = await getDB();
+  const all = await db.getAll(STORES.CATEGORIES);
+  const current = all.find((c) => c.id === id);
+  if (!current) throw new Error(`Category "${id}" not found`);
+
+  const group = all
+    .filter((c) => c.type === current.type)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name));
+
+  const fromIdx = group.findIndex((c) => c.id === id);
+  if (fromIdx < 0 || targetIndex < 0 || targetIndex >= group.length || fromIdx === targetIndex) return;
+
+  const [item] = group.splice(fromIdx, 1);
+  group.splice(targetIndex, 0, item);
+
+  const tx = db.transaction(STORES.CATEGORIES, 'readwrite');
+  const store = tx.objectStore(STORES.CATEGORIES);
+  const updated = group.map((cat, i) => ({ ...cat, sortOrder: i * 1000 }));
+  await Promise.all(updated.map((cat) => store.put(cat)));
+  await tx.done;
+
+  for (const cat of updated) {
+    enqueueSyncEntry(STORES.CATEGORIES, cat.id, 'update', cat as unknown as Record<string, unknown>);
+  }
+}
+
+/** Move category to a specific position (0-based) within its type group. */
+export async function moveCategoryTo(id: string, targetIndex: number): Promise<void> {
+  return reorderCategoriesTo(id, targetIndex);
 }
 
 // ============================================================

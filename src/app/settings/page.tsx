@@ -26,6 +26,7 @@ export default function SettingsPage() {
     addAccount,
     updateAccount,
     deleteAccount,
+    moveAccountTo,
   } = useAccounts();
 
   const {
@@ -34,6 +35,7 @@ export default function SettingsPage() {
     addCategory,
     updateCategory,
     deleteCategory,
+    moveCategoryTo,
   } = useCategories();
 
   return (
@@ -55,12 +57,14 @@ export default function SettingsPage() {
                 onAdd={addAccount}
                 onUpdate={updateAccount}
                 onDelete={deleteAccount}
+                onMoveTo={moveAccountTo}
               />
               <CategoriesSection
                 categories={categories}
                 onAdd={addCategory}
                 onUpdate={updateCategory}
                 onDelete={deleteCategory}
+                onMoveTo={moveCategoryTo}
               />
             </div>
           </div>
@@ -79,13 +83,15 @@ interface AccountsSectionProps {
   onAdd: (account: Omit<Account, 'id'>) => Promise<string>;
   onUpdate: (account: Account) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onMoveTo: (id: string, targetIndex: number) => Promise<void>;
 }
 
-function AccountsSection({ accounts, onAdd, onUpdate, onDelete }: AccountsSectionProps) {
+function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: AccountsSectionProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addMode, setAddMode] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [deleteWarning, setDeleteWarning] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const startEdit = (account: Account) => {
     setEditingId(account.id);
@@ -169,9 +175,31 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete }: AccountsSectio
     }
   };
 
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverId(id);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    setDragOverId(null);
+    const draggedId = e.dataTransfer.getData('text/plain');
+    if (!draggedId || draggedId === targetId) return;
+    const targetIndex = accounts.findIndex((a) => a.id === targetId);
+    if (targetIndex < 0) return;
+    onMoveTo(draggedId, targetIndex);
+  };
+
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
-      <h2 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">Accounts</h2>
+      <h2 className="mb-1 text-base font-semibold text-zinc-900 dark:text-zinc-100">Accounts</h2>
+      <p className="mb-3 text-xs text-zinc-400 dark:text-zinc-500">↕ Drag rows to reorder</p>
 
       {deleteWarning && (
         <p role="status" aria-live="polite" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-400">
@@ -226,19 +254,26 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete }: AccountsSectio
               ) : (
                 <tr
                   key={account.id}
-                  className="border-b border-zinc-100 text-zinc-800 last:border-0 dark:border-zinc-800 dark:text-zinc-200"
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, account.id)}
+                  onDragOver={(e) => handleDragOver(e, account.id)}
+                  onDragLeave={() => setDragOverId(null)}
+                  onDrop={(e) => handleDrop(e, account.id)}
+                  className={`border-b border-zinc-100 text-zinc-800 last:border-0 dark:border-zinc-800 dark:text-zinc-200 ${
+                    dragOverId === account.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                  }`}
                 >
                   <td className="py-2 pr-4 font-medium">{account.name}</td>
                   <td className="py-2 px-2 text-right tabular-nums">
 {formatCurrency(account.startingBalance ?? 0)}
                   </td>
                   <td className="py-2 pl-2 text-right">
-                    <div className="flex justify-end gap-1">
+                    <div className="flex justify-end gap-0.5">
                       <Button variant="ghost" size="sm" onClick={() => startEdit(account)}>
                         Edit
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => handleDelete(account)}>
-                        Delete
+                        Del
                       </Button>
                     </div>
                   </td>
@@ -312,13 +347,15 @@ interface CategoriesSectionProps {
   onAdd: (category: Omit<Category, 'id'>) => Promise<string>;
   onUpdate: (category: Category) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onMoveTo: (id: string, targetIndex: number) => Promise<void>;
 }
 
-function CategoriesSection({ categories, onAdd, onUpdate, onDelete }: CategoriesSectionProps) {
+function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: CategoriesSectionProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addType, setAddType] = useState<TransactionType | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [deleteWarning, setDeleteWarning] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const startEdit = (cat: Category) => {
     setEditingId(cat.id);
@@ -403,11 +440,34 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete }: Categories
   const catsByType = (type: TransactionType) =>
     categories.filter((c) => c.type === type);
 
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverId(id);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string, type: TransactionType) => {
+    e.preventDefault();
+    setDragOverId(null);
+    const draggedId = e.dataTransfer.getData('text/plain');
+    if (!draggedId || draggedId === targetId) return;
+    const group = catsByType(type);
+    const targetIndex = group.findIndex((c) => c.id === targetId);
+    if (targetIndex < 0) return;
+    onMoveTo(draggedId, targetIndex);
+  };
+
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
-      <h2 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">
+      <h2 className="mb-1 text-base font-semibold text-zinc-900 dark:text-zinc-100">
         Categories
       </h2>
+      <p className="mb-3 text-xs text-zinc-400 dark:text-zinc-500">↕ Drag rows to reorder</p>
 
       {deleteWarning && (
         <p role="status" aria-live="polite" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-400">
@@ -460,16 +520,23 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete }: Categories
                     ) : (
                       <tr
                         key={cat.id}
-                        className="border-b border-zinc-100 text-zinc-800 last:border-0 dark:border-zinc-800 dark:text-zinc-200"
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, cat.id)}
+                        onDragOver={(e) => handleDragOver(e, cat.id)}
+                        onDragLeave={() => setDragOverId(null)}
+                        onDrop={(e) => handleDrop(e, cat.id, type)}
+                        className={`border-b border-zinc-100 text-zinc-800 last:border-0 dark:border-zinc-800 dark:text-zinc-200 ${
+                          dragOverId === cat.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                        }`}
                       >
                         <td className="py-2 pr-4 font-medium">{cat.name}</td>
                         <td className="py-2 pl-2 text-right">
-                          <div className="flex justify-end gap-1">
+                          <div className="flex justify-end gap-0.5">
                             <Button variant="ghost" size="sm" onClick={() => startEdit(cat)}>
                               Edit
                             </Button>
                             <Button variant="ghost" size="sm" onClick={() => handleDelete(cat)}>
-                              Delete
+                              Del
                             </Button>
                           </div>
                         </td>

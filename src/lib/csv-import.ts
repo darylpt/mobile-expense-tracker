@@ -162,7 +162,7 @@ export function parseCsv(text: string): ParsedCsv {
     // ponytail: hard cap to keep UI responsive. User splits large CSVs.
   }
 
-  const carryOverBalances = new Map<string, number>(); // account name → starting balance
+  const carryOverEntries = new Map<string, { amount: number; month: number }>(); // account → {amount, month}
   const accountNames = new Set<string>();
   const categoryRows = new Map<string, CsvRow[]>(); // category name → rows for type inference
   const transactions: Transaction[] = [];
@@ -174,6 +174,7 @@ export function parseCsv(text: string): ParsedCsv {
   let transferCount = 0;
   let carryOverCount = 0;
   let totalAmount = 0;
+  let firstCarryOverMonth: number | null = null;
 
   for (let i = 0; i < rowsToParse.length; i++) {
     const line = rowsToParse[i];
@@ -213,13 +214,22 @@ export function parseCsv(text: string): ParsedCsv {
       continue;
     }
 
+    // Extract month from parsed date for carry-over filtering
+    const coMonth = parseInt(date.split('-')[1], 10);
+
     // ── Carry Over handling ──
     if (category.toLowerCase() === 'carry over') {
+      if (firstCarryOverMonth === null) {
+        firstCarryOverMonth = coMonth;
+      }
       const targetAccount = toAccount || fromAccount;
       if (targetAccount) {
         accountNames.add(targetAccount);
-        if (!carryOverBalances.has(targetAccount)) {
-          carryOverBalances.set(targetAccount, amount);
+        // Only record the first carry-over per account, AND only from the
+        // first month that has carry-over rows. Later months' carry-overs
+        // represent accumulated running balances, not opening balances.
+        if (!carryOverEntries.has(targetAccount) && coMonth === firstCarryOverMonth) {
+          carryOverEntries.set(targetAccount, { amount, month: coMonth });
         }
         // ponytail: subsequent carry-overs for same account are silently skipped
       }
@@ -268,8 +278,8 @@ export function parseCsv(text: string): ParsedCsv {
       date,
       type: txType,
       category,
-      fromAccount: fromAccount || null,
-      toAccount: toAccount || null,
+      fromAccount: fromAccount ? slugId(fromAccount) : null,
+      toAccount: toAccount ? slugId(toAccount) : null,
       description: description || undefined,
       createdAt: now,
       updatedAt: now,
@@ -278,17 +288,22 @@ export function parseCsv(text: string): ParsedCsv {
 
   // ── Build accounts ──
   const accounts: Account[] = [];
+  let acctSortOrder = 0;
   for (const name of accountNames) {
-    const startingBalance = carryOverBalances.get(name) ?? 0;
+    const entry = carryOverEntries.get(name);
+    const startingBalance = entry ? entry.amount : 0;
     accounts.push({
       id: slugId(name),
       name,
       startingBalance,
+      sortOrder: acctSortOrder,
     });
+    acctSortOrder += 1000;
   }
 
   // ── Build categories (excluding Carry Over) ──
   const categories: Category[] = [];
+  let catSortOrder = 0;
   for (const [catName, rows] of categoryRows) {
     if (catName.toLowerCase() === 'carry over') continue; // not a real category
     const categoryType = inferCategoryType(rows);
@@ -296,7 +311,9 @@ export function parseCsv(text: string): ParsedCsv {
       id: slugId(catName),
       name: catName,
       type: categoryType,
+      sortOrder: catSortOrder,
     });
+    catSortOrder += 1000;
   }
 
   // ── Summary ──
