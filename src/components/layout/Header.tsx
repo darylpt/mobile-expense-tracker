@@ -10,7 +10,8 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext';
 
 interface HeaderProps {
   /** Optional title override. Defaults to "Expense Tracker" */
@@ -21,6 +22,13 @@ interface HeaderProps {
 
 export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { state, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push('/login');
+  };
 
   // ponytail: localStorage for tab preferences — simple, no schema, no IndexedDB migration
   // Listens for `storage` event so same-page toggles in Settings take effect immediately
@@ -48,6 +56,14 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
           <span className="hidden rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 sm:inline-block">
             PWA
           </span>
+          {state === 'authenticated' && (
+            <button
+              onClick={handleSignOut}
+              className="rounded-lg px-2.5 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            >
+              Sign out
+            </button>
+          )}
         </div>
       </div>
 
