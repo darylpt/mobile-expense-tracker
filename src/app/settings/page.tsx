@@ -11,8 +11,10 @@ import React, { useState, useRef } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
+import { useAuth } from '@/context/AuthContext';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useCategories } from '@/hooks/useCategories';
+import { useRouter } from 'next/navigation';
 import { getAllTransactions, exportAllData, importAllData, transactionsToCsv, importFromCsv } from '@/lib/idb';
 import { formatCurrency } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
@@ -20,6 +22,9 @@ import { parseCsv, type ParsedCsv } from '@/lib/csv-import';
 import { CsvImportPreview } from '@/components/forms/CsvImportPreview';
 
 export default function SettingsPage() {
+  const { state: authState, signOut } = useAuth();
+  const router = useRouter();
+
   const {
     accounts,
     isLoading: accountsLoading,
@@ -38,6 +43,11 @@ export default function SettingsPage() {
     moveCategoryTo,
   } = useCategories();
 
+  const handleSignOut = async () => {
+    await signOut();
+    router.push('/login');
+  };
+
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
       <Header title="Settings" />
@@ -50,6 +60,15 @@ export default function SettingsPage() {
             <TabVisibilitySection />
             <BackupSection />
             <ImportSection />
+
+            {authState === 'authenticated' && (
+              <>
+                <hr className="my-4 border-zinc-200 dark:border-zinc-700" />
+                <Button variant="ghost" size="sm" onClick={handleSignOut}>
+                  Sign out
+                </Button>
+              </>
+            )}
 
             <div className="lg:grid lg:grid-cols-2 lg:gap-6">
               <AccountsSection

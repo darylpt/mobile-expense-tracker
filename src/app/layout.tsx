@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { AuthProvider, AuthGuard } from "@/context/AuthContext";
 import { TransactionProvider } from "@/context/TransactionContext";
 
 const geistSans = Geist({
@@ -49,7 +50,11 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
       </head>
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
-        <TransactionProvider>{children}</TransactionProvider>
+        <AuthProvider>
+          <AuthGuard>
+            <TransactionProvider>{children}</TransactionProvider>
+          </AuthGuard>
+        </AuthProvider>
       </body>
     </html>
   );

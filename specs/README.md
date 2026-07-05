@@ -23,6 +23,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | Seed data removal | ✅ Done | `DEFAULT_ACCOUNTS`, `DEFAULT_CATEGORIES`, `SEED_TRANSACTIONS`, `DEFAULT_BUDGET_TARGETS` removed from constants. `seedTransactionsIfEmpty()` deleted. App starts clean — user imports their own data. |
 | README rewrite | ✅ Done | Boilerplate Next.js README replaced with full project docs: architecture, routes, data model, scripts, backup guidance. |
 | Category reordering | ✅ Done | `sortOrder` field on Category, DB v6 migration, up/down buttons in Settings. |
+| [`magic-link-auth.md`](./magic-link-auth.md) | 🟡 Ready to hand off | Magic-link login page + route guard. Invite-only (no public signup). No auth when Supabase not configured. |
 | Subcategory support | ⚪ Not yet scoped | Phase 1.5, lowest priority. |
 | `phase-2-investments.md` | 🔵 Deferred | Stock Portfolio Tracker, Dividend Log, DCA Rotation Log. Out of scope until Phase 1.5 wraps. |
 
