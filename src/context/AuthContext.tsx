@@ -81,9 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const { error } = await supabase.auth.signInWithOtp({
         email,
-        // ponytail: allow create — email access is sufficient auth for a household app.
-        // To lock down, set shouldCreateUser: false and invite via Supabase dashboard.
-        options: { shouldCreateUser: true },
+        options: { shouldCreateUser: false },
       });
 
       if (error) return { error: error.message };
