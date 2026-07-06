@@ -914,6 +914,10 @@ function SyncSection() {
   const router = useRouter();
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<string | null>(() => {
+    const stored = localStorage.getItem('lastSyncTime');
+    return stored ? formatSyncTime(Number(stored)) : null;
+  });
 
   if (authState !== 'authenticated') return null;
 
@@ -923,9 +927,14 @@ function SyncSection() {
     try {
       await backgroundSync();
       const remaining = await getSyncQueueCount();
-      setSyncMsg(remaining > 0
-        ? `${remaining} entr${remaining === 1 ? 'y' : 'ies'} couldn't be synced — check connection.`
-        : 'Synced!');
+      if (remaining === 0) {
+        const now = Date.now();
+        localStorage.setItem('lastSyncTime', String(now));
+        setLastSync(formatSyncTime(now));
+        setSyncMsg('Synced!');
+      } else {
+        setSyncMsg(`${remaining} entr${remaining === 1 ? 'y' : 'ies'} couldn't be synced — check connection.`);
+      }
     } catch {
       setSyncMsg('Sync failed — check connection.');
     } finally {
@@ -942,9 +951,16 @@ function SyncSection() {
       <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
         Push local changes to the cloud and pull the latest data.
       </p>
-      <Button variant="secondary" size="sm" onClick={handleSync} disabled={isSyncing}>
-        {isSyncing ? 'Syncing…' : 'Sync now'}
-      </Button>
+      <div className="flex items-center gap-3">
+        <Button variant="secondary" size="sm" onClick={handleSync} disabled={isSyncing}>
+          {isSyncing ? 'Syncing…' : 'Sync now'}
+        </Button>
+        {lastSync && (
+          <span className="text-xs text-zinc-400 dark:text-zinc-500">
+            Last sync: {lastSync}
+          </span>
+        )}
+      </div>
       {syncMsg && (
         <p role="status" aria-live="polite" className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
           {syncMsg}
@@ -952,6 +968,28 @@ function SyncSection() {
       )}
     </section>
   );
+}
+
+function formatSyncTime(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+
+  const hours = d.getHours().toString().padStart(2, '0');
+  const mins = d.getMinutes().toString().padStart(2, '0');
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) return `today at ${hours}:${mins}`;
+
+  const month = (d.getMonth() + 1).toString().padStart(2, '0');
+  const day = d.getDate().toString().padStart(2, '0');
+  return `${month}/${day} ${hours}:${mins}`;
 }
 
 // Loading skeleton

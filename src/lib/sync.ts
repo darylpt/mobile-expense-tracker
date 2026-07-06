@@ -39,6 +39,7 @@ const FIELD_MAP: Record<string, string> = {
   updatedAt: 'updated_at',
   deletedAt: 'deleted_at',
   userId: 'user_id',
+  sortOrder: 'sort_order',
   // stored as camelCase in IDB already — no rename needed for these but map for completeness:
   created_at: 'created_at',
   updated_at: 'updated_at',
