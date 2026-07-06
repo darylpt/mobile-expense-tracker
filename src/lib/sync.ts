@@ -97,10 +97,17 @@ export async function processSyncQueue(): Promise<void> {
   if (!user) return;
 
   const db = await getDB();
-  const tx = db.transaction(STORES.SYNC_QUEUE, 'readwrite');
-  const store = tx.objectStore(STORES.SYNC_QUEUE);
-  const index = store.index('byTimestamp');
-  const allEntries = await index.getAll();
+
+  // Read — single read-only transaction  (ponytail: getAllFromIndex preserves FIFO order from the index)
+  const allEntries = await db.getAllFromIndex(STORES.SYNC_QUEUE, 'byTimestamp');
+  if (allEntries.length === 0) return;
+
+  // ── 2. Process — network calls OUTSIDE any IndexedDB transaction ──
+  // Collect write operations to apply in a fresh transaction below.
+  // IndexedDB transactions auto-commit when control returns to the event loop,
+  // so we cannot hold one open across an await boundary.
+  const drops: IDBValidKey[] = [];
+  const retries: Array<typeof allEntries[number]> = [];
 
   for (const entry of allEntries) {
     try {
@@ -130,20 +137,28 @@ export async function processSyncQueue(): Promise<void> {
         }
       }
 
-      // Success — remove from queue
-      await store.delete(entry.id);
+      // Success — will drop from queue
+      drops.push(entry.id);
     } catch (err) {
       console.warn('[Sync] Failed to sync entry, retrying later:', entry.id, err);
       entry.retryCount++;
       if (entry.retryCount >= 5) {
         console.warn('[Sync] Dropping queue entry after 5 retries:', entry.id);
-        await store.delete(entry.id);
+        drops.push(entry.id);
       } else {
-        await store.put(entry);
+        retries.push(entry);
       }
     }
   }
 
+  // ── 3. Write — fresh readwrite transaction (no network calls) ──
+  const tx = db.transaction(STORES.SYNC_QUEUE, 'readwrite');
+  for (const id of drops) {
+    await tx.store.delete(id);
+  }
+  for (const entry of retries) {
+    await tx.store.put(entry);
+  }
   await tx.done;
 }
 
