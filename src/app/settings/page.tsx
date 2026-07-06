@@ -20,6 +20,7 @@ import { formatCurrency } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
 import { parseCsv, type ParsedCsv } from '@/lib/csv-import';
 import { getSyncQueueCount } from '@/lib/idb';
+import { backgroundSync } from '@/lib/sync';
 import { CsvImportPreview } from '@/components/forms/CsvImportPreview';
 
 export default function SettingsPage() {
@@ -45,9 +46,11 @@ export default function SettingsPage() {
   } = useCategories();
 
   const handleSignOut = async () => {
+    // Try to push pending changes before signing out
+    try { await backgroundSync(); } catch { /* offline or error — check queue below */ }
     const pending = await getSyncQueueCount();
     if (pending > 0 && !window.confirm(
-      `You have ${pending} unsaved change${pending === 1 ? '' : 's'} that haven't been synced to the cloud yet. Signing out will lose these changes. Continue?`
+      `You have ${pending} unsaved change${pending === 1 ? '' : 's'} that couldn't be synced. Signing out will lose these changes. Continue?`
     )) return;
     await signOut();
     router.push('/login');
