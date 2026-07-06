@@ -25,7 +25,7 @@ interface HeaderProps {
 export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { state, signOut } = useAuth();
+  const { state, user, signOut } = useAuth();
 
   const handleSignOut = async () => {
     // Try to push pending changes before signing out
@@ -65,12 +65,17 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
             PWA
           </span>
           {state === 'authenticated' && (
-            <button
-              onClick={handleSignOut}
-              className="rounded-lg px-2.5 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-            >
-              Sign out
-            </button>
+            <>
+              <span className="hidden text-xs text-zinc-400 dark:text-zinc-500 sm:inline" title={user?.email ?? ''}>
+                {user?.email ?? ''}
+              </span>
+              <button
+                onClick={handleSignOut}
+                className="rounded-lg px-2.5 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              >
+                Sign out
+              </button>
+            </>
           )}
         </div>
       </div>
