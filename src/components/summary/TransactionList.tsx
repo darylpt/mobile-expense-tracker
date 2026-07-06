@@ -6,7 +6,7 @@
 
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useTransactionContext } from '@/context/TransactionContext';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -53,6 +53,12 @@ export function TransactionList() {
   const getAccountParam = () => searchParams.get('account');
   const getCatParam = () => searchParams.get('cat');
   const getQParam = () => searchParams.get('q');
+  const getGroupParam = () => searchParams.get('group');
+  const PAGE_SIZE = 50;
+  const getPageParam = () => {
+    const p = searchParams.get('page');
+    return p ? Math.max(1, parseInt(p, 10)) : 1;
+  };
 
   // ==================================================================
   // Derived state
@@ -158,6 +164,56 @@ export function TransactionList() {
     // Sort by date descending (newest first)
     return [...result].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [ctx.transactions, searchParams]);
+
+  // ==================================================================
+  // Pagination & grouping state
+  // ==================================================================
+
+  const hasActiveFilters = useMemo(() => {
+    const typeRaw = searchParams.get('type');
+    const selectedTypes = typeRaw ? (typeRaw.split(',').filter(Boolean) as TransactionType[]) : ['income', 'expense', 'transaction'];
+    return !!searchParams.get('month') || !!searchParams.get('account') || !!searchParams.get('cat') || !!searchParams.get('q') || selectedTypes.length < 3;
+  }, [searchParams]);
+
+  const totalPages = hasActiveFilters ? 1 : Math.max(1, Math.ceil(filteredTransactions.length / PAGE_SIZE));
+  const page = hasActiveFilters ? 1 : Math.min(getPageParam(), totalPages);
+
+  const pageTransactions = useMemo(() => {
+    if (hasActiveFilters) return filteredTransactions;
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredTransactions.slice(start, start + PAGE_SIZE);
+  }, [filteredTransactions, hasActiveFilters, page]);
+
+  const grouped = useMemo(() => {
+    if (!searchParams.get('group')) return null;
+    const groups: { date: string; displayDate: string; txs: Transaction[] }[] = [];
+    let currentDate = '';
+    let currentGroup: Transaction[] = [];
+    for (const tx of pageTransactions) {
+      if (tx.date !== currentDate) {
+        if (currentGroup.length > 0) {
+          groups.push({ date: currentDate, displayDate: new Date(currentDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }), txs: currentGroup });
+        }
+        currentDate = tx.date;
+        currentGroup = [tx];
+      } else {
+        currentGroup.push(tx);
+      }
+    }
+    if (currentGroup.length > 0) {
+      groups.push({ date: currentDate, displayDate: new Date(currentDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }), txs: currentGroup });
+    }
+    return groups;
+  }, [pageTransactions, searchParams]);
+
+  // Reset page param when filters change
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (params.has('page') && hasActiveFilters) {
+      params.delete('page');
+      router.replace(`/transactions?${params.toString()}`, { scroll: false });
+    }
+  }, [hasActiveFilters, router, searchParams]);
 
   // Summary stats for desktop metric cards (must be after filteredTransactions)
   const summaryStats = useMemo(() => {
@@ -310,6 +366,17 @@ export function TransactionList() {
             })}
           </div>
 
+          <button
+            onClick={() => setParam('group', getGroupParam() ? null : 'date')}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              getGroupParam()
+                ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
+                : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+            }`}
+          >
+            {getGroupParam() ? 'Grouped' : 'Group by date'}
+          </button>
+
           <div className="flex-1" />
 
           <Button
@@ -405,6 +472,16 @@ export function TransactionList() {
               </button>
             );
           })}
+          <button
+            onClick={() => setParam('group', getGroupParam() ? null : 'date')}
+            className={`ml-1 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              getGroupParam()
+                ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
+                : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+            }`}
+          >
+            {getGroupParam() ? 'Grouped' : 'Group by date'}
+          </button>
         </div>
 
         <span className="h-6 w-px bg-zinc-200 dark:bg-zinc-700" />
@@ -506,75 +583,156 @@ export function TransactionList() {
       ) : (
         <>
           {/* ---- Mobile: card layout ---- */}
-          <div className="divide-y divide-zinc-100 dark:divide-zinc-700 lg:hidden">
-            {filteredTransactions.map((tx) => (
-              <div
-                key={tx.id}
-                className="flex items-start gap-3 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
-              >
-                <span className={`mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
-                  tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
-                }`} />
+          {grouped ? (
+            <div className="lg:hidden">
+              {grouped.map((group, gi) => (
+                <div key={group.date}>
+                  <div className={`mb-2 text-xs font-semibold text-zinc-500 dark:text-zinc-400${gi > 0 ? ' mt-4' : ''}`}>
+                    {group.displayDate}
+                  </div>
+                  <div className="divide-y divide-zinc-100 dark:divide-zinc-700">
+                    {group.txs.map(tx => (
+                      <div
+                        key={tx.id}
+                        className="flex items-start gap-3 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
+                      >
+                        <span className={`mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
+                          tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
+                        }`} />
 
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                      {tx.category}
-                    </span>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <span className={`text-sm font-semibold tabular-nums ${
-                        tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
-                        tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
-                        'text-blue-700 dark:text-blue-400'
-                      }`}>
-                        {formatCurrency(tx.amount)}
-                      </span>
-                      <div className="relative">
-                        <button onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
-                          className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
-                          aria-label="Transaction actions">
-                          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                          </svg>
-                        </button>
-                        {actionMenuId === tx.id && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setActionMenuId(null)} />
-                            <div className="absolute right-0 top-full z-20 mt-1 w-32 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-600 dark:bg-zinc-800">
-                              <button onClick={() => { setActionMenuId(null); handleEdit(tx); }}
-                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700">
-                                Edit
-                              </button>
-                              <button onClick={() => { setActionMenuId(null); handleDelete(tx.id); }}
-                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-700">
-                                Delete
-                              </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="min-w-0 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                              {tx.category}
+                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className={`text-sm font-semibold tabular-nums ${
+                                tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
+                                tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
+                                'text-blue-700 dark:text-blue-400'
+                              }`}>
+                                {formatCurrency(tx.amount)}
+                              </span>
+                              <div className="relative">
+                                <button onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
+                                  className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+                                  aria-label="Transaction actions">
+                                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                                  </svg>
+                                </button>
+                                {actionMenuId === tx.id && (
+                                  <>
+                                    <div className="fixed inset-0 z-10" onClick={() => setActionMenuId(null)} />
+                                    <div className="absolute right-0 top-full z-20 mt-1 w-32 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-600 dark:bg-zinc-800">
+                                      <button onClick={() => { setActionMenuId(null); handleEdit(tx); }}
+                                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700">
+                                        Edit
+                                      </button>
+                                      <button onClick={() => { setActionMenuId(null); handleDelete(tx.id); }}
+                                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-700">
+                                        Delete
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
                             </div>
-                          </>
-                        )}
+                          </div>
+
+                          <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                            {tx.type === 'income'
+                              ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
+                              : tx.type === 'expense'
+                                ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
+                                : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
+                            <span className="mx-1">·</span>
+                            {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </div>
+
+                          {tx.description && (
+                            <div className="mt-0.5 truncate text-xs text-zinc-400 dark:text-zinc-500">
+                              {tx.description}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-700 lg:hidden">
+              {pageTransactions.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="flex items-start gap-3 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
+                >
+                  <span className={`mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
+                    tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
+                  }`} />
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        {tx.category}
+                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className={`text-sm font-semibold tabular-nums ${
+                          tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
+                          tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
+                          'text-blue-700 dark:text-blue-400'
+                        }`}>
+                          {formatCurrency(tx.amount)}
+                        </span>
+                        <div className="relative">
+                          <button onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
+                            className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+                            aria-label="Transaction actions">
+                            <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                              <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                            </svg>
+                          </button>
+                          {actionMenuId === tx.id && (
+                            <>
+                              <div className="fixed inset-0 z-10" onClick={() => setActionMenuId(null)} />
+                              <div className="absolute right-0 top-full z-20 mt-1 w-32 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-600 dark:bg-zinc-800">
+                                <button onClick={() => { setActionMenuId(null); handleEdit(tx); }}
+                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700">
+                                  Edit
+                                </button>
+                                <button onClick={() => { setActionMenuId(null); handleDelete(tx.id); }}
+                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-700">
+                                  Delete
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                    {tx.type === 'income'
-                      ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
-                      : tx.type === 'expense'
-                        ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
-                        : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
-                    <span className="mx-1">·</span>
-                    {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </div>
-
-                  {tx.description && (
-                    <div className="mt-0.5 truncate text-xs text-zinc-400 dark:text-zinc-500">
-                      {tx.description}
+                    <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                      {tx.type === 'income'
+                        ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
+                        : tx.type === 'expense'
+                          ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
+                          : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
+                      <span className="mx-1">·</span>
+                      {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </div>
-                  )}
+
+                    {tx.description && (
+                      <div className="mt-0.5 truncate text-xs text-zinc-400 dark:text-zinc-500">
+                        {tx.description}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
 
           {/* ---- Desktop: table layout ---- */}
           <table className="hidden lg:table w-full">
@@ -589,72 +747,152 @@ export function TransactionList() {
                 <th className="w-20 pb-2 pl-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700">
-              {filteredTransactions.map((tx) => (
-                <tr key={tx.id} className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
-                  <td className="py-2.5 pr-4">
-                    <span className={`block h-2 w-2 rounded-full ${
-                      tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
-                    }`} />
-                  </td>
-                  <td className="py-2.5 pr-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                    {tx.category}
-                  </td>
-                  <td className="py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
-                    {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
-                  </td>
-                  <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
-                    {tx.type === 'income'
-                      ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
-                      : tx.type === 'expense'
-                        ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
-                        : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
-                  </td>
-                  <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
-                    {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </td>
-                  <td className={`py-2.5 pl-4 text-right text-sm font-semibold tabular-nums ${
-                    tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
-                    tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
-                    'text-zinc-700 dark:text-zinc-300'
-                  }`}>
-                    {formatCurrency(tx.amount)}
-                  </td>
-                  <td className="whitespace-nowrap py-2.5 pl-4 text-right">
-                    <button
-                      onClick={() => handleEdit(tx)}
-                      className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-blue-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-blue-400"
-                      aria-label="Edit transaction"
-                    >
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => handleDelete(tx.id)}
-                      className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-red-400"
-                      aria-label="Delete transaction"
-                    >
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                    {deletingId === tx.id && (
-                      <span className="ml-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-transparent dark:border-zinc-600 dark:border-t-transparent" />
-                    )}
-                  </td>
-                </tr>
-              ))}
+            <tbody>
+              {grouped ? (
+                grouped.flatMap((group) => [
+                  <tr key={`hdr-${group.date}`} className="border-b border-zinc-100 dark:border-zinc-700">
+                    <td colSpan={7} className="py-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                      {group.displayDate}
+                    </td>
+                  </tr>,
+                  ...group.txs.map(tx => (
+                    <tr key={tx.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-700 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
+                      <td className="py-2.5 pr-4">
+                        <span className={`block h-2 w-2 rounded-full ${
+                          tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
+                        }`} />
+                      </td>
+                      <td className="py-2.5 pr-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        {tx.category}
+                      </td>
+                      <td className="py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
+                        {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
+                      </td>
+                      <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
+                        {tx.type === 'income'
+                          ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
+                          : tx.type === 'expense'
+                            ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
+                            : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
+                      </td>
+                      <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
+                        {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
+                      <td className={`py-2.5 pl-4 text-right text-sm font-semibold tabular-nums ${
+                        tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
+                        tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
+                        'text-zinc-700 dark:text-zinc-300'
+                      }`}>
+                        {formatCurrency(tx.amount)}
+                      </td>
+                      <td className="whitespace-nowrap py-2.5 pl-4 text-right">
+                        <button
+                          onClick={() => handleEdit(tx)}
+                          className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-blue-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-blue-400"
+                          aria-label="Edit transaction"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDelete(tx.id)}
+                          className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-red-400"
+                          aria-label="Delete transaction"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                        {deletingId === tx.id && (
+                          <span className="ml-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-transparent dark:border-zinc-600 dark:border-t-transparent" />
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ])
+              ) : (
+                pageTransactions.map(tx => (
+                  <tr key={tx.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-700 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
+                    <td className="py-2.5 pr-4">
+                      <span className={`block h-2 w-2 rounded-full ${
+                        tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
+                      }`} />
+                    </td>
+                    <td className="py-2.5 pr-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                      {tx.category}
+                    </td>
+                    <td className="py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
+                      {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
+                    </td>
+                    <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
+                      {tx.type === 'income'
+                        ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
+                        : tx.type === 'expense'
+                          ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
+                          : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
+                    </td>
+                    <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
+                      {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </td>
+                    <td className={`py-2.5 pl-4 text-right text-sm font-semibold tabular-nums ${
+                      tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
+                      tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
+                      'text-zinc-700 dark:text-zinc-300'
+                    }`}>
+                      {formatCurrency(tx.amount)}
+                    </td>
+                    <td className="whitespace-nowrap py-2.5 pl-4 text-right">
+                      <button
+                        onClick={() => handleEdit(tx)}
+                        className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-blue-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-blue-400"
+                        aria-label="Edit transaction"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => handleDelete(tx.id)}
+                        className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-red-400"
+                        aria-label="Delete transaction"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                      {deletingId === tx.id && (
+                        <span className="ml-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-transparent dark:border-zinc-600 dark:border-t-transparent" />
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </>
       )}
 
-      {/* Desktop table footer */}
-      <div className="hidden lg:flex lg:justify-end lg:mt-4">
+      {/* Table footer — counts + pagination */}
+      <div className="flex items-center justify-between mt-4">
         <span className="text-xs text-zinc-500 dark:text-zinc-400">
-          Showing {filteredTransactions.length} of {ctx.transactions.length} transaction{ctx.transactions.length !== 1 ? 's' : ''}
+          Showing {pageTransactions.length} of {ctx.transactions.length} transaction{ctx.transactions.length !== 1 ? 's' : ''}
         </span>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              Page {page} of {totalPages}
+            </span>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setParam('page', String(page - 1))}>
+                Previous
+              </Button>
+              <Button variant="ghost" size="sm" disabled={page >= totalPages} onClick={() => setParam('page', String(page + 1))}>
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Edit transaction modal */}
