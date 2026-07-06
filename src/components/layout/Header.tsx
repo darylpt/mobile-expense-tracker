@@ -12,6 +12,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
+import { getSyncQueueCount } from '@/lib/idb';
 
 interface HeaderProps {
   /** Optional title override. Defaults to "Expense Tracker" */
@@ -26,6 +27,10 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
   const { state, signOut } = useAuth();
 
   const handleSignOut = async () => {
+    const pending = await getSyncQueueCount();
+    if (pending > 0 && !window.confirm(
+      `You have ${pending} unsaved change${pending === 1 ? '' : 's'} that haven't been synced to the cloud yet. Signing out will lose these changes. Continue?`
+    )) return;
     await signOut();
     router.push('/login');
   };

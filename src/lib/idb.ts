@@ -282,6 +282,14 @@ export async function clearAllLocalData(): Promise<void> {
  * data-loss risk becomes a concern, merge both writes into a
  * single readwrite transaction.
  */
+/**
+ * Count pending sync entries that haven't been pushed to Supabase yet.
+ */
+export async function getSyncQueueCount(): Promise<number> {
+  const db = await getDB();
+  return db.count(STORES.SYNC_QUEUE);
+}
+
 export async function enqueueSyncEntry(
   storeName: string,
   recordId: string,
