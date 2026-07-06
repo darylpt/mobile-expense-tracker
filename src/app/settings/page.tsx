@@ -68,6 +68,7 @@ export default function SettingsPage() {
             <TabVisibilitySection />
             <BackupSection />
             <ImportSection />
+            <SyncSection />
 
             {authState === 'authenticated' && (
               <>
@@ -900,6 +901,52 @@ Date,Amount,Description,Type,Category,From Account,To Account
         onCancel={handleCancel}
         isImporting={isImporting}
       />
+    </section>
+  );
+}
+
+// ============================================================
+// Sync Section — manual trigger to push local changes to cloud
+// ============================================================
+
+function SyncSection() {
+  const { state: authState } = useAuth();
+  const router = useRouter();
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  if (authState !== 'authenticated') return null;
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    setSyncMsg(null);
+    try {
+      await backgroundSync();
+      setSyncMsg('Synced!');
+    } catch {
+      setSyncMsg('Sync failed — check connection.');
+    } finally {
+      setIsSyncing(false);
+      router.refresh();
+    }
+  };
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
+      <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+        Cloud Sync
+      </h2>
+      <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+        Push local changes to the cloud and pull the latest data.
+      </p>
+      <Button variant="secondary" size="sm" onClick={handleSync} disabled={isSyncing}>
+        {isSyncing ? 'Syncing…' : 'Sync now'}
+      </Button>
+      {syncMsg && (
+        <p role="status" aria-live="polite" className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
+          {syncMsg}
+        </p>
+      )}
     </section>
   );
 }
