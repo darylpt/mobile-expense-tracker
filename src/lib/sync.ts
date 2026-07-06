@@ -19,7 +19,7 @@
 'use client';
 
 import { supabase } from './supabase';
-import { getDB } from './idb';
+import { getDB, ensureUuids } from './idb';
 import { STORES } from './constants';
 // SyncQueueEntry and SyncOperation types live in idb.ts (data layer)
 
@@ -256,6 +256,9 @@ export async function backgroundSync(): Promise<void> {
   if (!user) return;
 
   try {
+    // 0. Migrate any legacy slug IDs to proper UUIDs before syncing
+    await ensureUuids();
+
     // 1. Push local changes
     await processSyncQueue();
 

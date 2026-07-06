@@ -859,6 +859,111 @@ export function transactionsToCsv(txs: Transaction[]): string {
 }
 
 // ============================================================
+// UUID data migration — convert existing slug IDs to proper UUIDs
+// ============================================================
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(s: string): boolean {
+  return UUID_RE.test(s);
+}
+
+/**
+ * One-shot migration: find all accounts and categories whose IDs are not
+ * valid UUIDs (e.g. from an old CSV import that used slugId()), generate
+ * new UUIDs for them, and update every cross-reference:
+ *
+ *   - accounts store (new ID)
+ *   - categories store (new ID)
+ *   - transactions store (fromAccount / toAccount)
+ *   - sync queue (recordId + payload fields)
+ *
+ * Safe to call repeatedly — only touches records with non-UUID IDs.
+ */
+export async function ensureUuids(): Promise<void> {
+  const db = await getDB();
+
+  // ── 1. Accounts ──
+  const accounts = await db.getAll(STORES.ACCOUNTS);
+  const acctMap = new Map<string, string>(); // old slug → new UUID
+  for (const a of accounts) {
+    if (!isUuid(a.id)) {
+      const newId = crypto.randomUUID();
+      acctMap.set(a.id, newId);
+      a.id = newId;
+      await db.put(STORES.ACCOUNTS, a);
+    }
+  }
+
+  // ── 2. Categories ──
+  const categories = await db.getAll(STORES.CATEGORIES);
+  const catMap = new Map<string, string>(); // old slug → new UUID
+  for (const c of categories) {
+    if (!isUuid(c.id)) {
+      const newId = crypto.randomUUID();
+      catMap.set(c.id, newId);
+      c.id = newId;
+      await db.put(STORES.CATEGORIES, c);
+    }
+  }
+
+  if (acctMap.size === 0 && catMap.size === 0) return; // nothing to migrate
+
+  // ── 3. Transactions — remap fromAccount / toAccount ──
+  const transactions = await db.getAll(STORES.TRANSACTIONS);
+  for (const tx of transactions) {
+    let changed = false;
+    if (tx.fromAccount && acctMap.has(tx.fromAccount)) {
+      tx.fromAccount = acctMap.get(tx.fromAccount)!;
+      changed = true;
+    }
+    if (tx.toAccount && acctMap.has(tx.toAccount)) {
+      tx.toAccount = acctMap.get(tx.toAccount)!;
+      changed = true;
+    }
+    if (changed) {
+      await db.put(STORES.TRANSACTIONS, tx);
+    }
+  }
+
+  // ── 4. Sync queue — remap IDs in recordId and payload ──
+  const entries = await db.getAll(STORES.SYNC_QUEUE);
+  for (const entry of entries) {
+    let changed = false;
+
+    // Remap recordId
+    if (acctMap.has(entry.recordId)) {
+      entry.recordId = acctMap.get(entry.recordId)!;
+      changed = true;
+    } else if (catMap.has(entry.recordId)) {
+      entry.recordId = catMap.get(entry.recordId)!;
+      changed = true;
+    }
+
+    // Remap payload fields
+    if (entry.payload) {
+      const p = entry.payload as Record<string, unknown>;
+      if (typeof p.id === 'string') {
+        if (acctMap.has(p.id)) { p.id = acctMap.get(p.id)!; changed = true; }
+        else if (catMap.has(p.id)) { p.id = catMap.get(p.id)!; changed = true; }
+      }
+      if (typeof p.fromAccount === 'string' && acctMap.has(p.fromAccount)) {
+        p.fromAccount = acctMap.get(p.fromAccount)!;
+        changed = true;
+      }
+      if (typeof p.toAccount === 'string' && acctMap.has(p.toAccount)) {
+        p.toAccount = acctMap.get(p.toAccount)!;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      await db.put(STORES.SYNC_QUEUE, entry);
+    }
+  }
+}
+
+// ============================================================
 // CSV Import
 // ============================================================
 

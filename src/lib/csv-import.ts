@@ -98,14 +98,6 @@ function parseCsvLine(line: string): string[] {
   return cols;
 }
 
-/** Generate a slug ID from a name: lowercase, non-alphanum → hyphens */
-function slugId(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-}
-
 /** Parse M/D/YYYY → YYYY-MM-DD. Returns null on invalid input. */
 function parseDate(raw: string): string | null {
   const trimmed = raw.trim();
@@ -278,12 +270,25 @@ export function parseCsv(text: string): ParsedCsv {
       date,
       type: txType,
       category,
-      fromAccount: fromAccount ? slugId(fromAccount) : null,
-      toAccount: toAccount ? slugId(toAccount) : null,
+      fromAccount: fromAccount || null,
+      toAccount: toAccount || null,
       description: description || undefined,
       createdAt: now,
       updatedAt: now,
     });
+  }
+
+  // ── Generate UUIDs for all accounts and categories ──
+  // Map from lowercase name for case-insensitive matching
+  const accountUuid = new Map<string, string>();
+  for (const name of accountNames) {
+    accountUuid.set(name.toLowerCase(), crypto.randomUUID());
+  }
+  const categoryUuid = new Map<string, string>();
+  for (const [catName] of categoryRows) {
+    if (catName.toLowerCase() !== 'carry over') {
+      categoryUuid.set(catName.toLowerCase(), crypto.randomUUID());
+    }
   }
 
   // ── Build accounts ──
@@ -293,7 +298,7 @@ export function parseCsv(text: string): ParsedCsv {
     const entry = carryOverEntries.get(name);
     const startingBalance = entry ? entry.amount : 0;
     accounts.push({
-      id: slugId(name),
+      id: accountUuid.get(name.toLowerCase())!,
       name,
       startingBalance,
       sortOrder: acctSortOrder,
@@ -308,12 +313,22 @@ export function parseCsv(text: string): ParsedCsv {
     if (catName.toLowerCase() === 'carry over') continue; // not a real category
     const categoryType = inferCategoryType(rows);
     categories.push({
-      id: slugId(catName),
+      id: categoryUuid.get(catName.toLowerCase())!,
       name: catName,
       type: categoryType,
       sortOrder: catSortOrder,
     });
     catSortOrder += 1000;
+  }
+
+  // ── Remap transaction references from names → UUIDs ──
+  for (const t of transactions) {
+    if (t.fromAccount) {
+      t.fromAccount = accountUuid.get(t.fromAccount.toLowerCase()) ?? t.fromAccount;
+    }
+    if (t.toAccount) {
+      t.toAccount = accountUuid.get(t.toAccount.toLowerCase()) ?? t.toAccount;
+    }
   }
 
   // ── Summary ──
