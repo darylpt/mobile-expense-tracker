@@ -812,6 +812,26 @@ export async function importAllData(backup: BackupData): Promise<void> {
   for (const record of backup.data.payouts) await stores[STORES.PAYOUTS].add(record);
   for (const record of backup.data.budgetTargets) await stores[STORES.BUDGET_TARGETS].add(record);
   await tx.done;
+
+  // Enqueue sync entries so restored data gets pushed to Supabase
+  for (const record of backup.data.accounts) {
+    enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record as unknown as Record<string, unknown>);
+  }
+  for (const record of backup.data.categories) {
+    enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record as unknown as Record<string, unknown>);
+  }
+  for (const record of backup.data.transactions) {
+    enqueueSyncEntry(STORES.TRANSACTIONS, record.id, 'create', record as unknown as Record<string, unknown>);
+  }
+  for (const record of backup.data.cashDenominations) {
+    enqueueSyncEntry(STORES.CASH_DENOMINATIONS, record.id, 'create', record as unknown as Record<string, unknown>);
+  }
+  for (const record of backup.data.payouts) {
+    enqueueSyncEntry(STORES.PAYOUTS, record.id, 'create', record as unknown as Record<string, unknown>);
+  }
+  for (const record of backup.data.budgetTargets) {
+    enqueueSyncEntry(STORES.BUDGET_TARGETS, record.id, 'create', record as unknown as Record<string, unknown>);
+  }
 }
 
 /**
@@ -860,21 +880,37 @@ export async function importFromCsv(csvText: string): Promise<ParsedCsv> {
   await txStore.clear();
 
   const now = Date.now();
+
+  const addedAccounts: Account[] = [];
+  const addedCategories: Category[] = [];
+  const addedTransactions: Transaction[] = [];
+
   for (const acct of parsed.accounts) {
     await acctStore.add(acct);
+    addedAccounts.push(acct);
   }
   for (const cat of parsed.categories) {
     await catStore.add(cat);
+    addedCategories.push(cat);
   }
   for (const t of parsed.transactions) {
-    await txStore.add({
-      ...t,
-      id: generateId(),
-      createdAt: now,
-      updatedAt: now,
-    });
+    const record = { ...t, id: generateId(), createdAt: now, updatedAt: now };
+    await txStore.add(record);
+    addedTransactions.push(record);
   }
 
   await tx.done;
+
+  // Enqueue sync entries so imported data gets pushed to Supabase
+  for (const acct of addedAccounts) {
+    enqueueSyncEntry(STORES.ACCOUNTS, acct.id, 'create', acct as unknown as Record<string, unknown>);
+  }
+  for (const cat of addedCategories) {
+    enqueueSyncEntry(STORES.CATEGORIES, cat.id, 'create', cat as unknown as Record<string, unknown>);
+  }
+  for (const t of addedTransactions) {
+    enqueueSyncEntry(STORES.TRANSACTIONS, t.id, 'create', t as unknown as Record<string, unknown>);
+  }
+
   return parsed;
 }
