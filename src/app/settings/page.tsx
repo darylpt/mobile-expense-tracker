@@ -922,7 +922,10 @@ function SyncSection() {
     setSyncMsg(null);
     try {
       await backgroundSync();
-      setSyncMsg('Synced!');
+      const remaining = await getSyncQueueCount();
+      setSyncMsg(remaining > 0
+        ? `${remaining} entr${remaining === 1 ? 'y' : 'ies'} couldn't be synced — check connection.`
+        : 'Synced!');
     } catch {
       setSyncMsg('Sync failed — check connection.');
     } finally {
