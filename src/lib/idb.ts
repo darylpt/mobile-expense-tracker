@@ -296,6 +296,24 @@ export async function getSyncQueueCount(): Promise<number> {
 // Seeded with Date.now() to be roughly time-ordered across page loads.
 let syncSeqCounter: number = Date.now();
 
+// Debounced auto-sync: every enqueue triggers a push to Supabase after
+// a quiet period, so rapid edits (bulk import, batch deletes) collapse
+// into a single sync cycle instead of hammering the API per entry.
+let _syncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function requestSync(): void {
+  if (!navigator.onLine) return;
+  if (_syncTimer) clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(async () => {
+    try {
+      const { backgroundSync } = await import('./sync');
+      await backgroundSync();
+    } catch {
+      // ponytail: fire-and-forget, local data is safe either way
+    }
+  }, 2000);
+}
+
 export async function enqueueSyncEntry(
   storeName: string,
   recordId: string,
@@ -313,6 +331,7 @@ export async function enqueueSyncEntry(
     timestamp: seq,
     retryCount: 0,
   });
+  requestSync(); // fire-and-forget, debounced
 }
 
 // ============================================================
