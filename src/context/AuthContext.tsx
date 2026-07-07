@@ -15,7 +15,7 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
-import { usePathname, redirect } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { User } from '@supabase/supabase-js';
 
@@ -107,7 +107,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function AuthGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { state } = useContext(AuthContext);
+
+  // Navigate on state change via useEffect, not inline redirect() which
+  // throws mid-render and corrupts Next.js Router's hooks ordering.
+  // ponytail: one effect covers both login redirects.
+  useEffect(() => {
+    if (state === 'unauthenticated' && pathname !== '/login') {
+      router.replace('/login');
+    } else if (state === 'authenticated' && pathname === '/login') {
+      router.replace('/');
+    }
+  }, [state, pathname, router]);
 
   if (state === 'disabled') return <>{children}</>;
   if (state === 'loading') {
@@ -117,9 +129,6 @@ export function AuthGuard({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  if (state === 'unauthenticated' && pathname !== '/login')
-    redirect('/login');
-  if (state === 'authenticated' && pathname === '/login') redirect('/');
   return <>{children}</>;
 }
 

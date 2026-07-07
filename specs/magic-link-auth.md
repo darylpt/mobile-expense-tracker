@@ -1,6 +1,14 @@
 # Spec: Magic-Link Authentication
 
-**Status:** 🟡 Ready to hand off
+**Status:** ✅ Done
+
+> **Implementation notes (Jul 2026):** The `AuthGuard` was updated to use
+> `useRouter().replace()` in a `useEffect` instead of inline `redirect()` after
+> the throw-based redirect caused "Rendered more hooks than during the previous
+> render" crashes in Next.js 16's Router when signing out. Export
+> `clearAllLocalData()` and `getSyncQueueCount()` from `idb.ts` for the sign-out
+> flow. Sign-out tries `backgroundSync()` first and warns if the queue is
+> non-empty. User email displayed in the header when authenticated.
 
 ---
 
@@ -111,21 +119,28 @@ interface AuthContextValue {
 
 ---
 
-## Route Guard (in `layout.tsx`)
+## Route Guard (in `AuthContext.tsx`)
 
 ### Logic
 
 ```
 if (authState === 'disabled') → <>{children}</>            // no auth, pass through
 if (authState === 'loading')  → <FullPageSpinner />        // checking session
-if (authState === 'unauthenticated' && pathname !== '/login') → redirect /login
-if (authState === 'authenticated' && pathname === '/login') → redirect /
+if (authState === 'unauthenticated' && pathname !== '/login') → navigate /login
+if (authState === 'authenticated' && pathname === '/login') → navigate /
 else → <>{children}</>
 ```
 
 ### Implementation
 
-A simple `<AuthGuard>` client component rendered inside the existing root layout, wrapping `children`. The login page path is excluded from the redirect. Uses `usePathname()` from `next/navigation` to read the current route.
+A `<AuthGuard>` client component rendered inside the root layout, wrapping
+`children`. Uses `usePathname()` and `useRouter()` from `next/navigation`.
+
+**Important:** Navigation uses `router.replace()` inside a `useEffect`, **not**
+`redirect()` during render. The `redirect()` function from `next/navigation`
+throws a `NEXT_REDIRECT` error mid-render, which corrupts Next.js's internal
+Router hooks ordering and causes "Rendered more hooks than during the previous
+render" crashes on state transitions like sign-out.
 
 ---
 

@@ -1,6 +1,15 @@
 # Spec: User Data Isolation (per-user scoping)
 
-**Status:** 🟡 Ready to hand off
+**Status:** ✅ Done
+
+> **Implementation notes (Jul 2026):** A `lastUserId` localStorage marker prevents
+> unnecessary cache wiping on same-user page refresh — only clears local data when
+> the signed-in user actually changes. Sync queue entries from the old user are
+> discarded on user switch (intentional — unsynced changes from another user should
+> not pollute the new user's queue). The sync layer stamps `userId` on every
+> outgoing payload. `pullStore()` now scopes queries with `.eq('user_id', userId)`.
+> Migration 003 (`sort_order` column) was added later to fix a 400 error caused by
+> the sync code sending `sort_order` to tables that didn't have the column yet.
 
 ---
 

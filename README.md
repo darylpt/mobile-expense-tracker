@@ -1,8 +1,8 @@
 # Expense Tracker PWA
 
-A client-only personal finance tracker that runs entirely in your browser.
-No server, no cloud sync, no accounts — all data lives in IndexedDB on your
-device.
+A local-first personal finance tracker with optional Supabase cloud sync.
+Data lives in IndexedDB on your device — the app works fully offline.
+When Supabase is configured, changes sync across devices automatically.
 
 **Status:** Phase 1 complete. Active use since June 2026.
 
@@ -15,14 +15,13 @@ device.
 | Framework | Next.js 16 (App Router) |
 | UI | React 19, Tailwind CSS 4 |
 | Storage | IndexedDB via [`idb`](https://github.com/jakearchibald/idb) v8 |
+| Cloud Sync | Supabase (Postgres + Auth + REST API) |
+| Auth | Supabase Auth (magic link, invite-only) |
 | Language | TypeScript strict |
 | Testing | Jest 30 (unit) + Playwright 1.61 (E2E) |
 | Linting | ESLint 9 with `eslint-config-next` |
-| **Total dependencies** | 3 runtime (`next`, `react`, `react-dom`, `idb`) — intentionally minimal |
 
-Everything is `'use client'` — there are no server components, API routes, or
-server actions. This is a deliberate choice: your financial data never leaves
-your browser.
+Everything is `'use client'` — no server components, API routes, or server actions.
 
 ---
 
@@ -31,45 +30,76 @@ your browser.
 ```
 src/
 ├── app/                    # Next.js App Router pages
-│   ├── page.tsx            #  /          – Summary / Dashboard
+│   ├── page.tsx            # /          – Summary / Dashboard
+│   ├── login/
+│   │   └── page.tsx        # /login     – Magic-link sign-in
 │   ├── transactions/
-│   │   └── page.tsx        #  /transactions – Full transaction list
+│   │   └── page.tsx        # /transactions – Full transaction list
 │   ├── available-balance/
-│   │   └── page.tsx        #  /available-balance – Cash reconciliation
+│   │   └── page.tsx        # /available-balance – Cash reconciliation
 │   ├── payout/
-│   │   └── page.tsx        #  /payout    – Payout calculator
+│   │   └── page.tsx        # /payout    – Payout calculator
 │   └── settings/
-│       └── page.tsx        #  /settings  – Accounts, Categories, Backup
+│       └── page.tsx        # /settings  – Accounts, Categories, Cloud Sync, Backup
 ├── components/
 │   ├── common/             # Button, Input, Dropdown
 │   ├── forms/              # QuickAddForm, EditTransactionModal, TransactionFormFields
-│   ├── layout/             # Header (tab navigation)
+│   ├── layout/             # Header (tab navigation, user email, sign-out)
 │   ├── summary/            # TransactionList, MonthlySummaryCard, CategoryBreakdown
 │   └── available-balance/  # CashDenominationInput
 ├── context/
-│   └── TransactionContext.tsx  # Global state: transactions + accounts
+│   ├── AuthContext.tsx     # Auth provider, route guard, sign-in/sign-out
+│   └── TransactionContext.tsx  # Global state + auth-aware cache lifecycle
 ├── hooks/
 │   ├── useTransactions.ts     # Derived views from TransactionContext
 │   ├── useAccounts.ts         # Account CRUD
 │   └── useCategories.ts       # Category CRUD
 ├── lib/
-│   ├── idb.ts                 # IndexedDB CRUD + export/import
+│   ├── idb.ts                 # IndexedDB CRUD + sync queue + migrations
+│   ├── sync.ts                # Outbox sync (processSyncQueue, pullStore, backgroundSync)
+│   ├── supabase.ts            # Supabase client (null if env vars missing)
 │   ├── utils.ts               # Formatting, date math, aggregations
 │   ├── aggregations.ts        # Account balance, income/expense breakdown
 │   ├── reconciliation.ts      # Expected balance computation
-│   ├── constants.ts           # Seed data, DB config
-│   ├── test-utils.ts          # Shared test fixture (tx())
+│   ├── csv-import.ts          # Google Sheets CSV import
+│   ├── constants.ts           # DB config, store names
 │   └── *.test.ts              # Co-located unit tests
 └── types/
     └── index.d.ts             # All TypeScript interfaces
 ```
 
-**Data flow:** Components → hooks → `TransactionContext` (in-memory state) ↔
-`idb.ts` (IndexedDB persistence). No network requests.
+### Data flow
+
+```
+UI Components → hooks → TransactionContext (in-memory cache)
+                            ↕
+                      idb.ts (IndexedDB — source of truth)
+                            ↕
+                    sync.ts (outbox queue → Supabase REST)
+```
+
+### Sync architecture (outbox pattern)
+
+Every local CRUD enqueues a sync entry **inside the same IndexedDB transaction**
+as the data write (atomic by construction). A background sync loop:
+
+1. Reads pending entries FIFO (monotonic counter orders them)
+2. Upserts to Supabase (user_id-stamped for per-user isolation)
+3. Pulls remote changes and merges via LWW (Last-Writer-Wins by `updated_at`)
+4. Auto-sync triggers 2 seconds after every CRUD (debounced)
+
+Soft-delete strategy: "Delete" sets `deleted_at` on Supabase (never hard-delete).
+During pull, soft-deleted records are purged from local IDB.
 
 ---
 
 ## Routes / Screens
+
+### `/login` — Magic-link sign-in
+
+Shown when Supabase is configured and no session exists. Enter email → receive
+magic link. Invite-only (no sign-up form). When Supabase is not configured,
+auth is disabled entirely and the app works fully offline.
 
 ### `/` — Summary / Dashboard
 
@@ -80,16 +110,16 @@ Budgets" button. Category and Account breakdown charts via tabs.
 
 ### `/transactions` — Transaction List
 
-Full list with server-side (URL search param) filtering: type chips
-(income/expense/transfer), month range, account, category, text search.
-Mobile card layout, desktop table layout. Edit modal and inline delete.
+Full list with URL search-param filtering: type chips (income/expense/transfer),
+month range, account, category, text search. Date grouping toggle, pagination
+(50/page) when no filters active. Mobile card layout, desktop table layout.
+Edit modal and inline delete.
 
 ### `/available-balance` — Cash Reconciliation
 
 Per-account expected balance computed from transaction history up to a user-
 selected date. Cash account has a denomination breakdown grid (₱1000, ₱500,
-… ₱1). Difference column shows variance. Read-only — no adjusting entries
-created.
+… ₱1). Difference column shows variance. Read-only — no adjusting entries.
 
 ### `/payout` — Payout Calculator
 
@@ -100,11 +130,12 @@ does **not** create ledger transactions.
 
 ### `/settings` — Settings
 
-**Accounts:** inline add/edit/delete with delete-blocked-if-in-use checks.
-**Categories:** grouped by type (Expense, Income, Transfer), same CRUD.
-**Tab Visibility:** toggle Balances/Payout tabs on/off.
-**Backup & Restore:** export all data as JSON, export transactions as CSV,
-import from JSON backup.
+**Accounts:** inline add/edit/delete with delete-blocked-if-in-use checks,
+drag-and-drop reordering. **Categories:** grouped by type, same CRUD + reorder.
+**Tab Visibility:** toggle Balances/Payout tabs on/off. **Cloud Sync:** sync
+status, last sync time, Sync Now, Re-sync All buttons. **Sign out** (visible
+when authenticated). **Backup & Restore:** export all data as JSON, export
+transactions as CSV, import from JSON or CSV (Google Sheets format).
 
 ---
 
@@ -112,40 +143,46 @@ import from JSON backup.
 
 ### Stores (IndexedDB)
 
-All 6 stores are exported/imported together as a single JSON backup file.
+All 6 data stores plus sync queue are managed by `idb.ts`.
 
 | Store | Key | Records |
 |---|---|---|
 | `transactions` | `id` (UUID) | Income, expense, and transfer records |
-| `accounts` | `id` | Named accounts with starting balance |
-| `categories` | `id` | Categorized by type (expense/income/transaction) |
-| `cashDenominations` | `id` | Per-date snapshots of cash on hand by denomination |
-| `payouts` | `id` | Saved payout calculations |
-| `budgetTargets` | `id` | Per-category planned amounts (global default or per-month) |
+| `accounts` | `id` (UUID) | Named accounts with starting balance + sort order |
+| `categories` | `id` (UUID) | Categorized by type (expense/income/transaction) + sort order |
+| `cashDenominations` | `id` (UUID) | Per-date snapshots of cash on hand by denomination |
+| `payouts` | `id` (UUID) | Saved payout calculations |
+| `budgetTargets` | `id` (UUID) | Per-category planned amounts (global default or per-month) |
+| `syncQueue` | auto-key | Pending outbound sync entries (FIFO by timestamp) |
 
 ### Key Types
 
-**`Transaction`** — `id`, `date`, `amount`, `type` (income|expense|transaction),
-`category`, `fromAccount` (nullable), `toAccount` (nullable), `description`,
-`createdAt`, `updatedAt`.
-
-**`Account`** — `id`, `name`, `startingBalance`.
-
-**`Category`** — `id`, `name`, `type`.
-
-Full type definitions in `src/types/index.d.ts`.
+Full definitions in `src/types/index.d.ts`.
 
 ---
 
-## Getting Started
+## Setup
 
 ```bash
-npm install        # Install dependencies
-npm run dev        # Start dev server at http://localhost:3000
+npm install
+npm run dev              # Start dev server at http://localhost:3000
 ```
 
-The app seeds demo data (8 accounts, 21 categories, ~20 transactions) on
-first launch so you can explore immediately.
+The app starts clean with no seed data. Import your data via CSV (Settings →
+Import CSV) or restore a JSON backup.
+
+### Optional: Supabase Cloud Sync
+
+1. Create a Supabase project
+2. Copy the project URL and anon key into `.env.local`:
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+   ```
+3. Run the migrations in `supabase/migrations/` via Supabase Dashboard →
+   SQL Editor (run in order: 001, 002, 003)
+4. Invite users via Supabase Dashboard → Authentication → Users → Invite
+5. Restart the dev server — the login page appears on next load
 
 ### Scripts
 
@@ -160,36 +197,39 @@ first launch so you can explore immediately.
 
 ---
 
+## Deployment
+
+Deploy anywhere that serves static files:
+
+```bash
+npm run build
+# Deploy the .next/ directory to Vercel, Cloudflare Pages, etc.
+```
+
+**Recommended:** Vercel (optimized for Next.js), Cloudflare Pages, or any
+static host. Zero backend configuration required — auth and sync connect to
+your Supabase project at runtime.
+
+---
+
 ## Backup & Restore
 
 **This is critical.** All data lives in IndexedDB in your browser — clear site
 data, switch devices, or have the PWA evicted for storage pressure and the
-ledger is gone.
+ledger is gone. **Export regularly.**
 
 From **Settings → Backup & Restore**:
 
 - **Export All (JSON)** — downloads all 6 stores as a single `.json` file.
-  Keep this file somewhere safe (Google Drive, iCloud, etc.).
 - **Export Transactions (CSV)** — downloads transactions only for spreadsheet
   analysis.
 - **Import from file…** — select a previously exported `.json` file to
   restore all data. Confirms before overwriting.
+- **Import CSV (Google Sheets)** — paste Google Sheets CSV data, preview,
+  bulk-import accounts, categories, and transactions.
 
 There is no auto-backup. Make it a habit to export after significant data entry.
-
----
-
-## Deployment
-
-Since it's a fully client-side PWA, deploy anywhere that serves static files:
-
-```bash
-npm run build
-# Copy the .next/ directory or use `next export` (if supported) to your host
-```
-
-**Recommended:** Vercel (optimized for Next.js), Cloudflare Pages, or any
-static host. Zero backend configuration required.
+Cloud sync via Supabase provides cross-device redundancy.
 
 ---
 
