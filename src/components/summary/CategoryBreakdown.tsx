@@ -5,15 +5,83 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useTransactions } from '@/hooks/useTransactions';
+import { useCategories } from '@/hooks/useCategories';
+import { useAccounts } from '@/hooks/useAccounts';
 import { formatCurrency, formatCurrencyShort } from '@/lib/utils';
 
 type BreakdownTab = 'category' | 'account';
 
 export function CategoryBreakdown() {
   const { categoryBreakdown, accountBreakdown, isLoading } = useTransactions();
+  const { categories } = useCategories();
+  const { accounts } = useAccounts();
   const [activeTab, setActiveTab] = useState<BreakdownTab>('category');
+
+  // Merge categories with transactions — show every known category, even with ₱0.00
+  const enrichedCategoryBreakdown = useMemo(() => {
+    const txMap = new Map(categoryBreakdown.map((c) => [c.category, c]));
+    const seen = new Set<string>();
+    const merged: typeof categoryBreakdown = [];
+
+    // Show income categories first, then expense (matching sortOrder from IndexedDB)
+    for (const cat of categories) {
+      if (seen.has(cat.name)) continue;
+      seen.add(cat.name);
+      const existing = txMap.get(cat.name);
+      merged.push(existing ?? {
+        category: cat.name,
+        type: cat.type,
+        totalAmount: 0,
+        count: 0,
+        percentage: 0,
+      });
+    }
+
+    // Any categories from transactions not in the known list (orphaned data)
+    for (const item of categoryBreakdown) {
+      if (!seen.has(item.category)) {
+        seen.add(item.category);
+        merged.push(item);
+      }
+    }
+
+    return merged;
+  }, [categoryBreakdown, categories]);
+
+  // Build account ID → name lookup
+  const accountNameMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of accounts) m.set(a.id, a.name);
+    return m;
+  }, [accounts]);
+
+  // Map account IDs to human-readable names
+  const enrichedAccountBreakdown = useMemo(() => {
+    const m = accountNameMap;
+    const seen = new Set<string>();
+    const merged: typeof accountBreakdown = [];
+
+    // First, show all known accounts with their actual data
+    for (const acct of accounts) {
+      const existing = accountBreakdown.find((a) => a.account === acct.id);
+      seen.add(acct.id);
+      merged.push(existing
+        ? { ...existing, account: acct.name }
+        : { account: acct.name, totalIncome: 0, totalExpenses: 0, netFlow: 0 });
+    }
+
+    // Any accounts from transactions not in the known list
+    for (const item of accountBreakdown) {
+      if (!seen.has(item.account)) {
+        seen.add(item.account);
+        merged.push({ ...item, account: m.get(item.account) ?? item.account });
+      }
+    }
+
+    return merged;
+  }, [accountBreakdown, accounts, accountNameMap]);
 
   if (isLoading) {
     return (
@@ -60,9 +128,9 @@ export function CategoryBreakdown() {
       </div>
 
       {activeTab === 'category' ? (
-        <CategoryBreakdownList items={categoryBreakdown} />
+        <CategoryBreakdownList items={enrichedCategoryBreakdown} />
       ) : (
-        <AccountBreakdownList items={accountBreakdown} />
+        <AccountBreakdownList items={enrichedAccountBreakdown} />
       )}
     </div>
   );
