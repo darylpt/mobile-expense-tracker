@@ -244,16 +244,21 @@ export async function pullStore(storeName: string, userId: string): Promise<void
 // Orchestration
 // ============================================================
 
+// Module-level guard — prevents concurrent sync cycles from compounding
+// retry storms (e.g. mount + online event + manual "Sync now" at the same time).
+let syncInFlight = false;
+
 /**
  * Run a full sync cycle: push local changes, then pull fresh data.
  * Called on app mount (background) and when transitioning online→offline.
  */
 export async function backgroundSync(): Promise<void> {
-  if (!supabase) return; // not configured
+  if (!supabase || syncInFlight) return; // not configured or already running
+  syncInFlight = true;
 
   // Resolve current user — bail if no session
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  if (!user) { syncInFlight = false; return; }
 
   try {
     // 0. Migrate any legacy slug IDs to proper UUIDs before syncing
@@ -280,6 +285,8 @@ export async function backgroundSync(): Promise<void> {
     console.error('[Sync] background sync failed:', err);
     // ponytail: silent failure. User's UI is intact from IDB cache.
     // Add a toast if offline-notification is desired.
+  } finally {
+    syncInFlight = false;
   }
 }
 

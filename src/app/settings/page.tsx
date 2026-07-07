@@ -19,7 +19,7 @@ import { getAllTransactions, exportAllData, importAllData, transactionsToCsv, im
 import { formatCurrency } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
 import { parseCsv, type ParsedCsv } from '@/lib/csv-import';
-import { getSyncQueueCount } from '@/lib/idb';
+import { getSyncQueueCount, resyncAll } from '@/lib/idb';
 import { backgroundSync } from '@/lib/sync';
 import { CsvImportPreview } from '@/components/forms/CsvImportPreview';
 
@@ -943,6 +943,31 @@ function SyncSection() {
     }
   };
 
+  const handleResync = async () => {
+    if (!window.confirm('Re-enqueue all local data for sync? This will clear the current sync queue and push everything again.')) return;
+    setIsSyncing(true);
+    setSyncMsg('Re-enqueuing all data…');
+    try {
+      await resyncAll();
+      setSyncMsg('Queue rebuilt. Syncing…');
+      await backgroundSync();
+      const remaining = await getSyncQueueCount();
+      if (remaining === 0) {
+        const now = Date.now();
+        localStorage.setItem('lastSyncTime', String(now));
+        setLastSync(formatSyncTime(now));
+        setSyncMsg('All data synced!');
+      } else {
+        setSyncMsg(`Synced — ${remaining} entries still pending. Try again.`);
+      }
+    } catch {
+      setSyncMsg('Re-sync failed — check connection.');
+    } finally {
+      setIsSyncing(false);
+      router.refresh();
+    }
+  };
+
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
       <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
@@ -951,9 +976,13 @@ function SyncSection() {
       <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
         Push local changes to the cloud and pull the latest data.
       </p>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" size="sm" onClick={handleSync} disabled={isSyncing}>
           {isSyncing ? 'Syncing…' : 'Sync now'}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={handleResync} disabled={isSyncing}
+          className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
+          Re-sync all
         </Button>
         {lastSync && (
           <span className="text-xs text-zinc-400 dark:text-zinc-500">

@@ -290,12 +290,19 @@ export async function getSyncQueueCount(): Promise<number> {
   return db.count(STORES.SYNC_QUEUE);
 }
 
+// Monotonic counter for sync ordering — assigned synchronously before the
+// first await in enqueueSyncEntry, guaranteeing call-order is preserved
+// even when thousands of entries are enqueued in the same millisecond.
+// Seeded with Date.now() to be roughly time-ordered across page loads.
+let syncSeqCounter: number = Date.now();
+
 export async function enqueueSyncEntry(
   storeName: string,
   recordId: string,
   operation: SyncOperation,
   payload: Record<string, unknown> | null
 ): Promise<void> {
+  const seq = ++syncSeqCounter; // synchronous — order-preserving, no await before this
   const db = await getDB();
   await db.add(STORES.SYNC_QUEUE, {
     id: generateId(),
@@ -303,7 +310,7 @@ export async function enqueueSyncEntry(
     recordId,
     operation,
     payload,
-    timestamp: Date.now(),
+    timestamp: seq,
     retryCount: 0,
   });
 }
@@ -960,6 +967,51 @@ export async function ensureUuids(): Promise<void> {
     if (changed) {
       await db.put(STORES.SYNC_QUEUE, entry);
     }
+  }
+}
+
+/**
+ * Re-enqueue every record from every data store into the sync queue.
+ * Use this after deploying the monotonic-counter fix to recover entries
+ * that were silently dropped after 5 retries due to the FK-ordering bug.
+ *
+ * Clears the queue first, then enqueues in dependency order:
+ * accounts → categories → cash denominations → payouts → budget targets → transactions.
+ */
+export async function resyncAll(): Promise<void> {
+  const db = await getDB();
+
+  // Read all current data
+  const accounts = await db.getAll(STORES.ACCOUNTS);
+  const categories = await db.getAll(STORES.CATEGORIES);
+  const transactions = await db.getAll(STORES.TRANSACTIONS);
+  const cashDenominations = await db.getAll(STORES.CASH_DENOMINATIONS);
+  const payouts = await db.getAll(STORES.PAYOUTS);
+  const budgetTargets = await db.getAll(STORES.BUDGET_TARGETS);
+
+  // Clear existing queue
+  const tx = db.transaction(STORES.SYNC_QUEUE, 'readwrite');
+  await tx.store.clear();
+  await tx.done;
+
+  // Enqueue in dependency order: accounts before transactions that reference them
+  for (const record of accounts) {
+    await enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record as unknown as Record<string, unknown>);
+  }
+  for (const record of categories) {
+    await enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record as unknown as Record<string, unknown>);
+  }
+  for (const record of cashDenominations) {
+    await enqueueSyncEntry(STORES.CASH_DENOMINATIONS, record.id, 'create', record as unknown as Record<string, unknown>);
+  }
+  for (const record of payouts) {
+    await enqueueSyncEntry(STORES.PAYOUTS, record.id, 'create', record as unknown as Record<string, unknown>);
+  }
+  for (const record of budgetTargets) {
+    await enqueueSyncEntry(STORES.BUDGET_TARGETS, record.id, 'create', record as unknown as Record<string, unknown>);
+  }
+  for (const record of transactions) {
+    await enqueueSyncEntry(STORES.TRANSACTIONS, record.id, 'create', record as unknown as Record<string, unknown>);
   }
 }
 
