@@ -81,7 +81,7 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
       </div>
 
       {showTabs && (
-        <nav key={pathname} className="mx-auto flex max-w-4xl gap-1 overflow-x-auto px-4 pb-0 sm:px-6">
+        <nav className="mx-auto flex max-w-4xl gap-1 overflow-x-auto px-4 pb-0 sm:px-6">
           <TabLink href="/" pathname={pathname}>Summary</TabLink>
           <TabLink href="/transactions" pathname={pathname}>Transactions</TabLink>
           {tabPrefs.showBalances && <TabLink href="/available-balance" pathname={pathname}>Balances</TabLink>}
@@ -99,7 +99,7 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
 
 function TabLink({ href, pathname, children }: { href: string; pathname: string; children: React.ReactNode }) {
   const p = pathname.replace(/\/+$/, '');
-  const h = href.replace(/\/+$/, '');
+  const h = href.replace(/\/+$/, '') || '/';
   const isActive = h === '/' ? p === '/' : p === h || p.startsWith(h + '/');
 
   return (
