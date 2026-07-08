@@ -158,8 +158,10 @@ function CategoryBreakdownList({ items }: BreakdownListProps) {
 
   return (
     <div className="space-y-2.5">
-      {items.map((item) => (
-        <div key={item.category}>
+      {items.map((item) => {
+        const isZero = item.totalAmount === 0;
+        return (
+        <div key={item.category} className={isZero ? 'opacity-40' : ''}>
           <div className="mb-1 flex items-center justify-between text-sm">
             <div className="flex items-center gap-2">
               <span
@@ -171,7 +173,7 @@ function CategoryBreakdownList({ items }: BreakdownListProps) {
                       : 'bg-blue-500'
                 }`}
               />
-              <span className="font-medium text-zinc-800 dark:text-zinc-200">
+              <span className={`font-medium ${isZero ? 'text-zinc-500 dark:text-zinc-500' : 'text-zinc-800 dark:text-zinc-200'}`}>
                 {item.category}
               </span>
             </div>
@@ -197,7 +199,7 @@ function CategoryBreakdownList({ items }: BreakdownListProps) {
             <span>{item.percentage.toFixed(1)}% of total</span>
           </div>
         </div>
-      ))}
+      );})}
     </div>
   );
 }

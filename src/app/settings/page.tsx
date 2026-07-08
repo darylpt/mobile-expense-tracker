@@ -385,6 +385,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+              <th scope="col" className="w-6 pr-1" />
               <th scope="col" className="py-2 pr-4 font-medium">Name</th>
               <th scope="col" className="py-2 px-2 text-right font-medium">Starting Balance</th>
               <th scope="col" className="py-2 pl-2 text-right font-medium">Actions</th>
@@ -394,6 +395,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
             {accounts.map((account) =>
               editingId === account.id ? (
                 <tr key={account.id} className="border-b border-zinc-100 dark:border-zinc-800">
+                  <td className="w-6 pr-1" />
                   <td className="py-2 pr-4">
                     <Input
                       value={editValues.name ?? account.name}
@@ -437,6 +439,11 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
                     dragOverId === account.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
                   }`}
                 >
+                  <td className="w-6 pr-1 text-zinc-300 dark:text-zinc-600">
+                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4zM8 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4zM8 22a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4z" />
+                    </svg>
+                  </td>
                   <td className="py-2 pr-4 font-medium">{account.name}</td>
                   <td className="py-2 px-2 text-right tabular-nums">
                     {formatCurrency(account.startingBalance ?? 0)}
@@ -458,6 +465,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
             )}
             {addMode && (
               <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                <td className="w-6 pr-1" />
                 <td className="py-2 pr-4">
                   <Input
                     value={editValues.name ?? ''}
@@ -664,6 +672,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                    <th scope="col" className="w-6 pr-1" />
                     <th scope="col" className="py-2 pr-4 font-medium">Name</th>
                     <th scope="col" className="py-2 pl-2 text-right font-medium">Actions</th>
                   </tr>
@@ -672,6 +681,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                   {filtered.map((cat) =>
                     editingId === cat.id ? (
                       <tr key={cat.id} className="border-b border-zinc-100 dark:border-zinc-800">
+                        <td className="w-6 pr-1" />
                         <td className="py-2 pr-4">
                           <Input
                             value={editValues.name ?? cat.name}
@@ -705,6 +715,11 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                           dragOverId === cat.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
                         }`}
                       >
+                        <td className="w-6 pr-1 text-zinc-300 dark:text-zinc-600">
+                          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4zM8 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4zM8 22a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4z" />
+                          </svg>
+                        </td>
                         <td className="py-2 pr-4 font-medium">{cat.name}</td>
                         <td className="py-2 pl-2 text-right">
                           <div className="flex justify-end gap-0.5">
@@ -723,6 +738,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                   )}
                   {isAdding && (
                     <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                      <td className="w-6 pr-1" />
                       <td className="py-2 pr-4">
                         <Input
                           value={editValues.name ?? ''}

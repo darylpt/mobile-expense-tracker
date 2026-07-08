@@ -472,17 +472,21 @@ export function TransactionList() {
               </button>
             );
           })}
-          <button
-            onClick={() => setParam('group', getGroupParam() ? null : 'date')}
-            className={`ml-1 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              getGroupParam()
-                ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
-                : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
-            }`}
-          >
-            {getGroupParam() ? 'Grouped' : 'Group by date'}
-          </button>
         </div>
+
+        <span className="h-6 w-px bg-zinc-200 dark:bg-zinc-700" />
+
+        {/* ponytail: view toggle separated from type filters by a divider */}
+        <button
+          onClick={() => setParam('group', getGroupParam() ? null : 'date')}
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            getGroupParam()
+              ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
+              : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+          }`}
+        >
+          {getGroupParam() ? 'Grouped' : 'Group by date'}
+        </button>
 
         <span className="h-6 w-px bg-zinc-200 dark:bg-zinc-700" />
 
