@@ -1,8 +1,8 @@
 // ============================================================
-// Settings page — Accounts and Categories CRUD management
+// Settings page — responsive layout
 //
-// Two sections: Accounts (inline edit/add/delete) and
-// Categories (grouped by type, same inline CRUD pattern).
+// Desktop (≥768px): sidebar sub-navigation + content panel
+// Mobile (<768px): hub-and-spoke directory with drill-down sub-pages
 // ============================================================
 
 'use client';
@@ -15,13 +15,21 @@ import { useAuth } from '@/context/AuthContext';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useCategories } from '@/hooks/useCategories';
 import { useRouter } from 'next/navigation';
-import { getAllTransactions, exportAllData, importAllData, transactionsToCsv, importFromCsv } from '@/lib/idb';
+import {
+  getAllTransactions,
+  exportAllData,
+  importAllData,
+  transactionsToCsv,
+  importFromCsv,
+} from '@/lib/idb';
 import { formatCurrency } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
 import { parseCsv, type ParsedCsv } from '@/lib/csv-import';
 import { getSyncQueueCount, resyncAll } from '@/lib/idb';
 import { backgroundSync } from '@/lib/sync';
 import { CsvImportPreview } from '@/components/forms/CsvImportPreview';
+
+// ── Main page ────────────────────────────────────────────────
 
 export default function SettingsPage() {
   const { state: authState, signOut } = useAuth();
@@ -45,9 +53,11 @@ export default function SettingsPage() {
     moveCategoryTo,
   } = useCategories();
 
+  const [activeTab, setActiveTab] = useState<'accounts' | 'categories' | 'preferences' | 'data'>('accounts');
+  const [mobilePage, setMobilePage] = useState<string | null>(null);
+
   const handleSignOut = async () => {
-    // Try to push pending changes before signing out
-    try { await backgroundSync(); } catch { /* offline or error — check queue below */ }
+    try { await backgroundSync(); } catch { /* ignore */ }
     const pending = await getSyncQueueCount();
     if (pending > 0 && !window.confirm(
       `You have ${pending} unsaved change${pending === 1 ? '' : 's'} that couldn't be synced. Signing out will lose these changes. Continue?`
@@ -56,49 +66,184 @@ export default function SettingsPage() {
     router.push('/login');
   };
 
+  // ── Mobile drill-down sub-page ──
+  if (mobilePage) {
+    return (
+      <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
+        <Header title="Settings" />
+
+        <button
+          onClick={() => setMobilePage(null)}
+          className="flex items-center gap-1 px-4 pt-3 pb-1 text-sm font-medium text-blue-600 md:hidden dark:text-blue-400"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+          </svg>
+          Back to Settings
+        </button>
+
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+          {accountsLoading || categoriesLoading ? (
+            <LoadingSkeleton />
+          ) : (
+            <>
+              {mobilePage === 'accounts' && (
+                <AccountsSection
+                  accounts={accounts}
+                  onAdd={addAccount}
+                  onUpdate={updateAccount}
+                  onDelete={deleteAccount}
+                  onMoveTo={moveAccountTo}
+                />
+              )}
+              {mobilePage === 'categories' && (
+                <CategoriesSection
+                  categories={categories}
+                  onAdd={addCategory}
+                  onUpdate={updateCategory}
+                  onDelete={deleteCategory}
+                  onMoveTo={moveCategoryTo}
+                />
+              )}
+              {mobilePage === 'preferences' && (
+                <div className="space-y-6">
+                  <TabVisibilitySection />
+                  <SyncSection />
+                </div>
+              )}
+              {mobilePage === 'data' && (
+                <div className="space-y-6">
+                  <BackupSection />
+                  <ImportSection />
+                </div>
+              )}
+            </>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  // ── Main hub / desktop layout ──
+  const content = accountsLoading || categoriesLoading ? (
+    <LoadingSkeleton />
+  ) : (
+    <>
+      {/* Desktop: sidebar + content */}
+      <div className="hidden md:flex md:gap-6">
+        <aside className="w-56 shrink-0">
+          <nav className="space-y-1">
+            <SidebarTab active={activeTab === 'accounts'} onClick={() => setActiveTab('accounts')}>
+              💳 Accounts
+            </SidebarTab>
+            <SidebarTab active={activeTab === 'categories'} onClick={() => setActiveTab('categories')}>
+              🏷️ Categories
+            </SidebarTab>
+            <SidebarTab active={activeTab === 'preferences'} onClick={() => setActiveTab('preferences')}>
+              ☁️ Preferences &amp; Sync
+            </SidebarTab>
+            <SidebarTab active={activeTab === 'data'} onClick={() => setActiveTab('data')}>
+              💾 Data Tools
+            </SidebarTab>
+          </nav>
+        </aside>
+
+        <div className="min-w-0 flex-1">
+          {activeTab === 'accounts' && (
+            <AccountsSection
+              accounts={accounts}
+              onAdd={addAccount}
+              onUpdate={updateAccount}
+              onDelete={deleteAccount}
+              onMoveTo={moveAccountTo}
+            />
+          )}
+          {activeTab === 'categories' && (
+            <CategoriesSection
+              categories={categories}
+              onAdd={addCategory}
+              onUpdate={updateCategory}
+              onDelete={deleteCategory}
+              onMoveTo={moveCategoryTo}
+            />
+          )}
+          {activeTab === 'preferences' && (
+            <div className="space-y-6">
+              <TabVisibilitySection />
+              <SyncSection />
+            </div>
+          )}
+          {activeTab === 'data' && (
+            <div className="space-y-6">
+              <BackupSection />
+              <ImportSection />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Mobile: hub-and-spoke directory */}
+      <div className="space-y-6 md:hidden">
+        <div>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            App Management
+          </h2>
+          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/50">
+            <HubLink onClick={() => setMobilePage('accounts')}>Accounts &amp; Balances</HubLink>
+            <HubLink onClick={() => setMobilePage('categories')}>Category Mapping</HubLink>
+          </div>
+        </div>
+        <div>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            Data Utilities
+          </h2>
+          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/50">
+            <HubLink onClick={() => setMobilePage('preferences')}>Preferences &amp; Cloud Sync</HubLink>
+            <HubLink onClick={() => setMobilePage('data')}>Import / Export Data</HubLink>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
       <Header title="Settings" />
-
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
-        {accountsLoading || categoriesLoading ? (
-          <LoadingSkeleton />
-        ) : (
-          <div className="space-y-6">
-            <TabVisibilitySection />
-            <BackupSection />
-            <ImportSection />
-            <SyncSection />
-
-            {authState === 'authenticated' && (
-              <>
-                <hr className="my-4 border-zinc-200 dark:border-zinc-700" />
-                <Button variant="ghost" size="sm" onClick={handleSignOut}>
-                  Sign out
-                </Button>
-              </>
-            )}
-
-            <div className="lg:grid lg:grid-cols-2 lg:gap-6">
-              <AccountsSection
-                accounts={accounts}
-                onAdd={addAccount}
-                onUpdate={updateAccount}
-                onDelete={deleteAccount}
-                onMoveTo={moveAccountTo}
-              />
-              <CategoriesSection
-                categories={categories}
-                onAdd={addCategory}
-                onUpdate={updateCategory}
-                onDelete={deleteCategory}
-                onMoveTo={moveCategoryTo}
-              />
-            </div>
-          </div>
-        )}
+        {content}
       </main>
     </div>
+  );
+}
+
+// ── Layout sub-components ────────────────────────────────────
+
+function SidebarTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
+        active
+          ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+          : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function HubLink({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-zinc-800 transition-colors hover:bg-zinc-50 active:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:active:bg-zinc-700"
+    >
+      <span>{children}</span>
+      <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+      </svg>
+    </button>
   );
 }
 
@@ -235,7 +380,8 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
         </p>
       )}
 
-      <div className="overflow-x-auto">
+      {/* ponytail: max-md:-mx-4 w-screen gives full-bleed tables on mobile */}
+      <div className="overflow-x-auto max-md:-mx-4 max-md:w-screen">
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
@@ -293,14 +439,16 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
                 >
                   <td className="py-2 pr-4 font-medium">{account.name}</td>
                   <td className="py-2 px-2 text-right tabular-nums">
-{formatCurrency(account.startingBalance ?? 0)}
+                    {formatCurrency(account.startingBalance ?? 0)}
                   </td>
                   <td className="py-2 pl-2 text-right">
                     <div className="flex justify-end gap-0.5">
-                      <Button variant="ghost" size="sm" onClick={() => startEdit(account)}>
+                      <Button variant="ghost" size="sm" onClick={() => startEdit(account)}
+                        className="max-md:px-3 max-md:py-2">
                         Edit
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(account)}>
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(account)}
+                        className="max-md:px-3 max-md:py-2">
                         Del
                       </Button>
                     </div>
@@ -311,24 +459,24 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
             {addMode && (
               <tr className="border-b border-zinc-100 dark:border-zinc-800">
                 <td className="py-2 pr-4">
-                    <Input
-                      value={editValues.name ?? ''}
-                      onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}
-                      placeholder="Account name"
-                      aria-label="Account name"
-                    />
-                  </td>
-                  <td className="py-2 px-2 text-right">
-                    <Input
-                      type="number"
-                      step="any"
-                      value={editValues.startingBalance ?? '0'}
-                      onChange={(e) =>
-                        setEditValues({ ...editValues, startingBalance: e.target.value })
-                      }
-                      aria-label="Starting balance"
-                      leading={<span className="text-zinc-500">₱</span>}
-                    />
+                  <Input
+                    value={editValues.name ?? ''}
+                    onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}
+                    placeholder="Account name"
+                    aria-label="Account name"
+                  />
+                </td>
+                <td className="py-2 px-2 text-right">
+                  <Input
+                    type="number"
+                    step="any"
+                    value={editValues.startingBalance ?? '0'}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, startingBalance: e.target.value })
+                    }
+                    aria-label="Starting balance"
+                    leading={<span className="text-zinc-500">₱</span>}
+                  />
                 </td>
                 <td className="py-2 pl-2 text-right">
                   <div className="flex justify-end gap-1">
@@ -512,7 +660,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
               {label}
             </h3>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-md:-mx-4 max-md:w-screen">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
@@ -560,10 +708,12 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                         <td className="py-2 pr-4 font-medium">{cat.name}</td>
                         <td className="py-2 pl-2 text-right">
                           <div className="flex justify-end gap-0.5">
-                            <Button variant="ghost" size="sm" onClick={() => startEdit(cat)}>
+                            <Button variant="ghost" size="sm" onClick={() => startEdit(cat)}
+                              className="max-md:px-3 max-md:py-2">
                               Edit
                             </Button>
-                            <Button variant="ghost" size="sm" onClick={() => handleDelete(cat)}>
+                            <Button variant="ghost" size="sm" onClick={() => handleDelete(cat)}
+                              className="max-md:px-3 max-md:py-2">
                               Del
                             </Button>
                           </div>
@@ -624,6 +774,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
 
 // ============================================================
 // Tab visibility preferences
+// ============================================================
 
 function TabVisibilitySection() {
   const [prefs, setPrefs] = useState(() => {
@@ -803,6 +954,7 @@ function ImportSection() {
   const [parsed, setParsed] = useState<ParsedCsv | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [showMobileInput, setShowMobileInput] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleParse = (text: string) => {
@@ -865,16 +1017,31 @@ function ImportSection() {
         the single source of truth — all current data will be replaced.
       </p>
 
-      <textarea
-        value={csvText}
-        onChange={(e) => handleParse(e.target.value)}
-        placeholder={`Paste CSV here...
+      {/* Mobile: collapsed accordion for the textarea */}
+      <div className="md:hidden">
+        <button
+          onClick={() => setShowMobileInput((v) => !v)}
+          className="mb-3 flex w-full items-center justify-between rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+        >
+          <span>{showMobileInput ? '− Hide CSV input' : '+ Tap to paste raw CSV text'}</span>
+          <svg className={`h-4 w-4 transition-transform ${showMobileInput ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+          </svg>
+        </button>
+      </div>
+
+      <div className={`${showMobileInput ? 'block' : 'hidden'} md:block`}>
+        <textarea
+          value={csvText}
+          onChange={(e) => handleParse(e.target.value)}
+          placeholder={`Paste CSV here...
 Example:
 Date,Amount,Description,Type,Category,From Account,To Account
 1/5/2026,₱1489.00,Monthly salary,,Paycheck,,GoTyme`}
-        rows={6}
-        className="mb-3 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-blue-400"
-      />
+          rows={6}
+          className="mb-3 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-blue-400"
+        />
+      </div>
 
       <div className="mb-3">
         <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()}>
@@ -906,7 +1073,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 }
 
 // ============================================================
-// Sync Section — manual trigger to push local changes to cloud
+// Sync Section
 // ============================================================
 
 function SyncSection() {
@@ -1021,6 +1188,7 @@ function formatSyncTime(ts: number): string {
   return `${month}/${day} ${hours}:${mins}`;
 }
 
+// ============================================================
 // Loading skeleton
 // ============================================================
 
