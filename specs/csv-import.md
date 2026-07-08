@@ -1,6 +1,7 @@
 # Spec: CSV Import (from Google Sheets)
 
-**Status:** ✅ Done (implemented, pending commit)
+**Status:** ✅ Done (committed)
+**Expected output:** [`specs/data/import-output.md`](data/import-output.md)
 
 ---
 
@@ -78,10 +79,12 @@ Only the first occurrence of Carry Over per account within that first month is a
 
 | Condition | App `type` |
 |---|---|
-| `To Account` populated, `From Account` empty | `income` |
-| `From Account` populated, `To Account` empty | `expense` |
-| Both `From Account` and `To Account` populated | `transaction` |
-| Both empty | Skip with validation error |
+| `Type` column = `Income` | `income` |
+| `Type` column = `Expense` | `expense` |
+| `Type` column = `Transfer` | `transaction` |
+| Both `From Account` and `To Account` empty | Skip with validation error |
+
+The per-row transaction type comes from the CSV's `Type` column directly, not from account patterns. Account patterns (`toAccount` only / `fromAccount` only / both) are only used as fallback in `inferCategoryType` when a category has mixed `Type` values (e.g., Adjustments has both Income and Expense rows).
 
 ### Amount parsing
 
@@ -105,13 +108,17 @@ Only the first occurrence of Carry Over per account within that first month is a
 
 ### Category creation
 
-1. Collect all unique category names
-2. For each category, determine its `type`:
-   - If any row with this category uses `Type` column as `Savings Transfer` / `Cash In` / `Cash Out` / `Carry Over` → type = `transaction`
-   - If any row has `To Account` but no `From Account` → type = `income`
-   - If any row has `From Account` but no `To Account` → type = `expense`
+1. Collect all unique category names (excluding `Carry Over`)
+2. For each category, determine its `type` by examining all its rows:
+   - **Primary:** If all rows have the same CSV `Type` value (`Income` / `Expense` / `Transfer`), use that directly
+   - **Fallback:** If rows have mixed `Type` values (e.g., Adjustments), use the account-pattern heuristic:
+     - All rows have both accounts → `transaction`
+     - Any row has `To Account` but no `From Account` → `income`
+     - Otherwise → `expense`
 3. Generate `id` from name: lowercase, replace spaces/special chars with hyphens
 4. Write all categories to IndexedDB
+
+Expected output for the two source CSVs is documented in [`specs/data/import-output.md`](data/import-output.md).
 
 ---
 
