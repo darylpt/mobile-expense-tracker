@@ -33,7 +33,7 @@ export function EditTransactionModal({ transaction, onClose }: EditTransactionMo
   const { categories } = useCategories();
   const { accounts } = useAccounts();
 
-  // Derive form state from transaction directly — no useEffect sync needed
+  // Derive form state from a Transaction object
   const initForm = (tx: Transaction): FormState => ({
     amount: String(tx.amount),
     date: tx.date,
@@ -50,6 +50,13 @@ export function EditTransactionModal({ transaction, onClose }: EditTransactionMo
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
+
+  // Sync form when transaction prop changes (modal opens with different tx)
+  useEffect(() => {
+    if (transaction) {
+      setForm(initForm(transaction));
+    }
+  }, [transaction]);
 
   // Focus trap + Escape key handler
   useEffect(() => {

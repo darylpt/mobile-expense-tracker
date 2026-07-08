@@ -349,32 +349,33 @@ export function parseCsv(text: string): ParsedCsv {
 }
 
 /**
- * Infer a category's TransactionType based on how it's used in the CSV rows.
+ * Infer a category's TransactionType from the CSV rows for that category.
  *
- * Priority:
- * 1. Type column is "Savings Transfer" / "Cash In" / "Cash Out" → transaction
- * 2. Any row has toAccount but no fromAccount → income
- * 3. Any row has fromAccount but no toAccount → expense
- * 4. Fallback → expense
+ * Uses the CSV's `Type` column as the primary signal (it already says Income,
+ * Expense, or Transfer on every row). Falls back to account-pattern heuristic
+ * only when a category has mixed Type values (e.g., "Adjustments").
  */
-function inferCategoryType(rows: CsvRow[]): Transaction['type'] {
-  let hasIncomePattern = false;
-  let hasExpensePattern = false;
+export function inferCategoryType(rows: CsvRow[]): Transaction['type'] {
+  const types = new Set(rows.map((r) => r.type.toLowerCase()));
 
-  for (const row of rows) {
-    // Check category name (from CSV Category column) for transfer indicators
-    const catLower = row.category.toLowerCase();
-    if (catLower === 'savings transfer' || catLower === 'cash in' || catLower === 'cash out') {
-      return 'transaction';
-    }
-
-    const hasFrom = !!row.fromAccount;
-    const hasTo = !!row.toAccount;
-
-    if (hasTo && !hasFrom) hasIncomePattern = true;
-    if (hasFrom && !hasTo) hasExpensePattern = true;
+  // If all rows agree, use their Type column value directly
+  if (types.size === 1) {
+    const t = [...types][0];
+    if (t === 'income') return 'income';
+    if (t === 'expense') return 'expense';
+    if (t === 'transfer') return 'transaction';
   }
 
-  if (hasIncomePattern && !hasExpensePattern) return 'income';
-  return 'expense'; // default, including mixed patterns
+  // Mixed types — fall back to account-pattern heuristic
+  let hasIncome = false;
+  let hasExpense = false;
+  let hasTransfer = false;
+  for (const row of rows) {
+    if (!!row.toAccount && !row.fromAccount) hasIncome = true;
+    if (!!row.fromAccount && !row.toAccount) hasExpense = true;
+    if (!!row.fromAccount && !!row.toAccount) hasTransfer = true;
+  }
+  if (hasTransfer && !hasIncome && !hasExpense) return 'transaction';
+  if (hasIncome && !hasExpense) return 'income';
+  return 'expense';
 }
