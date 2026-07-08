@@ -25,6 +25,7 @@ interface HeaderProps {
 export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderProps) {
   const router = useRouter();
   const { state, user, signOut } = useAuth();
+  const pathname = usePathname();
 
   const handleSignOut = async () => {
     // Try to push pending changes before signing out
@@ -80,12 +81,12 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
       </div>
 
       {showTabs && (
-        <nav className="mx-auto flex max-w-4xl gap-1 overflow-x-auto px-4 pb-0 sm:px-6">
-          <TabLink href="/">Summary</TabLink>
-          <TabLink href="/transactions">Transactions</TabLink>
-          {tabPrefs.showBalances && <TabLink href="/available-balance">Balances</TabLink>}
-          {tabPrefs.showPayout && <TabLink href="/payout">Payout</TabLink>}
-          <TabLink href="/settings">Settings</TabLink>
+        <nav key={pathname} className="mx-auto flex max-w-4xl gap-1 overflow-x-auto px-4 pb-0 sm:px-6">
+          <TabLink href="/" pathname={pathname}>Summary</TabLink>
+          <TabLink href="/transactions" pathname={pathname}>Transactions</TabLink>
+          {tabPrefs.showBalances && <TabLink href="/available-balance" pathname={pathname}>Balances</TabLink>}
+          {tabPrefs.showPayout && <TabLink href="/payout" pathname={pathname}>Payout</TabLink>}
+          <TabLink href="/settings" pathname={pathname}>Settings</TabLink>
         </nav>
       )}
     </header>
@@ -96,9 +97,7 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
 // Tab link sub-component
 // ============================================================
 
-function TabLink({ href, children }: { href: string; children: React.ReactNode }) {
-  const pathname = usePathname();
-  // Normalize trailing slashes: both "/transactions" and "/transactions/" match the tab
+function TabLink({ href, pathname, children }: { href: string; pathname: string; children: React.ReactNode }) {
   const p = pathname.replace(/\/+$/, '');
   const h = href.replace(/\/+$/, '');
   const isActive = h === '/' ? p === '/' : p === h || p.startsWith(h + '/');
