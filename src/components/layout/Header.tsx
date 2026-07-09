@@ -190,9 +190,6 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
             )}
             {state === 'authenticated' && (
               <>
-                <span className="hidden text-xs text-zinc-400 dark:text-zinc-500 md:inline" title={user?.email ?? ''}>
-                  {user?.email ?? ''}
-                </span>
                 {/* Desktop: sync button */}
                 <button
                   onClick={handleSync}
@@ -202,6 +199,9 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
                 >
                   <RefreshIcon className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
                 </button>
+                <span className="hidden text-xs text-zinc-400 dark:text-zinc-500 md:inline" title={user?.email ?? ''}>
+                  {user?.email ?? ''}
+                </span>
                 {/* Desktop: text sign-out button */}
                 <button
                   onClick={handleSignOut}
