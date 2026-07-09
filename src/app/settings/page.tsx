@@ -382,13 +382,13 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
 
       {/* ponytail: max-md:-mx-4 w-screen gives full-bleed tables on mobile */}
       <div className="overflow-x-auto max-md:-mx-4 max-md:w-screen">
-        <table className="w-full text-left text-sm">
+        <table className="min-w-full text-left text-sm">
           <thead>
             <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
               <th scope="col" className="w-6 pr-1" />
               <th scope="col" className="py-2 pr-4 font-medium">Name</th>
               <th scope="col" className="py-2 px-2 text-right font-medium">Starting Balance</th>
-              <th scope="col" className="py-2 pl-2 text-right font-medium">Actions</th>
+              <th scope="col" className="whitespace-nowrap py-2 pl-2 text-right font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -416,7 +416,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
                       leading={<span className="text-zinc-500">₱</span>}
                     />
                   </td>
-                  <td className="py-2 pl-2 text-right">
+                  <td className="whitespace-nowrap py-2 pl-2 text-right">
                     <div className="flex justify-end gap-1">
                       <Button variant="ghost" size="sm" onClick={handleSaveEdit}>
                         Save
@@ -448,7 +448,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
                   <td className="py-2 px-2 text-right tabular-nums">
                     {formatCurrency(account.startingBalance ?? 0)}
                   </td>
-                  <td className="py-2 pl-2 text-right">
+                  <td className="whitespace-nowrap py-2 pl-2 text-right">
                     <div className="flex justify-end gap-0.5">
                       <Button variant="ghost" size="sm" onClick={() => startEdit(account)}
                         className="max-md:px-3 max-md:py-2">
@@ -486,7 +486,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
                     leading={<span className="text-zinc-500">₱</span>}
                   />
                 </td>
-                <td className="py-2 pl-2 text-right">
+                <td className="whitespace-nowrap py-2 pl-2 text-right">
                   <div className="flex justify-end gap-1">
                     <Button variant="ghost" size="sm" onClick={handleSaveAdd}>
                       Save
@@ -669,12 +669,12 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
             </h3>
 
             <div className="overflow-x-auto max-md:-mx-4 max-md:w-screen">
-              <table className="w-full text-left text-sm">
+              <table className="min-w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
                     <th scope="col" className="w-6 pr-1" />
                     <th scope="col" className="py-2 pr-4 font-medium">Name</th>
-                    <th scope="col" className="py-2 pl-2 text-right font-medium">Actions</th>
+                    <th scope="col" className="whitespace-nowrap py-2 pl-2 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -692,7 +692,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                             aria-label="Category name"
                           />
                         </td>
-                        <td className="py-2 pl-2 text-right">
+                        <td className="whitespace-nowrap py-2 pl-2 text-right">
                           <div className="flex justify-end gap-1">
                             <Button variant="ghost" size="sm" onClick={handleSaveEdit}>
                               Save
@@ -721,7 +721,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                           </svg>
                         </td>
                         <td className="py-2 pr-4 font-medium">{cat.name}</td>
-                        <td className="py-2 pl-2 text-right">
+                        <td className="whitespace-nowrap py-2 pl-2 text-right">
                           <div className="flex justify-end gap-0.5">
                             <Button variant="ghost" size="sm" onClick={() => startEdit(cat)}
                               className="max-md:px-3 max-md:py-2">
@@ -749,7 +749,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                           aria-label="Category name"
                         />
                       </td>
-                      <td className="py-2 pl-2 text-right">
+                      <td className="whitespace-nowrap py-2 pl-2 text-right">
                         <div className="flex justify-end gap-1">
                           <Button
                             variant="ghost"
