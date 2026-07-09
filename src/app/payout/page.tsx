@@ -143,7 +143,7 @@ export default function PayoutPage() {
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
       <Header title="Payout" />
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-20 pt-6 sm:px-6 sm:pb-0 sm:pt-8">
         <div className="space-y-6 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">
           {/* ── Left column: inputs ── */}
           <div className="space-y-6">

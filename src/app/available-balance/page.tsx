@@ -56,7 +56,7 @@ export default function AvailableBalancePage() {
     return (
       <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
         <Header title="Available Balance" />
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-20 pt-6 sm:px-6 sm:pb-0 sm:pt-8">
           <LoadingSkeleton />
         </main>
       </div>
@@ -67,7 +67,7 @@ export default function AvailableBalancePage() {
     return (
       <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
         <Header title="Available Balance" />
-        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center justify-center px-4 py-16">
+        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center justify-center px-4 pb-20 pt-16 sm:pb-0 sm:pt-16">
           <p className="text-base font-medium text-zinc-900 dark:text-zinc-100">
             No data yet
           </p>
@@ -89,7 +89,7 @@ export default function AvailableBalancePage() {
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
       <Header title="Available Balance" />
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-20 pt-6 sm:px-6 sm:pb-0 sm:pt-8">
         {/* Date Check control */}
         <div className="mb-6">
           <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">

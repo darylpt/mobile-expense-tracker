@@ -82,7 +82,7 @@ export default function SettingsPage() {
           Back to Settings
         </button>
 
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-20 pt-6 sm:px-6 sm:pb-0 sm:pt-8">
           {accountsLoading || categoriesLoading ? (
             <LoadingSkeleton />
           ) : (
@@ -209,7 +209,7 @@ export default function SettingsPage() {
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
       <Header title="Settings" />
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-20 pt-6 sm:px-6 sm:pb-0 sm:pt-8">
         {content}
       </main>
     </div>

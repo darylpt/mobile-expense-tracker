@@ -16,7 +16,7 @@ export default function Home() {
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
       <Header />
 
-      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 pb-20 pt-6 sm:px-6 sm:pb-0 sm:pt-8">
         {/* Quick Add Form */}
         <section>
           <QuickAddForm />
