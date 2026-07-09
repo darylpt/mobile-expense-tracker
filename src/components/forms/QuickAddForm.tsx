@@ -94,8 +94,15 @@ export function QuickAddForm() {
         description: form.description.trim() || undefined,
       });
 
-      // Reset form on success
-      setForm(initialFormState);
+      // Reset form on success — keep type/category/account/description sticky
+      setForm((prev) => ({
+        ...initialFormState,
+        type: prev.type,
+        category: prev.category,
+        fromAccount: prev.fromAccount,
+        toAccount: prev.toAccount,
+        description: prev.description,
+      }));
       setCollapsed(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to add transaction';
