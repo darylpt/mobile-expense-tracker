@@ -930,7 +930,7 @@ function BackupSection() {
       </h2>
       <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
         Export all data as JSON, or import from a previous backup. All data lives
-        in your browser — there is no cloud sync.
+        locally in your browser and syncs to the cloud when connected.
       </p>
 
       <div className="flex flex-wrap gap-3">
