@@ -41,6 +41,7 @@ export function QuickAddForm() {
   const [form, setForm] = useState<FormState>(initialFormState);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(true);
 
   // Update a single form field
   const updateField = useCallback(
@@ -95,6 +96,7 @@ export function QuickAddForm() {
 
       // Reset form on success
       setForm(initialFormState);
+      setCollapsed(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to add transaction';
       setError(message);
@@ -114,28 +116,51 @@ export function QuickAddForm() {
     <form
       onSubmit={handleSubmit}
       onKeyDown={handleKeyDown}
-      className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6"
+      className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50"
     >
-      <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-        Quick Add
-      </h2>
-
-      <TransactionFormFields
-        form={form}
-        onFieldChange={updateField}
-        error={error}
-        categories={categories}
-        accounts={accounts}
-      />
-
-      {/* Submit button */}
-      <div className="mt-4 flex items-center justify-between">
-        <span className="text-xs text-zinc-500 dark:text-zinc-400">
-          Press Ctrl+Enter to submit
+      {/* Collapsed: tap to expand (mobile) / always expanded (md+) */}
+      <button
+        type="button"
+        onClick={() => { if (window.innerWidth < 768) setCollapsed(!collapsed); }}
+        className="flex w-full items-center justify-between px-4 py-3 text-left sm:px-6 md:cursor-default"
+        aria-expanded={!collapsed}
+      >
+        <span className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+          {collapsed ? (
+            <>
+              <span className="mr-1.5 inline-block text-blue-500">+</span>
+              Add Transaction
+            </>
+          ) : (
+            'Quick Add'
+          )}
         </span>
-        <Button type="submit" variant="primary" isLoading={isSubmitting || isTxLoading}>
-          Add Transaction
-        </Button>
+        {/* Collapse indicator — hide on desktop */}
+        <span className={`text-xs text-zinc-400 transition-transform md:hidden ${collapsed ? '' : 'rotate-180'}`}>
+          ▼
+        </span>
+      </button>
+
+      {/* Expanded: form fields + submit */}
+      <div className={`overflow-hidden transition-all md:!max-h-full ${collapsed ? 'max-h-0' : 'max-h-[2000px]'}`}>
+        <div className="border-t border-zinc-200 px-4 pb-4 pt-3 dark:border-zinc-700 sm:px-6 sm:pb-6">
+          <TransactionFormFields
+            form={form}
+            onFieldChange={updateField}
+            error={error}
+            categories={categories}
+            accounts={accounts}
+          />
+
+          <div className="mt-4 flex items-center justify-between">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              Press Ctrl+Enter to submit
+            </span>
+            <Button type="submit" variant="primary" isLoading={isSubmitting || isTxLoading}>
+              Add Transaction
+            </Button>
+          </div>
+        </div>
       </div>
     </form>
   );
