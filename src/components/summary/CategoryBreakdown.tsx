@@ -21,15 +21,16 @@ export function CategoryBreakdown() {
 
   // Merge categories with transactions — show every known category, even with ₱0.00
   const enrichedCategoryBreakdown = useMemo(() => {
-    const txMap = new Map(categoryBreakdown.map((c) => [c.category, c]));
+    // Build a compound key "name|type" so same-name, different-type categories coexist
+    const txMap = new Map(categoryBreakdown.map((c) => [`${c.category}|${c.type}`, c]));
     const seen = new Set<string>();
     const merged: typeof categoryBreakdown = [];
 
-    // Show income categories first, then expense (matching sortOrder from IndexedDB)
     for (const cat of categories) {
-      if (seen.has(cat.name)) continue;
-      seen.add(cat.name);
-      const existing = txMap.get(cat.name);
+      const key = `${cat.name}|${cat.type}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const existing = txMap.get(key);
       merged.push(existing ?? {
         category: cat.name,
         type: cat.type,
@@ -41,8 +42,9 @@ export function CategoryBreakdown() {
 
     // Any categories from transactions not in the known list (orphaned data)
     for (const item of categoryBreakdown) {
-      if (!seen.has(item.category)) {
-        seen.add(item.category);
+      const key = `${item.category}|${item.type}`;
+      if (!seen.has(key)) {
+        seen.add(key);
         merged.push(item);
       }
     }
