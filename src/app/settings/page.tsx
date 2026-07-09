@@ -380,8 +380,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
         </p>
       )}
 
-      {/* ponytail: max-md:-mx-4 w-screen gives full-bleed tables on mobile */}
-      <div className="overflow-x-auto max-md:-mx-4 max-md:w-screen">
+      <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm">
           <thead>
             <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
@@ -668,7 +667,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
               {label}
             </h3>
 
-            <div className="overflow-x-auto max-md:-mx-4 max-md:w-screen">
+            <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
