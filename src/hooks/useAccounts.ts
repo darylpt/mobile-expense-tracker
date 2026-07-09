@@ -14,7 +14,7 @@ import {
   deleteAccount as deleteAccountFromDB,
   moveAccountTo as moveAccountToInDB,
 } from '@/lib/idb';
-import { generateId } from '@/lib/utils';
+
 import { useTransactionContext } from '@/context/TransactionContext';
 
 export function useAccounts() {
@@ -49,10 +49,9 @@ export function useAccounts() {
     }
   }, []);
 
-  const addAccount = useCallback(async (account: Omit<Account, 'id'>): Promise<string> => {
-    const id = generateId();
+  const addAccount = useCallback(async (account: Omit<Account, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> => {
     try {
-      await addAccountToDB({ ...account, id });
+      const id = await addAccountToDB(account);
       await refresh();
       await ctx.refreshTransactions();
       return id;
@@ -63,7 +62,7 @@ export function useAccounts() {
     }
   }, [refresh, ctx]);
 
-  const updateAccount = useCallback(async (account: Account): Promise<void> => {
+  const updateAccount = useCallback(async (account: Partial<Account> & Pick<Account, 'id'>): Promise<void> => {
     try {
       await updateAccountToDB(account);
       await refresh();

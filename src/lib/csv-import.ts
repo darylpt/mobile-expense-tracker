@@ -302,6 +302,8 @@ export function parseCsv(text: string): ParsedCsv {
       name,
       startingBalance,
       sortOrder: acctSortOrder,
+      createdAt: now,
+      updatedAt: now,
     });
     acctSortOrder += 1000;
   }
@@ -317,6 +319,8 @@ export function parseCsv(text: string): ParsedCsv {
       name: catName,
       type: categoryType,
       sortOrder: catSortOrder,
+      createdAt: now,
+      updatedAt: now,
     });
     catSortOrder += 1000;
   }

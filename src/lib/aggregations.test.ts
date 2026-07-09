@@ -15,11 +15,11 @@ import type { Account, MonthYear, Transaction } from '@/types';
 // ---------------------------------------------------------------------------
 
 const ACCOUNTS: Account[] = [
-  { id: 'gotyme', name: 'GoTyme', startingBalance: 0 },
-  { id: 'cash', name: 'Cash', startingBalance: 0 },
-  { id: 'gcash', name: 'Gcash', startingBalance: 0 },
-  { id: 'landbank', name: 'Landbank', startingBalance: 0 },
-  { id: 'dragonfi', name: 'DragonFi', startingBalance: 0 },
+  { id: 'gotyme', name: 'GoTyme', startingBalance: 0, createdAt: 0, updatedAt: 0 },
+  { id: 'cash', name: 'Cash', startingBalance: 0, createdAt: 0, updatedAt: 0 },
+  { id: 'gcash', name: 'Gcash', startingBalance: 0, createdAt: 0, updatedAt: 0 },
+  { id: 'landbank', name: 'Landbank', startingBalance: 0, createdAt: 0, updatedAt: 0 },
+  { id: 'dragonfi', name: 'DragonFi', startingBalance: 0, createdAt: 0, updatedAt: 0 },
 ];
 
 const JUNE_2026: MonthYear = { month: 5, year: 2026 };
@@ -45,8 +45,8 @@ describe('calculateAccountBalances', () => {
 
   it('includes accounts with non-zero starting balance even with no activity', () => {
     const accts: Account[] = [
-      { id: 'gotyme', name: 'GoTyme', startingBalance: 5000 },
-      { id: 'cash', name: 'Cash', startingBalance: 0 },
+      { id: 'gotyme', name: 'GoTyme', startingBalance: 5000, createdAt: 0, updatedAt: 0 },
+      { id: 'cash', name: 'Cash', startingBalance: 0, createdAt: 0, updatedAt: 0 },
     ];
     const result = calculateAccountBalances([], [], accts, JUNE_2026);
     // All accounts shown regardless of starting balance — user decides what to keep via Settings

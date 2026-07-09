@@ -253,8 +253,8 @@ function HubLink({ onClick, children }: { onClick: () => void; children: React.R
 
 interface AccountsSectionProps {
   accounts: Account[];
-  onAdd: (account: Omit<Account, 'id'>) => Promise<string>;
-  onUpdate: (account: Account) => Promise<void>;
+  onAdd: (account: Omit<Account, 'id' | 'createdAt' | 'updatedAt'>) => Promise<string>;
+  onUpdate: (account: Partial<Account> & Pick<Account, 'id'>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onMoveTo: (id: string, targetIndex: number) => Promise<void>;
 }
@@ -528,8 +528,8 @@ const CATEGORY_TYPES: { label: string; type: TransactionType }[] = [
 
 interface CategoriesSectionProps {
   categories: Category[];
-  onAdd: (category: Omit<Category, 'id'>) => Promise<string>;
-  onUpdate: (category: Category) => Promise<void>;
+  onAdd: (category: Omit<Category, 'id' | 'createdAt' | 'updatedAt'>) => Promise<string>;
+  onUpdate: (category: Partial<Category> & Pick<Category, 'id'>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onMoveTo: (id: string, targetIndex: number) => Promise<void>;
 }

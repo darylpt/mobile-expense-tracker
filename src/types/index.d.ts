@@ -28,6 +28,8 @@ export interface Account {
   startingBalance: number;
   /** Controls display order (lower = first). Assigned during DB migration v6. */
   sortOrder?: number;
+  createdAt: number;      // Timestamp for creation (e.g., Date.now())
+  updatedAt: number;      // Timestamp for last update
 }
 
 /** Represents a user-defined category */
@@ -37,6 +39,8 @@ export interface Category {
   type: TransactionType;  // Associates category with a transaction type
   /** Controls display order (lower = first). Assigned during DB migration v6. */
   sortOrder?: number;
+  createdAt: number;      // Timestamp for creation (e.g., Date.now())
+  updatedAt: number;      // Timestamp for last update
 }
 
 /** Shape of a monthly summary calculated from transactions */

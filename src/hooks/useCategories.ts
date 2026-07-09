@@ -14,7 +14,7 @@ import {
   deleteCategory as deleteCategoryFromDB,
   moveCategoryTo as moveCategoryToInDB,
 } from '@/lib/idb';
-import { generateId } from '@/lib/utils';
+
 
 export function useCategories() {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -54,10 +54,9 @@ export function useCategories() {
     [categories]
   );
 
-  const addCategory = useCallback(async (category: Omit<Category, 'id'>): Promise<string> => {
-    const id = generateId();
+  const addCategory = useCallback(async (category: Omit<Category, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> => {
     try {
-      await addCategoryToDB({ ...category, id });
+      const id = await addCategoryToDB(category);
       await refresh();
       return id;
     } catch (err) {
@@ -67,7 +66,7 @@ export function useCategories() {
     }
   }, [refresh]);
 
-  const updateCategory = useCallback(async (category: Category): Promise<void> => {
+  const updateCategory = useCallback(async (category: Partial<Category> & Pick<Category, 'id'>): Promise<void> => {
     try {
       await updateCategoryToDB(category);
       await refresh();

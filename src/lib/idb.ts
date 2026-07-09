@@ -208,6 +208,22 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
         }
       }
 
+      // ── Migration: v8 → v9 (add createdAt/updatedAt to accounts and categories) ──
+      if (oldVersion < 9) {
+        const now = Date.now();
+        for (const storeName of [STORES.ACCOUNTS, STORES.CATEGORIES] as const) {
+          const store = transaction.objectStore(storeName);
+          let cursor = await store.openCursor();
+          while (cursor) {
+            const r = cursor.value;
+            if (r.createdAt === undefined || r.updatedAt === undefined) {
+              await cursor.update({ ...r, createdAt: r.createdAt ?? now, updatedAt: r.updatedAt ?? now });
+            }
+            cursor = await cursor.continue();
+          }
+        }
+      }
+
       // ── Migration: v2 → v3 ──
       if (oldVersion < 3) {
         const txStore = transaction.objectStore(STORES.TRANSACTIONS);
@@ -414,11 +430,20 @@ export async function getAllAccounts(): Promise<Account[]> {
 /**
  * Add a new account. If sortOrder is not set, assigns it to the end.
  */
-export async function addAccount(account: Account): Promise<string> {
+export async function addAccount(
+  account: Omit<Account, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<string> {
   const db = await getDB();
+  const now = Date.now();
   const all = await db.getAll(STORES.ACCOUNTS);
   const maxOrder = all.reduce((max, a) => Math.max(max, a.sortOrder ?? 0), 0);
-  const record = { ...account, sortOrder: account.sortOrder ?? maxOrder + 1000 };
+  const record: Account = {
+    ...account,
+    id: generateId(),
+    createdAt: now,
+    updatedAt: now,
+    sortOrder: account.sortOrder ?? maxOrder + 1000,
+  };
   await db.add(STORES.ACCOUNTS, record);
   enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record as unknown as Record<string, unknown>);
   return record.id;
@@ -427,14 +452,17 @@ export async function addAccount(account: Account): Promise<string> {
 /**
  * Update an existing account.
  */
-export async function updateAccount(account: Account): Promise<void> {
+export async function updateAccount(
+  account: Partial<Account> & Pick<Account, 'id'>
+): Promise<void> {
   const db = await getDB();
   const existing = await db.get(STORES.ACCOUNTS, account.id);
   if (!existing) {
     throw new Error(`Account with id "${account.id}" not found`);
   }
-  await db.put(STORES.ACCOUNTS, account);
-  enqueueSyncEntry(STORES.ACCOUNTS, account.id, 'update', account as unknown as Record<string, unknown>);
+  const updated = { ...existing, ...account, updatedAt: Date.now() };
+  await db.put(STORES.ACCOUNTS, updated);
+  enqueueSyncEntry(STORES.ACCOUNTS, account.id, 'update', updated as unknown as Record<string, unknown>);
 }
 
 /**
@@ -465,9 +493,10 @@ async function reorderAccountsTo(id: string, targetIndex: number): Promise<void>
   const [item] = sorted.splice(fromIdx, 1);
   sorted.splice(targetIndex, 0, item);
 
+  const now = Date.now();
   const tx = db.transaction(STORES.ACCOUNTS, 'readwrite');
   const store = tx.objectStore(STORES.ACCOUNTS);
-  const updated = sorted.map((acct, i) => ({ ...acct, sortOrder: i * 1000 }));
+  const updated = sorted.map((acct, i) => ({ ...acct, sortOrder: i * 1000, updatedAt: now }));
   await Promise.all(updated.map((acct) => store.put(acct)));
   await tx.done;
 
@@ -501,13 +530,22 @@ export async function getAllCategories(): Promise<Category[]> {
 /**
  * Add a new category. If sortOrder is not set, assigns it to the end of its type group.
  */
-export async function addCategory(category: Category): Promise<string> {
+export async function addCategory(
+  category: Omit<Category, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<string> {
   const db = await getDB();
+  const now = Date.now();
   const all = await db.getAll(STORES.CATEGORIES);
   const maxOrder = all
     .filter((c) => c.type === category.type)
     .reduce((max, c) => Math.max(max, c.sortOrder ?? 0), 0);
-  const record = { ...category, sortOrder: category.sortOrder ?? maxOrder + 1000 };
+  const record: Category = {
+    ...category,
+    id: generateId(),
+    createdAt: now,
+    updatedAt: now,
+    sortOrder: category.sortOrder ?? maxOrder + 1000,
+  };
   await db.add(STORES.CATEGORIES, record);
   enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record as unknown as Record<string, unknown>);
   return record.id;
@@ -516,14 +554,17 @@ export async function addCategory(category: Category): Promise<string> {
 /**
  * Update an existing category.
  */
-export async function updateCategory(category: Category): Promise<void> {
+export async function updateCategory(
+  category: Partial<Category> & Pick<Category, 'id'>
+): Promise<void> {
   const db = await getDB();
   const existing = await db.get(STORES.CATEGORIES, category.id);
   if (!existing) {
     throw new Error(`Category with id "${category.id}" not found`);
   }
-  await db.put(STORES.CATEGORIES, category);
-  enqueueSyncEntry(STORES.CATEGORIES, category.id, 'update', category as unknown as Record<string, unknown>);
+  const updated = { ...existing, ...category, updatedAt: Date.now() };
+  await db.put(STORES.CATEGORIES, updated);
+  enqueueSyncEntry(STORES.CATEGORIES, category.id, 'update', updated as unknown as Record<string, unknown>);
 }
 
 /**
@@ -556,9 +597,10 @@ async function reorderCategoriesTo(id: string, targetIndex: number): Promise<voi
   const [item] = group.splice(fromIdx, 1);
   group.splice(targetIndex, 0, item);
 
+  const now = Date.now();
   const tx = db.transaction(STORES.CATEGORIES, 'readwrite');
   const store = tx.objectStore(STORES.CATEGORIES);
-  const updated = group.map((cat, i) => ({ ...cat, sortOrder: i * 1000 }));
+  const updated = group.map((cat, i) => ({ ...cat, sortOrder: i * 1000, updatedAt: now }));
   await Promise.all(updated.map((cat) => store.put(cat)));
   await tx.done;
 

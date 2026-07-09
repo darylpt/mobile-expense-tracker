@@ -11,11 +11,11 @@ import type { Account, Transaction } from '@/types';
 // ---------------------------------------------------------------------------
 
 const ACCOUNTS: Account[] = [
-  { id: 'gotyme', name: 'GoTyme', startingBalance: 0 },
-  { id: 'cash', name: 'Cash', startingBalance: 0 },
-  { id: 'gcash', name: 'Gcash', startingBalance: 0 },
-  { id: 'landbank', name: 'Landbank', startingBalance: 0 },
-  { id: 'dragonfi', name: 'DragonFi', startingBalance: 0 },
+  { id: 'gotyme', name: 'GoTyme', startingBalance: 0, createdAt: 0, updatedAt: 0 },
+  { id: 'cash', name: 'Cash', startingBalance: 0, createdAt: 0, updatedAt: 0 },
+  { id: 'gcash', name: 'Gcash', startingBalance: 0, createdAt: 0, updatedAt: 0 },
+  { id: 'landbank', name: 'Landbank', startingBalance: 0, createdAt: 0, updatedAt: 0 },
+  { id: 'dragonfi', name: 'DragonFi', startingBalance: 0, createdAt: 0, updatedAt: 0 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -33,8 +33,8 @@ describe('calculateExpectedBalances', () => {
 
   it('accounts with non-zero starting balance show that balance with no transactions', () => {
     const accts: Account[] = [
-      { id: 'gotyme', name: 'GoTyme', startingBalance: 5000 },
-      { id: 'cash', name: 'Cash', startingBalance: 0 },
+      { id: 'gotyme', name: 'GoTyme', startingBalance: 5000, createdAt: 0, updatedAt: 0 },
+      { id: 'cash', name: 'Cash', startingBalance: 0, createdAt: 0, updatedAt: 0 },
     ];
     const result = calculateExpectedBalances([], accts, '2026-06-28');
     expect(result).toHaveLength(2);
