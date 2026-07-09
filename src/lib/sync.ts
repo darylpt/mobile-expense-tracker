@@ -281,6 +281,9 @@ export async function backgroundSync(): Promise<void> {
     for (const store of allStores) {
       await pullStore(store, user.id);
     }
+
+    // Record successful sync time for UI display
+    localStorage.setItem('last_sync_time', Date.now().toString());
   } catch (err) {
     console.error('[Sync] background sync failed:', err);
     // ponytail: silent failure. User's UI is intact from IDB cache.

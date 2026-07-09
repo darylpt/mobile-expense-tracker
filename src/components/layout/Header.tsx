@@ -8,7 +8,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
@@ -73,6 +73,14 @@ function ArrowRightOnRectangleIcon({ className }: { className?: string }) {
   );
 }
 
+function RefreshIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+    </svg>
+  );
+}
+
 interface TabDef {
   href: string;
   label: string;
@@ -119,6 +127,40 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
     return () => window.removeEventListener('storage', read);
   }, []);
 
+  // ── Sync status ──────────────────────────────────────────
+  const [lastSync, setLastSync] = useState<number | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const syncTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+
+  useEffect(() => {
+    const ts = localStorage.getItem('last_sync_time');
+    if (ts) setLastSync(parseInt(ts, 10));
+    // Refresh the relative-time display every 30s
+    syncTimer.current = setInterval(() => {
+      const ts = localStorage.getItem('last_sync_time');
+      if (ts) setLastSync(parseInt(ts, 10));
+    }, 30000);
+    // Listen for sync-time updates from other tabs
+    const handler = (e: StorageEvent) => {
+      if (e.key === 'last_sync_time' && e.newValue) setLastSync(parseInt(e.newValue, 10));
+    };
+    window.addEventListener('storage', handler);
+    return () => {
+      clearInterval(syncTimer.current);
+      window.removeEventListener('storage', handler);
+    };
+  }, []);
+
+  const handleSync = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      await backgroundSync();
+    } catch { /* handled in sync.ts */ }
+    const ts = localStorage.getItem('last_sync_time');
+    if (ts) setLastSync(parseInt(ts, 10));
+    setIsSyncing(false);
+  }, []);
+
   const visibleTabs = tabs.filter(t =>
     t.core ||
     (t.href === '/available-balance' && tabPrefs.showBalances) ||
@@ -136,21 +178,45 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
             </span>
           </h1>
           <div className="flex items-center gap-2">
-            {/* PWA badge + email — desktop only */}
+            {/* PWA badge — desktop only */}
             <span className="hidden rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 md:inline-block">
               PWA
             </span>
+            {/* Sync status — desktop only */}
+            {state === 'authenticated' && (
+              <span className="hidden items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500 md:inline-flex">
+                {lastSync ? timeAgo(lastSync) : 'never'}
+              </span>
+            )}
             {state === 'authenticated' && (
               <>
                 <span className="hidden text-xs text-zinc-400 dark:text-zinc-500 md:inline" title={user?.email ?? ''}>
                   {user?.email ?? ''}
                 </span>
+                {/* Desktop: sync button */}
+                <button
+                  onClick={handleSync}
+                  disabled={isSyncing}
+                  className="hidden rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 md:inline-block"
+                  aria-label="Sync now"
+                >
+                  <RefreshIcon className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                </button>
                 {/* Desktop: text sign-out button */}
                 <button
                   onClick={handleSignOut}
                   className="hidden rounded-lg px-2.5 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 md:inline-block"
                 >
                   Sign out
+                </button>
+                {/* Mobile: sync button */}
+                <button
+                  onClick={handleSync}
+                  disabled={isSyncing}
+                  className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 md:hidden"
+                  aria-label="Sync now"
+                >
+                  <RefreshIcon className={`h-5 w-5 ${isSyncing ? 'animate-spin' : ''}`} />
                 </button>
                 {/* Mobile: icon sign-out button */}
                 <button
@@ -202,6 +268,18 @@ function TabLink({ href, pathname, children }: { href: string; pathname: string;
       {children}
     </Link>
   );
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  return `${Math.floor(diff / 86400000)}d ago`;
 }
 
 // ============================================================
