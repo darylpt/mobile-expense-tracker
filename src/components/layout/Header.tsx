@@ -14,6 +14,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { getSyncQueueCount } from '@/lib/idb';
 import { backgroundSync } from '@/lib/sync';
+import { APP_VERSION } from '@/lib/version';
 
 interface HeaderProps {
   /** Optional title override. Defaults to "Expense Tracker" */
@@ -130,6 +131,9 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
         <div className="mx-auto flex max-w-4xl items-center justify-between px-4 pt-3 sm:px-6">
           <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
             {title}
+            <span className="ml-2 inline-block rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500">
+              v{APP_VERSION}
+            </span>
           </h1>
           <div className="flex items-center gap-2">
             {/* PWA badge + email — desktop only */}
