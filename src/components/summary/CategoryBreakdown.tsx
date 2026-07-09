@@ -144,6 +144,11 @@ interface BreakdownListProps {
   items: { category: string; totalAmount: number; count: number; percentage: number; type: string }[];
 }
 
+type GroupKey = 'income' | 'expense' | 'transfer';
+const GROUP_LABEL: Record<GroupKey, string> = { income: 'Income', expense: 'Expenses', transfer: 'Transfers' };
+const DOT_CLASS: Record<GroupKey, string> = { income: 'bg-emerald-500', expense: 'bg-red-500', transfer: 'bg-blue-500' };
+const BAR_CLASS: Record<GroupKey, string> = { income: 'bg-emerald-500', expense: 'bg-red-500', transfer: 'bg-blue-500' };
+
 function CategoryBreakdownList({ items }: BreakdownListProps) {
   if (items.length === 0) {
     return (
@@ -153,53 +158,61 @@ function CategoryBreakdownList({ items }: BreakdownListProps) {
     );
   }
 
-  // Find max amount for width scaling
-  const maxAmount = Math.max(...items.map((i) => i.totalAmount));
+  // Group by type, preserve insert order within each group
+  const groups = useMemo(() => {
+    const g: Record<GroupKey, typeof items> = { income: [], expense: [], transfer: [] };
+    for (const item of items) {
+      const key = item.type as GroupKey;
+      if (g[key]) g[key].push(item);
+    }
+    return g;
+  }, [items]);
 
   return (
-    <div className="space-y-2.5">
-      {items.map((item) => {
-        const isZero = item.totalAmount === 0;
+    <div className="space-y-5">
+      {(['income', 'expense', 'transfer'] as const).map((type) => {
+        const group = groups[type];
+        if (group.length === 0) return null;
+        const maxAmount = Math.max(...group.map((i) => i.totalAmount));
         return (
-        <div key={item.category} className={isZero ? 'opacity-40' : ''}>
-          <div className="mb-1 flex items-center justify-between text-sm">
-            <div className="flex items-center gap-2">
-              <span
-                className={`inline-block h-2 w-2 rounded-full ${
-                  item.type === 'income'
-                    ? 'bg-emerald-500'
-                    : item.type === 'expense'
-                      ? 'bg-red-500'
-                      : 'bg-blue-500'
-                }`}
-              />
-              <span className={`font-medium ${isZero ? 'text-zinc-500 dark:text-zinc-500' : 'text-zinc-800 dark:text-zinc-200'}`}>
-                {item.category}
-              </span>
+          <section key={type}>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+              {GROUP_LABEL[type]}
+            </h3>
+            <div className="space-y-2.5">
+              {group.map((item) => {
+                const isZero = item.totalAmount === 0;
+                return (
+                  <div key={item.category} className={isZero ? 'opacity-40' : ''}>
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-block h-2 w-2 rounded-full ${DOT_CLASS[type]}`} />
+                        <span className={`font-medium ${isZero ? 'text-zinc-500 dark:text-zinc-500' : 'text-zinc-800 dark:text-zinc-200'}`}>
+                          {item.category}
+                        </span>
+                      </div>
+                      <span className="text-zinc-600 dark:text-zinc-400">
+                        {formatCurrencyShort(item.totalAmount)}
+                      </span>
+                    </div>
+                    {/* Progress bar */}
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-700">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${BAR_CLASS[type]}`}
+                        style={{ width: `${(item.totalAmount / maxAmount) * 100}%` }}
+                      />
+                    </div>
+                    <div className="mt-0.5 flex justify-between text-xs text-zinc-500 dark:text-zinc-500">
+                      <span>{item.count} {item.count === 1 ? 'entry' : 'entries'}</span>
+                      <span>{item.percentage.toFixed(1)}% of total</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <span className="text-zinc-600 dark:text-zinc-400">
-              {formatCurrencyShort(item.totalAmount)}
-            </span>
-          </div>
-          {/* Progress bar */}
-          <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-700">
-            <div
-              className={`h-full rounded-full transition-all duration-300 ${
-                item.type === 'income'
-                  ? 'bg-emerald-500'
-                  : item.type === 'expense'
-                    ? 'bg-red-500'
-                    : 'bg-blue-500'
-              }`}
-              style={{ width: `${(item.totalAmount / maxAmount) * 100}%` }}
-            />
-          </div>
-          <div className="mt-0.5 flex justify-between text-xs text-zinc-500 dark:text-zinc-500">
-            <span>{item.count} {item.count === 1 ? 'entry' : 'entries'}</span>
-            <span>{item.percentage.toFixed(1)}% of total</span>
-          </div>
-        </div>
-      );})}
+          </section>
+        );
+      })}
     </div>
   );
 }
