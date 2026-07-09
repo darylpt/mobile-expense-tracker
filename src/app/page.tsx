@@ -27,8 +27,8 @@ export default function Home() {
           <MonthlySummaryCard />
         </section>
 
-        {/* Category breakdown chart view (complements the summary tables) */}
-        <section>
+        {/* Category breakdown — mobile only (desktop uses tables in MonthlySummaryCard) */}
+        <section className="md:hidden">
           <CategoryBreakdown />
         </section>
 
