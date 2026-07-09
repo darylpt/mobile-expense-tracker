@@ -209,7 +209,10 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
                 >
                   Sign out
                 </button>
-                {/* Mobile: sync button */}
+                {/* Mobile: sync status + button */}
+                <span className="truncate text-[10px] text-zinc-400 dark:text-zinc-500 md:hidden">
+                  {lastSync ? timeAgo(lastSync) : 'never'}
+                </span>
                 <button
                   onClick={handleSync}
                   disabled={isSyncing}
