@@ -4,7 +4,7 @@ A local-first personal finance tracker with optional Supabase cloud sync.
 Data lives in IndexedDB on your device — the app works fully offline.
 When Supabase is configured, changes sync across devices automatically.
 
-**Status:** Phase 1 complete. Active use since June 2026.
+**Status:** Phase 1 complete. Active use since June 2026. **v0.1.8**
 
 ---
 
@@ -44,7 +44,7 @@ src/
 ├── components/
 │   ├── common/             # Button, Input, Dropdown
 │   ├── forms/              # QuickAddForm, EditTransactionModal, TransactionFormFields
-│   ├── layout/             # Header (tab navigation, user email, sign-out)
+│   ├── layout/             # Header (tab nav, user email, sign-out, version badge, sync status, mobile bottom nav)
 │   ├── summary/            # TransactionList, MonthlySummaryCard, CategoryBreakdown
 │   └── available-balance/  # CashDenominationInput
 ├── context/
@@ -87,6 +87,7 @@ as the data write (atomic by construction). A background sync loop:
 2. Upserts to Supabase (user_id-stamped for per-user isolation)
 3. Pulls remote changes and merges via LWW (Last-Writer-Wins by `updated_at`)
 4. Auto-sync triggers 2 seconds after every CRUD (debounced)
+5. Last sync time saved to `localStorage('last_sync_time')` — displayed as relative time in header
 
 Soft-delete strategy: "Delete" sets `deleted_at` on Supabase (never hard-delete).
 During pull, soft-deleted records are purged from local IDB.
@@ -107,6 +108,10 @@ Month navigation, 4 metric cards (Income, Expenses, Net, Count), Accounts
 table (starting balance / inflow / outflow / ending), Income Breakdown table,
 Expenses Breakdown table with budget targets. Inline budget editor via "Edit
 Budgets" button. Category and Account breakdown charts via tabs.
+
+**Mobile (<768px):** Accounts table, Income table, and Expenses table are hidden.
+Replaced by a grouped CategoryBreakdown (Income/Expenses/Transfers sections) with
+progress bars. Quick Add form is collapsed by default — tap to expand.
 
 ### `/transactions` — Transaction List
 
@@ -131,7 +136,8 @@ does **not** create ledger transactions.
 ### `/settings` — Settings
 
 **Accounts:** inline add/edit/delete with delete-blocked-if-in-use checks,
-drag-and-drop reordering. **Categories:** grouped by type, same CRUD + reorder.
+drag-and-drop reordering. **Categories:** grouped by type (Income/Expense/Transfer),
+same CRUD + reorder. Same-name categories allowed across types.
 **Tab Visibility:** toggle Balances/Payout tabs on/off. **Cloud Sync:** sync
 status, last sync time, Sync Now, Re-sync All buttons. **Sign out** (visible
 when authenticated). **Backup & Restore:** export all data as JSON, export
@@ -194,6 +200,7 @@ Import CSV) or restore a JSON backup.
 | `npm run lint` | ESLint |
 | `npm test` | Unit tests (Jest) |
 | `npm run test:e2e` | E2E tests (Playwright) |
+| `npm run version:bump` | Auto-increment patch version, stage `src/lib/version.ts` |
 
 ---
 

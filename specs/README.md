@@ -31,6 +31,14 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | Auto-sync after CRUD | ✅ Done | Debounced `requestSync()` from `enqueueSyncEntry()` (2s debounce, dynamic import to avoid circular dep). Sync fires automatically after every local change. |
 | Auth redirect fix (hooks crash) | ✅ Done | `AuthGuard` replaced `redirect()` (throws mid-render) with `useRouter().replace()` in `useEffect`, preventing "Rendered more hooks than during the previous render" crash on sign-out. |
 | Migration 003 (sort_order column) | ✅ Done | `supabase/migrations/003_add_sort_order.sql` adds `sort_order INTEGER` to accounts and categories tables. Must be run on Supabase before sync will work. |
+| Bottom tab bar + responsive nav | ✅ Done | Mobile gets fixed bottom tab bar (z-20, safe-area-inset-bottom, 5 tabs as data array). Desktop keeps inline tab nav in header. Balances/Payout tabs optional via `tabPrefs`. |
+| `createdAt`/`updatedAt` on Account & Category | ✅ Done | Types extended, DB migration v8→9 backfills existing records, all mutations auto-stamp timestamps, csv-import & test fixtures updated. Fixes cross-device sync LWW ordering. |
+| Version badge + `npm run version:bump` | ✅ Done | `APP_VERSION` in `src/lib/version.ts`. Badge in header. Script auto-increments patch, stages the file. |
+| Sync status display | ✅ Done | `last_sync_time` in localStorage after `backgroundSync()`. Shown as relative time ("just now", "5m ago") on desktop header and mobile header. Sync button reordered before email. |
+| Collapsible Quick Add on mobile | ✅ Done | Quick Add form collapsed by default on <768px, expands in place, auto-collapses on submit. Desktop always expanded. |
+| Mobile-only breakdown views | ✅ Done | Income/Expense tables hidden on mobile (`hidden md:block`). CategoryBreakdown (grouped by type) shown on mobile only. Accounts table hidden on mobile. |
+| Category breakdown grouped by type | ✅ Done | Items grouped under Income/Expenses/Transfers section headers with colored dots/bars. Transfer section included. |
+| Category compound-key dedup fix | ✅ Done | `enrichedCategoryBreakdown` used `Set<string>` keyed by name only — same-name categories with different types silently dropped. Fixed by using compound key `"name|type"`. |
 | Subcategory support | ⚪ Not yet scoped | Phase 1.5, lowest priority. |
 | `phase-2-investments.md` | 🔵 Deferred | Stock Portfolio Tracker, Dividend Log, DCA Rotation Log. Out of scope until Phase 1.5 wraps. |
 
