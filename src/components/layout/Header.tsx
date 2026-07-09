@@ -252,7 +252,7 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
 // ============================================================
 
 function TabLink({ href, pathname, children }: { href: string; pathname: string; children: React.ReactNode }) {
-  const p = pathname.replace(/\/+$/, '');
+  const p = pathname === '/' ? '/' : pathname.replace(/\/+$/, '');
   const h = href.replace(/\/+$/, '') || '/';
   const isActive = h === '/' ? p === '/' : p === h || p.startsWith(h + '/');
 
@@ -294,7 +294,7 @@ function MobileBottomNav({ tabs, pathname }: { tabs: TabDef[]; pathname: string 
          style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       <div className="mx-auto flex max-w-lg items-center justify-around">
         {tabs.map((tab) => {
-          const p = pathname.replace(/\/+$/, '');
+          const p = pathname === '/' ? '/' : pathname.replace(/\/+$/, '');
           const h = tab.href.replace(/\/+$/, '') || '/';
           const isActive = h === '/' ? p === '/' : p === h || p.startsWith(h + '/');
 
