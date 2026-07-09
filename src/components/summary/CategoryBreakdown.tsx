@@ -170,7 +170,7 @@ function CategoryBreakdownList({ items }: BreakdownListProps) {
 
   return (
     <div className="space-y-5">
-      {(['income', 'expense', 'transfer'] as const).map((type) => {
+      {(['income', 'expense'] as const).map((type) => {
         const group = groups[type];
         if (group.length === 0) return null;
         const maxAmount = Math.max(...group.map((i) => i.totalAmount));
