@@ -368,10 +368,10 @@ export function TransactionList() {
 
           <button
             onClick={() => setParam('group', getGroupParam() ? null : 'date')}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ring-1 ring-inset ${
               getGroupParam()
-                ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
-                : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+                ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 ring-violet-300 dark:ring-violet-700'
+                : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400 ring-zinc-300 dark:ring-zinc-600'
             }`}
           >
             {getGroupParam() ? 'Grouped' : 'Group by date'}
@@ -479,10 +479,10 @@ export function TransactionList() {
         {/* ponytail: view toggle separated from type filters by a divider */}
         <button
           onClick={() => setParam('group', getGroupParam() ? null : 'date')}
-          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ring-1 ring-inset ${
             getGroupParam()
-              ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
-              : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+              ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 ring-violet-300 dark:ring-violet-700'
+              : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400 ring-zinc-300 dark:ring-zinc-600'
           }`}
         >
           {getGroupParam() ? 'Grouped' : 'Group by date'}
@@ -619,7 +619,7 @@ export function TransactionList() {
                               </span>
                               <div className="relative">
                                 <button onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
-                                  className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+                                  className="rounded p-3 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
                                   aria-label="Transaction actions">
                                   <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
                                     <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
@@ -689,7 +689,7 @@ export function TransactionList() {
                         </span>
                         <div className="relative">
                           <button onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
-                            className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+                            className="rounded p-3 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
                             aria-label="Transaction actions">
                             <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
                               <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
