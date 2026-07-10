@@ -2,7 +2,7 @@
 // Available Balance (Cash Reconciliation) screen
 //
 // Mirrors the "Available Balance" sheet tab — shows expected vs
-// current balance per account as of a user-selected date.
+// current balance per account as of today.
 //
 // This is a reconciliation tool only — no adjusting transactions
 // are created.
@@ -23,7 +23,6 @@ const CASH_ACCOUNT_ID = 'cash';
 
 export default function AvailableBalancePage() {
   const { transactions, accounts, isLoading } = useTransactionContext();
-  const [dateCheck, setDateCheck] = useState(getToday);
   // ponytail: ephemeral state, resets on page reload for non-Cash accounts
   const [currentBalances, setCurrentBalances] = useState<Record<string, number>>({});
   const [cashUseDenominations, setCashUseDenominations] = useState(true);
@@ -32,8 +31,8 @@ export default function AvailableBalancePage() {
   // or pass it as initial value to the denomination grid.
 
   const expectedRows = useMemo<ExpectedBalanceRow[]>(
-    () => calculateExpectedBalances(transactions, accounts, dateCheck),
-    [transactions, accounts, dateCheck]
+    () => calculateExpectedBalances(transactions, accounts, getToday()),
+    [transactions, accounts]
   );
 
   // ponytail: stable callbacks via useCallback — functional updater avoids closure deps
@@ -90,18 +89,6 @@ export default function AvailableBalancePage() {
       <Header title="Available Balance" />
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-20 pt-6 sm:px-6 sm:pb-0 sm:pt-8">
-        {/* Date Check control */}
-        <div className="mb-6">
-          <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Date Check
-          </label>
-          <input
-            type="date"
-            value={dateCheck}
-            onChange={(e) => setDateCheck(e.target.value)}
-            className="mt-1 block w-full max-w-xs rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
-          />
-        </div>
 
         {/* Reconciliation table — desktop */}
         <div className="hidden lg:block">
@@ -137,7 +124,7 @@ export default function AvailableBalancePage() {
                             <div className="flex flex-col items-end gap-1">
                               {cashUseDenominations ? (
                                 <CashDenominationInput
-                                  date={dateCheck}
+                                  date={getToday()}
                                   onTotalChange={handleCashTotalChange}
                                 />
                               ) : (
@@ -223,7 +210,7 @@ export default function AvailableBalancePage() {
                     <div className="space-y-2">
                       <div className="text-sm text-zinc-500 dark:text-zinc-400">Current</div>
                       <CashDenominationInput
-                        date={dateCheck}
+                        date={getToday()}
                         onTotalChange={handleCashTotalChange}
                       />
                       <button
