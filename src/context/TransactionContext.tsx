@@ -135,7 +135,7 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
         clearAllLocalData().then(() => {
           localStorage.removeItem(LAST_USER_KEY);
           refreshTransactions(); // renders empty state
-        });
+        }).catch(() => {}); // ponytail: fire-and-forget, errors logged inside
       }
       return;
     }
@@ -154,7 +154,7 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
         }
         await refreshTransactions();
       };
-      doSync();
+      doSync().catch(() => {}); // ponytail: fire-and-forget, errors handled inside
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authState, user]);
@@ -163,7 +163,7 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
   useEffect(() => {
     const handleOnline = () => {
       if (authState === 'authenticated' && user) {
-        backgroundSync().then(() => refreshTransactions());
+        backgroundSync().then(() => refreshTransactions()).catch(() => {}); // ponytail: fire-and-forget, errors logged inside backgroundSync
       }
     };
     window.addEventListener('online', handleOnline);

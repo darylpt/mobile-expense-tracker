@@ -1,5 +1,4 @@
-import { inferCategoryType } from './csv-import';
-import { CsvRow } from '@/types';
+import { inferCategoryType, type CsvRow } from './csv-import';
 
 describe('inferCategoryType', () => {
   const mockRow = (
