@@ -647,13 +647,13 @@ export function TransactionList() {
                           <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
                             <span className="font-medium text-zinc-600 dark:text-zinc-300">{tx.category}</span>
                             <span className="mx-1">·</span>
+                            {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            <span className="mx-1">·</span>
                             {tx.type === 'income'
                               ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
                               : tx.type === 'expense'
                                 ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
                                 : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
-                            <span className="mx-1">·</span>
-                            {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           </div>
                         </div>
                       </div>
@@ -716,13 +716,13 @@ export function TransactionList() {
                     <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
                       <span className="font-medium text-zinc-600 dark:text-zinc-300">{tx.category}</span>
                       <span className="mx-1">·</span>
+                      {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      <span className="mx-1">·</span>
                       {tx.type === 'income'
                         ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
                         : tx.type === 'expense'
                           ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
                           : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
-                      <span className="mx-1">·</span>
-                      {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </div>
                   </div>
                 </div>
