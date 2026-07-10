@@ -343,11 +343,11 @@ function requestSync(): void {
   }, 2000);
 }
 
-export async function enqueueSyncEntry(
+export async function enqueueSyncEntry<T extends Record<string, unknown>>(
   storeName: string,
   recordId: string,
   operation: SyncOperation,
-  payload: Record<string, unknown> | null
+  payload: T | null
 ): Promise<void> {
   const seq = ++syncSeqCounter; // synchronous — order-preserving, no await before this
   const db = await getDB();
@@ -396,7 +396,7 @@ export async function addTransaction(
   };
   await db.add(STORES.TRANSACTIONS, newTx);
   // Enqueue sync entry (fire-and-forget, own transaction)
-  enqueueSyncEntry(STORES.TRANSACTIONS, newTx.id, 'create', newTx as unknown as Record<string, unknown>);
+  enqueueSyncEntry(STORES.TRANSACTIONS, newTx.id, 'create', newTx);
   return newTx.id;
 }
 
@@ -411,7 +411,7 @@ export async function updateTransaction(tx: Transaction): Promise<void> {
   }
   const updated = { ...tx, updatedAt: Date.now() };
   await db.put(STORES.TRANSACTIONS, updated);
-  enqueueSyncEntry(STORES.TRANSACTIONS, tx.id, 'update', updated as unknown as Record<string, unknown>);
+  enqueueSyncEntry(STORES.TRANSACTIONS, tx.id, 'update', updated);
 }
 
 /**
@@ -458,7 +458,7 @@ export async function addAccount(
     sortOrder: account.sortOrder ?? maxOrder + 1000,
   };
   await db.add(STORES.ACCOUNTS, record);
-  enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record as unknown as Record<string, unknown>);
+  enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record);
   return record.id;
 }
 
@@ -475,7 +475,7 @@ export async function updateAccount(
   }
   const updated = { ...existing, ...account, updatedAt: Date.now() };
   await db.put(STORES.ACCOUNTS, updated);
-  enqueueSyncEntry(STORES.ACCOUNTS, account.id, 'update', updated as unknown as Record<string, unknown>);
+  enqueueSyncEntry(STORES.ACCOUNTS, account.id, 'update', updated);
 }
 
 /**
@@ -514,7 +514,7 @@ async function reorderAccountsTo(id: string, targetIndex: number): Promise<void>
   await tx.done;
 
   for (const acct of updated) {
-    enqueueSyncEntry(STORES.ACCOUNTS, acct.id, 'update', acct as unknown as Record<string, unknown>);
+    enqueueSyncEntry(STORES.ACCOUNTS, acct.id, 'update', acct);
   }
 }
 
@@ -560,7 +560,7 @@ export async function addCategory(
     sortOrder: category.sortOrder ?? maxOrder + 1000,
   };
   await db.add(STORES.CATEGORIES, record);
-  enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record as unknown as Record<string, unknown>);
+  enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record);
   return record.id;
 }
 
@@ -577,7 +577,7 @@ export async function updateCategory(
   }
   const updated = { ...existing, ...category, updatedAt: Date.now() };
   await db.put(STORES.CATEGORIES, updated);
-  enqueueSyncEntry(STORES.CATEGORIES, category.id, 'update', updated as unknown as Record<string, unknown>);
+  enqueueSyncEntry(STORES.CATEGORIES, category.id, 'update', updated);
 }
 
 /**
@@ -618,7 +618,7 @@ async function reorderCategoriesTo(id: string, targetIndex: number): Promise<voi
   await tx.done;
 
   for (const cat of updated) {
-    enqueueSyncEntry(STORES.CATEGORIES, cat.id, 'update', cat as unknown as Record<string, unknown>);
+    enqueueSyncEntry(STORES.CATEGORIES, cat.id, 'update', cat);
   }
 }
 
@@ -649,7 +649,7 @@ export async function addCashDenomination(
   const id = generateId();
   const record = { ...cd, id };
   await db.add(STORES.CASH_DENOMINATIONS, record);
-  enqueueSyncEntry(STORES.CASH_DENOMINATIONS, id, 'create', record as unknown as Record<string, unknown>);
+  enqueueSyncEntry(STORES.CASH_DENOMINATIONS, id, 'create', record);
   return id;
 }
 
@@ -701,7 +701,7 @@ export async function addPayout(
   const id = generateId();
   const record = { ...payout, id };
   await db.add(STORES.PAYOUTS, record);
-  enqueueSyncEntry(STORES.PAYOUTS, id, 'create', record as unknown as Record<string, unknown>);
+  enqueueSyncEntry(STORES.PAYOUTS, id, 'create', record);
   return id;
 }
 
@@ -715,7 +715,7 @@ export async function updatePayout(payout: Payout): Promise<void> {
     throw new Error(`Payout with id "${payout.id}" not found`);
   }
   await db.put(STORES.PAYOUTS, payout);
-  enqueueSyncEntry(STORES.PAYOUTS, payout.id, 'update', payout as unknown as Record<string, unknown>);
+  enqueueSyncEntry(STORES.PAYOUTS, payout.id, 'update', payout);
 }
 
 /**
@@ -798,7 +798,7 @@ export async function setBudgetTarget(
         updatedAt: now,
       };
       await cursor.update(updated);
-      enqueueSyncEntry(STORES.BUDGET_TARGETS, updated.id, 'update', updated as unknown as Record<string, unknown>);
+      enqueueSyncEntry(STORES.BUDGET_TARGETS, updated.id, 'update', updated);
       return;
     }
     cursor = await cursor.continue();
@@ -814,7 +814,7 @@ export async function setBudgetTarget(
     updatedAt: now,
   };
   await store.add(newTarget);
-  enqueueSyncEntry(STORES.BUDGET_TARGETS, newTarget.id, 'create', newTarget as unknown as Record<string, unknown>);
+  enqueueSyncEntry(STORES.BUDGET_TARGETS, newTarget.id, 'create', newTarget);
 }
 
 /**
@@ -904,22 +904,22 @@ export async function importAllData(backup: BackupData): Promise<void> {
 
   // Enqueue sync entries so restored data gets pushed to Supabase
   for (const record of backup.data.accounts) {
-    enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record as unknown as Record<string, unknown>);
+    enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record);
   }
   for (const record of backup.data.categories) {
-    enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record as unknown as Record<string, unknown>);
+    enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record);
   }
   for (const record of backup.data.transactions) {
-    enqueueSyncEntry(STORES.TRANSACTIONS, record.id, 'create', record as unknown as Record<string, unknown>);
+    enqueueSyncEntry(STORES.TRANSACTIONS, record.id, 'create', record);
   }
   for (const record of backup.data.cashDenominations) {
-    enqueueSyncEntry(STORES.CASH_DENOMINATIONS, record.id, 'create', record as unknown as Record<string, unknown>);
+    enqueueSyncEntry(STORES.CASH_DENOMINATIONS, record.id, 'create', record);
   }
   for (const record of backup.data.payouts) {
-    enqueueSyncEntry(STORES.PAYOUTS, record.id, 'create', record as unknown as Record<string, unknown>);
+    enqueueSyncEntry(STORES.PAYOUTS, record.id, 'create', record);
   }
   for (const record of backup.data.budgetTargets) {
-    enqueueSyncEntry(STORES.BUDGET_TARGETS, record.id, 'create', record as unknown as Record<string, unknown>);
+    enqueueSyncEntry(STORES.BUDGET_TARGETS, record.id, 'create', record);
   }
 }
 
@@ -1070,22 +1070,22 @@ export async function resyncAll(): Promise<void> {
 
   // Enqueue in dependency order: accounts before transactions that reference them
   for (const record of accounts) {
-    await enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record as unknown as Record<string, unknown>);
+    await enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record);
   }
   for (const record of categories) {
-    await enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record as unknown as Record<string, unknown>);
+    await enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record);
   }
   for (const record of cashDenominations) {
-    await enqueueSyncEntry(STORES.CASH_DENOMINATIONS, record.id, 'create', record as unknown as Record<string, unknown>);
+    await enqueueSyncEntry(STORES.CASH_DENOMINATIONS, record.id, 'create', record);
   }
   for (const record of payouts) {
-    await enqueueSyncEntry(STORES.PAYOUTS, record.id, 'create', record as unknown as Record<string, unknown>);
+    await enqueueSyncEntry(STORES.PAYOUTS, record.id, 'create', record);
   }
   for (const record of budgetTargets) {
-    await enqueueSyncEntry(STORES.BUDGET_TARGETS, record.id, 'create', record as unknown as Record<string, unknown>);
+    await enqueueSyncEntry(STORES.BUDGET_TARGETS, record.id, 'create', record);
   }
   for (const record of transactions) {
-    await enqueueSyncEntry(STORES.TRANSACTIONS, record.id, 'create', record as unknown as Record<string, unknown>);
+    await enqueueSyncEntry(STORES.TRANSACTIONS, record.id, 'create', record);
   }
 }
 
@@ -1142,13 +1142,13 @@ export async function importFromCsv(csvText: string): Promise<ParsedCsv> {
 
   // Enqueue sync entries so imported data gets pushed to Supabase
   for (const acct of addedAccounts) {
-    enqueueSyncEntry(STORES.ACCOUNTS, acct.id, 'create', acct as unknown as Record<string, unknown>);
+    enqueueSyncEntry(STORES.ACCOUNTS, acct.id, 'create', acct);
   }
   for (const cat of addedCategories) {
-    enqueueSyncEntry(STORES.CATEGORIES, cat.id, 'create', cat as unknown as Record<string, unknown>);
+    enqueueSyncEntry(STORES.CATEGORIES, cat.id, 'create', cat);
   }
   for (const t of addedTransactions) {
-    enqueueSyncEntry(STORES.TRANSACTIONS, t.id, 'create', t as unknown as Record<string, unknown>);
+    enqueueSyncEntry(STORES.TRANSACTIONS, t.id, 'create', t);
   }
 
   return parsed;

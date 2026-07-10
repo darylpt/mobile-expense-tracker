@@ -164,8 +164,7 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
       };
       doSync().catch(() => {}); // ponytail: fire-and-forget, errors handled inside
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authState, user]);
+  }, [authState, user, refreshTransactions, clearAllLocalData, backgroundSync]);
 
   // Auth-aware online listener: sync when coming back online
   useEffect(() => {
@@ -176,8 +175,7 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
     };
     window.addEventListener('online', handleOnline);
     return () => window.removeEventListener('online', handleOnline);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authState, user]);
+  }, [authState, user, refreshTransactions, backgroundSync]);
 
   // Add a transaction
   const addTransaction = useCallback(
