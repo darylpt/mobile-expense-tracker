@@ -74,6 +74,13 @@ export function CsvImportPreview({
         </div>
       )}
 
+      {/* ── Truncation warning ── */}
+      {summary.truncated && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+          ⚠ CSV was capped at {summary.validRows} rows (max 2,000). Split your data into smaller files to import everything.
+        </div>
+      )}
+
       {/* ── Error list ── */}
       {hasErrors && (
         <div className="mb-4">

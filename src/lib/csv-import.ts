@@ -40,6 +40,8 @@ export interface CsvSummary {
   transferCount: number;
   carryOverCount: number;
   totalAmount: number;
+  /** Whether the CSV was truncated at MAX_ROWS */
+  truncated: boolean;
 }
 
 export interface ParsedCsv {
@@ -167,9 +169,7 @@ export function parseCsv(text: string): ParsedCsv {
 
   // 4. Cap at MAX_ROWS
   const rowsToParse = dataLines.slice(0, MAX_ROWS);
-  if (dataLines.length > MAX_ROWS) {
-    // ponytail: hard cap to keep UI responsive. User splits large CSVs.
-  }
+  const truncated = dataLines.length > MAX_ROWS;
 
   const carryOverEntries = new Map<string, { amount: number; month: number }>(); // account → {amount, month}
   const accountNames = new Set<string>();
@@ -372,7 +372,7 @@ export function parseCsv(text: string): ParsedCsv {
     expenseCount,
     transferCount,
     carryOverCount,
-    totalAmount,
+    truncated,
   };
 
   return { accounts, categories, transactions, errors, summary };

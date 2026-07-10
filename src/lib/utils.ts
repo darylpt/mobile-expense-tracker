@@ -10,21 +10,11 @@ export function generateId(): string {
 }
 
 /**
- * Format a Date or ISO string to "YYYY-MM-DD".
- */
-export function formatDate(date: Date | string): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-/**
  * Get today's date as "YYYY-MM-DD".
  */
 export function getToday(): string {
-  return formatDate(new Date());
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /**

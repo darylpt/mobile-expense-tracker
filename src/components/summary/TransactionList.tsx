@@ -303,6 +303,13 @@ export function TransactionList() {
         </div>
       )}
 
+      {/* ponytail: aria-live region announces filter/sort changes to screen readers */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {filteredTransactions.length === 0
+          ? 'No transactions match your filters.'
+          : `${filteredTransactions.length} transaction${filteredTransactions.length === 1 ? '' : 's'} shown.`}
+      </div>
+
       {/* ================================================================ */}
       {/* Desktop header row — title + count + month nav                   */}
       {/* ================================================================ */}
