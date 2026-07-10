@@ -743,10 +743,10 @@ export function TransactionList() {
             <thead>
               <tr className="border-b border-zinc-200 text-left text-xs font-medium uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
                 <th className="w-8 pb-2 pr-4" />
-                <th className="pb-2 pr-4">Category</th>
-                <th className="pb-2 pr-4">Description</th>
-                <th className="pb-2 pr-4">Account</th>
                 <th className="pb-2 pr-4">Date</th>
+                <th className="pb-2 pr-4">Description</th>
+                <th className="pb-2 pr-4">Category</th>
+                <th className="pb-2 pr-4">Account</th>
                 <th className="pb-2 pl-4 text-right">Amount</th>
                 <th className="w-20 pb-2 pl-4 text-right">Actions</th>
               </tr>
@@ -759,18 +759,21 @@ export function TransactionList() {
                       {group.displayDate}
                     </td>
                   </tr>,
-                  ...group.txs.map(tx => (
+                    ...group.txs.map(tx => (
                     <tr key={tx.id} className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-700 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
                       <td className="py-2.5 pr-4">
                         <span className={`block h-2 w-2 rounded-full ${
                           tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
                         }`} />
                       </td>
-                      <td className="py-2.5 pr-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                        {tx.category}
+                      <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
+                        {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
                       <td className="py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
                         {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
+                      </td>
+                      <td className="py-2.5 pr-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        {tx.category}
                       </td>
                       <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
                         {tx.type === 'income'
@@ -778,9 +781,6 @@ export function TransactionList() {
                           : tx.type === 'expense'
                             ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
                             : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
-                      </td>
-                      <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
-                        {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
                       <td className={`py-2.5 pl-4 text-right text-sm font-semibold tabular-nums ${
                         tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
@@ -823,11 +823,14 @@ export function TransactionList() {
                         tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
                       }`} />
                     </td>
-                    <td className="py-2.5 pr-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                      {tx.category}
+                    <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
+                      {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
                     <td className="py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
                       {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
+                    </td>
+                    <td className="py-2.5 pr-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                      {tx.category}
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
                       {tx.type === 'income'
@@ -835,9 +838,6 @@ export function TransactionList() {
                         : tx.type === 'expense'
                           ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
                           : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
-                    </td>
-                    <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
-                      {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
                     <td className={`py-2.5 pl-4 text-right text-sm font-semibold tabular-nums ${
                       tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
