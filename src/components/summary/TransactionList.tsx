@@ -644,12 +644,10 @@ export function TransactionList() {
                             </div>
                           </div>
 
-                          <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                            {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            <span className="mx-1">·</span>
-                            <span className="font-medium text-zinc-600 dark:text-zinc-300">{tx.category}</span>
+                          <div className="mt-0.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                            {tx.category}
                           </div>
-                          <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                          <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
                             {tx.type === 'income'
                               ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
                               : tx.type === 'expense'
@@ -717,9 +715,9 @@ export function TransactionList() {
                     <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
                       {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                       <span className="mx-1">·</span>
-                      <span className="font-medium text-zinc-600 dark:text-zinc-300">{tx.category}</span>
+                      <span className="font-semibold text-zinc-700 dark:text-zinc-300">{tx.category}</span>
                     </div>
-                    <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                    <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
                       {tx.type === 'income'
                         ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
                         : tx.type === 'expense'
