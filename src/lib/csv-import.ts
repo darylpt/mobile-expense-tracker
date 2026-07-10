@@ -98,15 +98,32 @@ function parseCsvLine(line: string): string[] {
   return cols;
 }
 
-/** Parse M/D/YYYY → YYYY-MM-DD. Returns null on invalid input. */
-function parseDate(raw: string): string | null {
+/**
+ * Detect date format from a date string.
+ * MM/DD/YYYY (Google Sheets default) vs DD/MM/YYYY.
+ * Returns 'us' or 'eu', defaults to 'us' when ambiguous.
+ */
+type DateFormat = 'us' | 'eu';
+function detectDateFormat(raw: string): DateFormat {
+  const trimmed = raw.trim();
+  const parts = trimmed.split('/');
+  if (parts.length !== 3) return 'us';
+  const first = parseInt(parts[0], 10);
+  // If first segment > 12, it must be DD, not MM
+  return first > 12 ? 'eu' : 'us';
+}
+
+/** Parse localized date string → YYYY-MM-DD. Returns null on invalid input. */
+function parseDate(raw: string, format: DateFormat = 'us'): string | null {
   const trimmed = raw.trim();
   const parts = trimmed.split('/');
   if (parts.length !== 3) return null;
-  const month = parseInt(parts[0], 10);
-  const day = parseInt(parts[1], 10);
+  const a = parseInt(parts[0], 10);
+  const b = parseInt(parts[1], 10);
   const year = parseInt(parts[2], 10);
-  if (isNaN(month) || isNaN(day) || isNaN(year)) return null;
+  if (isNaN(a) || isNaN(b) || isNaN(year)) return null;
+  const month = format === 'eu' ? b : a;
+  const day = format === 'eu' ? a : b;
   if (month < 1 || month > 12 || day < 1 || day > 31) return null;
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
@@ -168,6 +185,15 @@ export function parseCsv(text: string): ParsedCsv {
   let totalAmount = 0;
   let firstCarryOverMonth: number | null = null;
 
+  // Detect date format from the first data row
+  let dateFormat: DateFormat = 'us';
+  if (rowsToParse.length > 0) {
+    const firstCols = parseCsvLine(rowsToParse[0]);
+    if (firstCols.length >= 7) {
+      dateFormat = detectDateFormat(firstCols[0].trim());
+    }
+  }
+
   for (let i = 0; i < rowsToParse.length; i++) {
     const line = rowsToParse[i];
     const rowNum = startIdx + i + 1; // 1-based, original CSV row
@@ -187,7 +213,7 @@ export function parseCsv(text: string): ParsedCsv {
     const toAccount = cols[6].trim();
 
     // Parse date
-    const date = parseDate(rawDate);
+    const date = parseDate(rawDate, dateFormat);
     if (!date) {
       errors.push({ row: rowNum, message: `Invalid date: "${rawDate}"` });
       continue;

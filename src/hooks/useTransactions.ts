@@ -66,6 +66,7 @@ export function useTransactions() {
   return {
     // Raw data from context
     transactions: ctx.transactions,
+    categories: ctx.categories,
     monthTransactions,
     sortedTransactions,
     isLoading: ctx.isLoading,

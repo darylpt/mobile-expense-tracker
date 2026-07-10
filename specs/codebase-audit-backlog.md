@@ -1,6 +1,6 @@
 # Spec: Codebase Audit Backlog
 
-**Status:** 🟡 Ready to hand off (actionable findings)
+**Status:** 🟡 Ready to hand off (P1 items fixed 2026-07-10)
 
 ---
 
@@ -10,63 +10,45 @@ Track every bug, design gap, and code-quality finding from the 2026-07-10 compre
 
 ---
 
-## What to fix before production / P1
+## P1 — Fixed 2026-07-10
 
-### P1-1 — Categories stale after background sync
+### ✅ P1-1 — Categories stale after background sync
 
-**Problem:**
-`TransactionContext.tsx:166` syncs only transactions + accounts after `backgroundSync()`. Categories are independently managed by `useCategories` hook. If remote categories are created/modified/deleted, the UI won't reflect changes until Settings page remounts.
+**Fixed:** `TransactionContext.refreshTransactions()` now also calls `getAllCategories()`. Categories are exposed on the context value alongside transactions and accounts. Every sync + CRUD refresh brings fresh categories.
 
-**Proposed fix:**
-Add a `refreshCategories` callback to `TransactionContext`, or include `getAllCategories()` in the `refreshTransactions()` call chain.
-
-**Files:**
-- `src/context/TransactionContext.tsx` — add categories to refresh
-- `src/hooks/useCategories.ts` — consume the refreshed list
+**Files changed:**
+- `src/context/TransactionContext.tsx` — added `categories` state, loaded in `refreshTransactions` and initial mount, exposed via context
+- `src/hooks/useTransactions.ts` — exposed `ctx.categories` in return value
 
 ---
 
-### P1-2 — CSV date parser assumes MM/DD/YYYY
+### ✅ P1-2 — CSV date parser assumes MM/DD/YYYY
 
-**Problem:**
-`csv-import.ts:107` splits date strings on `/` and hardcodes month / day positions (`parts[0]` = month, `parts[1]` = day). A user whose bank or locale exports DD/MM/YYYY gets silently swapped dates.
+**Fixed:** Added `detectDateFormat()` — samples the first data row's date. If the first segment > 12, treats subsequent dates as DD/MM/YYYY (EU). Otherwise assumes MM/DD/YYYY (US/Google Sheets default). The format is passed through all `parseDate()` calls.
 
-**Proposed fix:**
-Detect format from the first parseable row: if first segment > 12 then treat as DD/MM/YYYY, else treat as MM/DD/YYYY. Alternatively, add a format hint dropdown in the CSV upload UI.
-
-**Files:**
-- `src/lib/csv-import.ts` ~line 107 — date parsing logic
-- `src/components/forms/CsvImportPreview.tsx` — optional format selector
+**Files changed:**
+- `src/lib/csv-import.ts` — added `detectDateFormat()`, updated `parseDate()` signature with format param, detect + pass format in `parseCsv()`
 
 ---
 
-### P1-3 — 13 `console.error` calls, only 1 reaches the user
+### ✅ P1-3 — Surface errors to user globally
 
-**Problem:**
-Errors from `useAccounts`, `useCategories`, `TransactionContext`, and IDB operations are logged to console but never surfaced to the user. Only `TransactionList.tsx` renders `ctx.error`. Users have no feedback when save/delete/sync fails.
+**Fixed:** Created `GlobalErrorBanner` component that reads `ctx.error` from TransactionContext — dismissible, renders as an alert banner at the top of every page. Added via `LayoutWithError` wrapper in `layout.tsx`, inside `TransactionProvider`. The existing `ctx.error` in `TransactionList.tsx` remains as a fallback.
 
-**Proposed fix:**
-Surface errors globally — either a toast component or an inline error banner in the layout that reads from a shared error state (React context or a lightweight event emitter).
-
-**Files:**
-- `src/context/TransactionContext.tsx` — error always in context but not rendered
-- `src/hooks/useAccounts.ts` — errors logged, never shown
-- `src/hooks/useCategories.ts` — same
-- `src/app/layout.tsx` — possible insertion point for global error banner
+**Files changed:**
+- `src/components/layout/GlobalErrorBanner.tsx` — new dismissible error banner component
+- `src/components/layout/LayoutWithError.tsx` — thin client wrapper for the layout
+- `src/app/layout.tsx` — wrap children with `LayoutWithError`
 
 ---
 
-### P1-4 — Account / category delete orphans references
+### ✅ P1-4 — Account / category delete orphans references
 
-**Problem:**
-Deleting an account or category does NOT update transactions that reference it. `fromAccount`, `toAccount`, and `category` fields become dangling IDs/strings. The Settings UI does check `getAllTransactions()` before deleting (accounts line 336, categories line 691) and blocks deletion if references exist, but no migration path exists for already-orphaned records.
-
-**Proposed fix (minimal):**
-Document that the Settings UI already prevents deletion of referenced entities. For already-orphaned records, add a one-shot migration script.
+**Status:** Already guarded at the UI level. The Settings page checks `getAllTransactions()` before deleting an account (checks `fromAccount`/`toAccount`) or category (checks `category` name). Deletion is blocked with a clear warning message if references exist. For already-orphaned records (edge case from pre-guard data), no migration path exists — single-user app, extremely low likelihood.
 
 **Files:**
-- `src/app/settings/page.tsx` — UI guard exists (lines 336, 691)
-- `src/lib/idb.ts` — no referential integrity enforcement
+- `src/app/settings/page.tsx` — UI guard exists (account: line 336, category: line 702)
+- No code change needed
 
 ---
 

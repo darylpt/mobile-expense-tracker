@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider, AuthGuard } from "@/context/AuthContext";
 import { TransactionProvider } from "@/context/TransactionContext";
+import { LayoutWithError } from "@/components/layout/LayoutWithError";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -54,7 +55,9 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <AuthProvider>
           <AuthGuard>
-            <TransactionProvider>{children}</TransactionProvider>
+            <TransactionProvider>
+              <LayoutWithError>{children}</LayoutWithError>
+            </TransactionProvider>
           </AuthGuard>
         </AuthProvider>
       </body>

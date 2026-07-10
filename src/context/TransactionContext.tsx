@@ -7,10 +7,11 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import type { Transaction, Account, MonthYear } from '@/types';
+import type { Transaction, Account, Category, MonthYear } from '@/types';
 import {
   getAllTransactions,
   getAllAccounts,
+  getAllCategories,
   addTransaction as addTransactionToDB,
   updateTransaction as updateTransactionInDB,
   deleteTransaction as deleteTransactionFromDB,
@@ -32,6 +33,8 @@ interface TransactionContextValue {
   transactions: Transaction[];
   /** All accounts from IndexedDB */
   accounts: Account[];
+  /** All categories from IndexedDB */
+  categories: Category[];
   /** Whether initial data is still loading */
   isLoading: boolean;
   /** Error message if something went wrong */
@@ -68,6 +71,7 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
   const { state: authState, user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [monthYear, setMonthYear] = useState<MonthYear>(getCurrentMonthYear());
@@ -76,12 +80,14 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
   const refreshTransactions = useCallback(async () => {
     try {
       setError(null);
-      const [txs, accts] = await Promise.all([
+      const [txs, accts, cats] = await Promise.all([
         getAllTransactions(),
         getAllAccounts(),
+        getAllCategories(),
       ]);
       setTransactions(txs);
       setAccounts(accts);
+      setCategories(cats);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load data';
       setError(message);
@@ -96,13 +102,15 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
     async function load() {
       try {
         setError(null);
-        const [txs, accts] = await Promise.all([
+        const [txs, accts, cats] = await Promise.all([
           getAllTransactions(),
           getAllAccounts(),
+          getAllCategories(),
         ]);
         if (cancelled) return;
         setTransactions(txs);
         setAccounts(accts);
+        setCategories(cats);
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : 'Failed to load data';
@@ -231,6 +239,7 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
   const value: TransactionContextValue = {
     transactions,
     accounts,
+    categories,
     isLoading,
     error,
     monthYear,
