@@ -354,7 +354,9 @@ export default function PayoutPage() {
                   Output
                 </h3>
               </div>
-              <div className="overflow-x-auto">
+
+              {/* Desktop table */}
+              <div className="hidden overflow-x-auto lg:block">
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-y border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
@@ -376,7 +378,6 @@ export default function PayoutPage() {
                               {formatCurrency(amount)}
                             </td>
                           </tr>
-                          {/* Sub-split breakout */}
                           {ssa && amount > 0 && (
                             <>
                               {(Object.keys(LABELS) as (keyof SavingsSubSplit)[]).map((key) => (
@@ -408,6 +409,49 @@ export default function PayoutPage() {
                   </tfoot>
                 </table>
               </div>
+
+              {/* Mobile cards */}
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-700 lg:hidden">
+                {splits.map((split, idx) => {
+                  const amount = amounts[idx] ?? 0;
+                  const ssa = split.subSplit ? subSplitAmounts(amount) : null;
+                  return (
+                    <div key={split.id} className="px-4 py-3 sm:px-6">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                          {split.person || '(unnamed)'}
+                        </span>
+                        <span className="text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-200">
+                          {formatCurrency(amount)}
+                        </span>
+                      </div>
+                      {ssa && amount > 0 && (
+                        <div className="mt-2 space-y-1 border-t border-zinc-100 pt-2 dark:border-zinc-700">
+                          {(Object.keys(LABELS) as (keyof SavingsSubSplit)[]).map((key) => (
+                            <div key={key} className="flex items-center justify-between text-xs">
+                              <span className="text-zinc-500 dark:text-zinc-400">
+                                └ {LABELS[key]}
+                              </span>
+                              <span className="tabular-nums text-zinc-600 dark:text-zinc-400">
+                                {formatCurrency(ssa[key])}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Mobile total */}
+              <div className="border-t border-zinc-200 px-4 py-3 lg:hidden dark:border-zinc-700">
+                <div className="flex items-center justify-between text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  <span>Total</span>
+                  <span className="tabular-nums">{formatCurrency(allocated)}</span>
+                </div>
+              </div>
+
               {splits.length === 0 && (
                 <p className="py-8 text-center text-sm text-zinc-500">
                   No rows. Add a person to start.
