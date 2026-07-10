@@ -87,10 +87,11 @@ export function CashDenominationInput({ date, onTotalChange }: CashDenominationI
       <div className="space-y-1.5">
         {DENOMINATIONS.map((denom) => (
           <div key={denom} className="flex items-center justify-between gap-3">
-            <label className="w-20 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            <label htmlFor={`denom-${denom}`} className="w-20 text-sm font-medium text-zinc-700 dark:text-zinc-300">
               ₱{denom.toLocaleString()}
             </label>
             <input
+              id={`denom-${denom}`}
               type="number"
               min={0}
               step={1}

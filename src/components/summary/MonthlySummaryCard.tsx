@@ -342,11 +342,11 @@ function AccountsTable({ rows }: { rows: AccountRow[] }) {
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-              <th className="py-2 pr-4 font-medium">Account</th>
-              <th className="py-2 px-2 text-right font-medium">Starting Balance</th>
-              <th className="py-2 px-2 text-right font-medium">Inflow</th>
-              <th className="py-2 px-2 text-right font-medium">Outflow</th>
-              <th className="py-2 pl-2 text-right font-medium">Ending Balance</th>
+              <th scope="col" className="py-2 pr-4 font-medium">Account</th>
+              <th scope="col" className="py-2 px-2 text-right font-medium">Starting Balance</th>
+              <th scope="col" className="py-2 px-2 text-right font-medium">Inflow</th>
+              <th scope="col" className="py-2 px-2 text-right font-medium">Outflow</th>
+              <th scope="col" className="py-2 pl-2 text-right font-medium">Ending Balance</th>
             </tr>
           </thead>
           <tbody>
@@ -409,9 +409,9 @@ function IncomeBreakdownTable({ rows }: { rows: IncomeRow[] }) {
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-              <th className="py-2 pr-4 font-medium">Category</th>
-              <th className="py-2 px-2 text-right font-medium">Amount</th>
-              <th className="py-2 pl-2 text-right font-medium">% of Total</th>
+              <th scope="col" className="py-2 pr-4 font-medium">Category</th>
+              <th scope="col" className="py-2 px-2 text-right font-medium">Amount</th>
+              <th scope="col" className="py-2 pl-2 text-right font-medium">% of Total</th>
             </tr>
           </thead>
           <tbody>
@@ -472,11 +472,11 @@ function ExpenseBreakdownTable({ rows }: { rows: ExpenseRow[] }) {
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-              <th className="py-2 pr-3 font-medium">Category</th>
-              <th className="py-2 px-2 text-right font-medium">Planned</th>
-              <th className="py-2 px-2 text-right font-medium">Amount</th>
-              <th className="py-2 px-2 text-right font-medium">Difference</th>
-              <th className="py-2 pl-2 text-right font-medium">% of Total</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Category</th>
+              <th scope="col" className="py-2 px-2 text-right font-medium">Planned</th>
+              <th scope="col" className="py-2 px-2 text-right font-medium">Amount</th>
+              <th scope="col" className="py-2 px-2 text-right font-medium">Difference</th>
+              <th scope="col" className="py-2 pl-2 text-right font-medium">% of Total</th>
             </tr>
           </thead>
           <tbody>

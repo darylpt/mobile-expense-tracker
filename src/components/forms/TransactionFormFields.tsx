@@ -95,11 +95,14 @@ export function TransactionFormFields({
   const showFromAccount =
     form.type === 'expense' || form.type === 'transaction';
 
+  // ponytail: expense categories with hasDestinationAccount show a To Account field.
+  // Checks the actual category record so renaming (e.g. "Savings"→"Emergency Fund")
+  // doesn't silently break the field. Fallback to false for legacy data without the flag.
+  const selectedCategory = categories.find((c) => c.name === form.category && c.type === form.type);
   const showToAccount =
     form.type === 'income' ||
     form.type === 'transaction' ||
-    (form.type === 'expense' &&
-      (form.category === 'Savings' || form.category === 'Investment'));
+    (form.type === 'expense' && selectedCategory?.hasDestinationAccount === true);
 
   return (
     <>

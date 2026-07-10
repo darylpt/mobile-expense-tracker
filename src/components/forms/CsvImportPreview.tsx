@@ -103,11 +103,11 @@ export function CsvImportPreview({
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-                <th className="py-1 pr-2 font-medium">Date</th>
-                <th className="py-1 pr-2 font-medium">Category</th>
-                <th className="py-1 pr-2 font-medium">Amount</th>
-                <th className="py-1 pr-2 font-medium">Type</th>
-                <th className="py-1 font-medium">From→To</th>
+                <th scope="col" className="py-1 pr-2 font-medium">Date</th>
+                <th scope="col" className="py-1 pr-2 font-medium">Category</th>
+                <th scope="col" className="py-1 pr-2 font-medium">Amount</th>
+                <th scope="col" className="py-1 pr-2 font-medium">Type</th>
+                <th scope="col" className="py-1 font-medium">From→To</th>
               </tr>
             </thead>
             <tbody>

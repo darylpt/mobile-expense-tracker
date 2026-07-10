@@ -267,11 +267,12 @@ export default function PayoutPage() {
                             {(Object.keys(DEFAULT_SAVINGS_SPLIT) as (keyof SavingsSubSplit)[]).map(
                               (key) => (
                                 <div key={key}>
-                                  <label className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                                  <label htmlFor={`savings-split-${key}`} className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
                                     {LABELS[key]}
                                   </label>
                                   <div className="relative">
                                     <input
+                                      id={`savings-split-${key}`}
                                       type="number"
                                       step="any"
                                       min={0}

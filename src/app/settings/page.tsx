@@ -624,7 +624,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
 
   const startEdit = (cat: Category) => {
     setEditingId(cat.id);
-    setEditValues({ name: cat.name });
+    setEditValues({ name: cat.name, hasDestinationAccount: cat.hasDestinationAccount ? 'true' : 'false' });
     setAddType(null);
     setDeleteWarning(null);
   };
@@ -632,7 +632,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
   const startAdd = (type: TransactionType) => {
     setAddType(type);
     setEditingId(null);
-    setEditValues({ name: '' });
+    setEditValues(type === 'expense' ? { name: '', hasDestinationAccount: 'false' } : { name: '' });
     setDeleteWarning(null);
   };
 
@@ -656,7 +656,11 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
       return;
     }
     try {
-      await onUpdate({ id: editingId, name, type: cat.type });
+      const updates: Partial<Category> & Pick<Category, 'id'> = { id: editingId, name, type: cat.type };
+      if (cat.type === 'expense') {
+        updates.hasDestinationAccount = editValues.hasDestinationAccount === 'true';
+      }
+      await onUpdate(updates);
       setEditingId(null);
       setEditValues({});
       setDeleteWarning(null);
@@ -676,7 +680,11 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
       return;
     }
     try {
-      await onAdd({ name, type });
+      await onAdd({
+        name,
+        type,
+        hasDestinationAccount: type === 'expense' ? editValues.hasDestinationAccount === 'true' : undefined,
+      });
       setAddType(null);
       setEditValues({});
       setDeleteWarning(null);
@@ -773,6 +781,19 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                             placeholder="Category name"
                             aria-label="Category name"
                           />
+                          {cat.type === 'expense' && (
+                            <label className="mt-1.5 flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                              <input
+                                type="checkbox"
+                                checked={editValues.hasDestinationAccount === 'true'}
+                                onChange={(e) =>
+                                  setEditValues({ ...editValues, hasDestinationAccount: e.target.checked ? 'true' : 'false' })
+                                }
+                                className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800"
+                              />
+                              Requires To Account
+                            </label>
+                          )}
                         </td>
                         <td className="py-2 pl-2 text-right">
                           <div className="flex justify-end gap-1">
@@ -798,7 +819,14 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                             <path d="M8 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4zM8 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4zM8 22a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4z" />
                           </svg>
                         </td>
-                        <td className="py-2 pr-4 font-medium">{cat.name}</td>
+                        <td className="py-2 pr-4 font-medium">
+                          {cat.name}
+                          {cat.hasDestinationAccount && (
+                            <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                              → To
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2 pl-2 text-right">
                           <div className="flex justify-end gap-0.5">
                             <Button variant="ghost" size="sm" onClick={() => startEdit(cat)}>Edit</Button>
@@ -820,6 +848,19 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                           placeholder="Category name"
                           aria-label="Category name"
                         />
+                        {type === 'expense' && (
+                          <label className="mt-1.5 flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                            <input
+                              type="checkbox"
+                              checked={editValues.hasDestinationAccount === 'true'}
+                              onChange={(e) =>
+                                setEditValues({ ...editValues, hasDestinationAccount: e.target.checked ? 'true' : 'false' })
+                              }
+                              className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800"
+                            />
+                            Requires To Account
+                          </label>
+                        )}
                       </td>
                       <td className="py-2 pl-2 text-right">
                         <div className="flex justify-end gap-1">
@@ -854,6 +895,19 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                       placeholder="Category name"
                       aria-label="Category name"
                     />
+                    {cat.type === 'expense' && (
+                      <label className="mt-2 flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                        <input
+                          type="checkbox"
+                          checked={editValues.hasDestinationAccount === 'true'}
+                          onChange={(e) =>
+                            setEditValues({ ...editValues, hasDestinationAccount: e.target.checked ? 'true' : 'false' })
+                          }
+                          className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800"
+                        />
+                        Requires To Account
+                      </label>
+                    )}
                     <div className="mt-2 flex justify-end gap-2">
                       <Button variant="primary" size="sm" onClick={handleSaveEdit}>Save</Button>
                       <Button variant="ghost" size="sm" onClick={cancel}>Cancel</Button>
@@ -866,6 +920,11 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                         <path d="M8 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4zM8 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4zM8 22a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4z" />
                       </svg>
                       <span className="truncate font-medium text-zinc-800 dark:text-zinc-200">{cat.name}</span>
+                      {cat.hasDestinationAccount && (
+                        <span className="ml-1 shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                          → To
+                        </span>
+                      )}
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       <button
@@ -900,6 +959,19 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                     placeholder="Category name"
                     aria-label="Category name"
                   />
+                  {type === 'expense' && (
+                    <label className="mt-2 flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                      <input
+                        type="checkbox"
+                        checked={editValues.hasDestinationAccount === 'true'}
+                        onChange={(e) =>
+                          setEditValues({ ...editValues, hasDestinationAccount: e.target.checked ? 'true' : 'false' })
+                        }
+                        className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800"
+                      />
+                      Requires To Account
+                    </label>
+                  )}
                   <div className="mt-2 flex justify-end gap-2">
                     <Button variant="primary" size="sm" onClick={() => handleSaveAdd(type)}>Save</Button>
                     <Button variant="ghost" size="sm" onClick={cancel}>Cancel</Button>
@@ -1232,7 +1304,7 @@ function SyncSection() {
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(() => {
-    const stored = localStorage.getItem('lastSyncTime');
+    const stored = localStorage.getItem('last_sync_time');
     return stored ? formatSyncTime(Number(stored)) : null;
   });
 
@@ -1246,7 +1318,7 @@ function SyncSection() {
       const remaining = await getSyncQueueCount();
       if (remaining === 0) {
         const now = Date.now();
-        localStorage.setItem('lastSyncTime', String(now));
+        localStorage.setItem('last_sync_time', String(now));
         setLastSync(formatSyncTime(now));
         setSyncMsg('Synced!');
       } else {
@@ -1271,7 +1343,7 @@ function SyncSection() {
       const remaining = await getSyncQueueCount();
       if (remaining === 0) {
         const now = Date.now();
-        localStorage.setItem('lastSyncTime', String(now));
+        localStorage.setItem('last_sync_time', String(now));
         setLastSync(formatSyncTime(now));
         setSyncMsg('All data synced!');
       } else {

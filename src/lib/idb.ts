@@ -224,6 +224,19 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
         }
       }
 
+      // ── Migration: v9 → v10 (mark Savings/Investment expense categories with hasDestinationAccount) ──
+      if (oldVersion < 10) {
+        const catStore = transaction.objectStore(STORES.CATEGORIES);
+        let cursor = await catStore.openCursor();
+        while (cursor) {
+          const cat = cursor.value;
+          if (cat.type === 'expense' && (cat.name === 'Savings' || cat.name === 'Investment')) {
+            await cursor.update({ ...cat, hasDestinationAccount: true });
+          }
+          cursor = await cursor.continue();
+        }
+      }
+
       // ── Migration: v2 → v3 ──
       if (oldVersion < 3) {
         const txStore = transaction.objectStore(STORES.TRANSACTIONS);

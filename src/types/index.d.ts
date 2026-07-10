@@ -39,6 +39,8 @@ export interface Category {
   type: TransactionType;  // Associates category with a transaction type
   /** Controls display order (lower = first). Assigned during DB migration v6. */
   sortOrder?: number;
+  /** When true, expense transactions of this category show a "To Account" field. */
+  hasDestinationAccount?: boolean;
   createdAt: number;      // Timestamp for creation (e.g., Date.now())
   updatedAt: number;      // Timestamp for last update
 }

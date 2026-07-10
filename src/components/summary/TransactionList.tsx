@@ -732,13 +732,13 @@ export function TransactionList() {
           <table className="hidden lg:table w-full">
             <thead>
               <tr className="border-b border-zinc-200 text-left text-xs font-medium uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-                <th className="w-8 pb-2 pr-4" />
-                <th className="pb-2 pr-4">Date</th>
-                <th className="pb-2 pr-4">Description</th>
-                <th className="pb-2 pr-4">Category</th>
-                <th className="pb-2 pr-4">Account</th>
-                <th className="pb-2 pl-4 text-right">Amount</th>
-                <th className="w-20 pb-2 pl-4 text-right">Actions</th>
+                <th scope="col" className="w-8 pb-2 pr-4" />
+                <th scope="col" className="pb-2 pr-4">Date</th>
+                <th scope="col" className="pb-2 pr-4">Description</th>
+                <th scope="col" className="pb-2 pr-4">Category</th>
+                <th scope="col" className="pb-2 pr-4">Account</th>
+                <th scope="col" className="pb-2 pl-4 text-right">Amount</th>
+                <th scope="col" className="w-20 pb-2 pl-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
