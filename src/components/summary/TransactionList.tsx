@@ -600,7 +600,7 @@ export function TransactionList() {
                         key={tx.id}
                         className="flex items-start gap-3 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
                       >
-                        <span className={`mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
+                        <span className={`mt-[5px] inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
                           tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
                         }`} />
 
@@ -668,7 +668,7 @@ export function TransactionList() {
                   key={tx.id}
                   className="flex items-start gap-3 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
                 >
-                  <span className={`mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
+                  <span className={`mt-[5px] inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
                     tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
                   }`} />
 
