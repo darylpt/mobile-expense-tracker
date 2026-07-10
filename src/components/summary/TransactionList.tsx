@@ -598,62 +598,61 @@ export function TransactionList() {
                     {group.txs.map(tx => (
                       <div
                         key={tx.id}
-                        className="flex items-start gap-3 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
+                        className="py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
                       >
-                        <span className={`mt-[5px] inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
-                          tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
-                        }`} />
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="min-w-0 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
+                              tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
+                            }`} />
+                            <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
                               {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
                             </span>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <span className={`text-sm font-semibold tabular-nums ${
-                                tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
-                                tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
-                                'text-blue-700 dark:text-blue-400'
-                              }`}>
-                                {formatCurrency(tx.amount)}
-                              </span>
-                              <div className="relative">
-                                <button onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
-                                  className="rounded p-3 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
-                                  aria-label="Transaction actions">
-                                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                                    <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                                  </svg>
-                                </button>
-                                {actionMenuId === tx.id && (
-                                  <>
-                                    <div className="fixed inset-0 z-10" onClick={() => setActionMenuId(null)} />
-                                    <div className="absolute right-0 top-full z-20 mt-1 w-32 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-600 dark:bg-zinc-800">
-                                      <button onClick={() => { setActionMenuId(null); handleEdit(tx); }}
-                                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700">
-                                        Edit
-                                      </button>
-                                      <button onClick={() => { setActionMenuId(null); handleDelete(tx.id); }}
-                                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-700">
-                                        Delete
-                                      </button>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className={`text-sm font-semibold tabular-nums ${
+                              tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
+                              tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
+                              'text-blue-700 dark:text-blue-400'
+                            }`}>
+                              {formatCurrency(tx.amount)}
+                            </span>
+                            <div className="relative">
+                              <button onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
+                                className="rounded p-3 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+                                aria-label="Transaction actions">
+                                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                  <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                                </svg>
+                              </button>
+                              {actionMenuId === tx.id && (
+                                <>
+                                  <div className="fixed inset-0 z-10" onClick={() => setActionMenuId(null)} />
+                                  <div className="absolute right-0 top-full z-20 mt-1 w-32 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-600 dark:bg-zinc-800">
+                                    <button onClick={() => { setActionMenuId(null); handleEdit(tx); }}
+                                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700">
+                                      Edit
+                                    </button>
+                                    <button onClick={() => { setActionMenuId(null); handleDelete(tx.id); }}
+                                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-700">
+                                      Delete
+                                    </button>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           </div>
+                        </div>
 
-                          <div className="mt-0.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                            {tx.category}
-                          </div>
-                          <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
-                            {tx.type === 'income'
-                              ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
-                              : tx.type === 'expense'
-                                ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
-                                : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
-                          </div>
+                        <div className="mt-0.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                          {tx.category}
+                        </div>
+                        <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+                          {tx.type === 'income'
+                            ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
+                            : tx.type === 'expense'
+                              ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
+                              : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
                         </div>
                       </div>
                     ))}
@@ -666,64 +665,63 @@ export function TransactionList() {
               {pageTransactions.map((tx) => (
                 <div
                   key={tx.id}
-                  className="flex items-start gap-3 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
+                  className="py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
                 >
-                  <span className={`mt-[5px] inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
-                    tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
-                  }`} />
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
+                        tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
+                      }`} />
+                      <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
                         {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
                       </span>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <span className={`text-sm font-semibold tabular-nums ${
-                          tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
-                          tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
-                          'text-blue-700 dark:text-blue-400'
-                        }`}>
-                          {formatCurrency(tx.amount)}
-                        </span>
-                        <div className="relative">
-                          <button onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
-                            className="rounded p-3 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
-                            aria-label="Transaction actions">
-                            <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                              <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                            </svg>
-                          </button>
-                          {actionMenuId === tx.id && (
-                            <>
-                              <div className="fixed inset-0 z-10" onClick={() => setActionMenuId(null)} />
-                              <div className="absolute right-0 top-full z-20 mt-1 w-32 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-600 dark:bg-zinc-800">
-                                <button onClick={() => { setActionMenuId(null); handleEdit(tx); }}
-                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700">
-                                  Edit
-                                </button>
-                                <button onClick={() => { setActionMenuId(null); handleDelete(tx.id); }}
-                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-700">
-                                  Delete
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className={`text-sm font-semibold tabular-nums ${
+                        tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
+                        tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
+                        'text-blue-700 dark:text-blue-400'
+                      }`}>
+                        {formatCurrency(tx.amount)}
+                      </span>
+                      <div className="relative">
+                        <button onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
+                          className="rounded p-3 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+                          aria-label="Transaction actions">
+                          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                          </svg>
+                        </button>
+                        {actionMenuId === tx.id && (
+                          <>
+                            <div className="fixed inset-0 z-10" onClick={() => setActionMenuId(null)} />
+                            <div className="absolute right-0 top-full z-20 mt-1 w-32 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-600 dark:bg-zinc-800">
+                              <button onClick={() => { setActionMenuId(null); handleEdit(tx); }}
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700">
+                                Edit
+                              </button>
+                              <button onClick={() => { setActionMenuId(null); handleDelete(tx.id); }}
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-700">
+                                Delete
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
+                  </div>
 
-                    <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                      {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      <span className="mx-1">·</span>
-                      <span className="font-semibold text-zinc-700 dark:text-zinc-300">{tx.category}</span>
-                    </div>
-                    <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
-                      {tx.type === 'income'
-                        ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
-                        : tx.type === 'expense'
-                          ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
-                          : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
-                    </div>
+                  <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                    {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    <span className="mx-1">·</span>
+                    <span className="font-semibold text-zinc-700 dark:text-zinc-300">{tx.category}</span>
+                  </div>
+                  <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+                    {tx.type === 'income'
+                      ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
+                      : tx.type === 'expense'
+                        ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
+                        : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
                   </div>
                 </div>
               ))}
