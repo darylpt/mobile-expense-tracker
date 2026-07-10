@@ -607,7 +607,7 @@ export function TransactionList() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
                             <span className="min-w-0 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                              {tx.category}
+                              {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
                             </span>
                             <div className="flex items-center gap-1 shrink-0">
                               <span className={`text-sm font-semibold tabular-nums ${
@@ -645,6 +645,8 @@ export function TransactionList() {
                           </div>
 
                           <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                            <span className="font-medium text-zinc-600 dark:text-zinc-300">{tx.category}</span>
+                            <span className="mx-1">·</span>
                             {tx.type === 'income'
                               ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
                               : tx.type === 'expense'
@@ -653,12 +655,6 @@ export function TransactionList() {
                             <span className="mx-1">·</span>
                             {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           </div>
-
-                          {tx.description && (
-                            <div className="mt-0.5 truncate text-xs text-zinc-400 dark:text-zinc-500">
-                              {tx.description}
-                            </div>
-                          )}
                         </div>
                       </div>
                     ))}
@@ -680,7 +676,7 @@ export function TransactionList() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <span className="min-w-0 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                        {tx.category}
+                        {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
                       </span>
                       <div className="flex items-center gap-1 shrink-0">
                         <span className={`text-sm font-semibold tabular-nums ${
@@ -718,6 +714,8 @@ export function TransactionList() {
                     </div>
 
                     <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                      <span className="font-medium text-zinc-600 dark:text-zinc-300">{tx.category}</span>
+                      <span className="mx-1">·</span>
                       {tx.type === 'income'
                         ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
                         : tx.type === 'expense'
@@ -726,12 +724,6 @@ export function TransactionList() {
                       <span className="mx-1">·</span>
                       {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </div>
-
-                    {tx.description && (
-                      <div className="mt-0.5 truncate text-xs text-zinc-400 dark:text-zinc-500">
-                        {tx.description}
-                      </div>
-                    )}
                   </div>
                 </div>
               ))}
