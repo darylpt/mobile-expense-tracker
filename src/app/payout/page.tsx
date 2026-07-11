@@ -23,6 +23,8 @@ interface SplitRow {
   person: string;
   value: number;
   subSplit: boolean;
+  subSplitOpen: boolean;
+  savingsSplit: SavingsSubSplit;
 }
 
 interface SavingsSubSplit {
@@ -56,10 +58,15 @@ export default function PayoutPage() {
   const [totalAmount, setTotalAmount] = useState(0);
   const [splitMode, setSplitMode] = useState<'amount' | 'percentage'>('percentage');
   const [splits, setSplits] = useState<SplitRow[]>(() =>
-    DEFAULT_NAMES.map((name) => ({ id: crypto.randomUUID(), person: name, value: 0, subSplit: false }))
+    DEFAULT_NAMES.map((name) => ({
+      id: crypto.randomUUID(),
+      person: name,
+      value: 0,
+      subSplit: false,
+      subSplitOpen: false,
+      savingsSplit: { ...DEFAULT_SAVINGS_SPLIT },
+    }))
   );
-  const [savingsSplit, setSavingsSplit] = useState<SavingsSubSplit>({ ...DEFAULT_SAVINGS_SPLIT });
-  const [savingsOpen, setSavingsOpen] = useState(true);
   const [saved, setSaved] = useState(false);
 
   // ── Derived ──────────────────────────────────────────────
@@ -69,11 +76,11 @@ export default function PayoutPage() {
   );
   const allocated = amounts.reduce((a, b) => a + b, 0);
 
-  const subSplitAmounts = (base: number) => ({
-    emergencyPct: base * (savingsSplit.emergencyPct / 100),
-    wantsPct: base * (savingsSplit.wantsPct / 100),
-    investmentPct: base * (savingsSplit.investmentPct / 100),
-    motorPct: base * (savingsSplit.motorPct / 100),
+  const subSplitAmounts = (base: number, ss: SavingsSubSplit) => ({
+    emergencyPct: base * (ss.emergencyPct / 100),
+    wantsPct: base * (ss.wantsPct / 100),
+    investmentPct: base * (ss.investmentPct / 100),
+    motorPct: base * (ss.motorPct / 100),
   });
 
   // ── Validation ───────────────────────────────────────────
@@ -91,16 +98,17 @@ export default function PayoutPage() {
       );
     }
   }
-  if (splits.some((s) => s.subSplit)) {
+  splits.filter((s) => s.subSplit).forEach((s) => {
     const sum =
-      savingsSplit.emergencyPct +
-      savingsSplit.wantsPct +
-      savingsSplit.investmentPct +
-      savingsSplit.motorPct;
+      s.savingsSplit.emergencyPct +
+      s.savingsSplit.wantsPct +
+      s.savingsSplit.investmentPct +
+      s.savingsSplit.motorPct;
     if (Math.abs(sum - 100) > 0.01) {
-      warnings.push(`Sub-split percentages sum to ${sum.toFixed(1)}% — should be 100%`);
+      const name = s.person || '(unnamed)';
+      warnings.push(`${name}'s sub-split sums to ${sum.toFixed(1)}% — should be 100%`);
     }
-  }
+  });
 
   // ── Handlers ─────────────────────────────────────────────
 
@@ -115,11 +123,27 @@ export default function PayoutPage() {
   };
 
   const addSplit = () => {
-    setSplits((prev) => [...prev, { id: crypto.randomUUID(), person: '', value: 0, subSplit: false }]);
+    setSplits((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        person: '',
+        value: 0,
+        subSplit: false,
+        subSplitOpen: false,
+        savingsSplit: { ...DEFAULT_SAVINGS_SPLIT },
+      },
+    ]);
   };
 
-  const handleSubSplitChange = (key: keyof SavingsSubSplit, val: string) => {
-    setSavingsSplit((prev) => ({ ...prev, [key]: parseFloat(val) || 0 }));
+  const handleSubSplitChange = (splitId: string, key: keyof SavingsSubSplit, val: string) => {
+    setSplits((prev) =>
+      prev.map((s) =>
+        s.id === splitId
+          ? { ...s, savingsSplit: { ...s.savingsSplit, [key]: parseFloat(val) || 0 } }
+          : s
+      )
+    );
   };
 
   const canSave = warnings.length === 0;
@@ -131,7 +155,8 @@ export default function PayoutPage() {
       totalAmount,
       splitMode,
       splits: splits.map((s) => ({ person: s.person, value: s.value })),
-      savingsSubSplit: splits.some((s) => s.subSplit) ? { ...savingsSplit } : undefined,
+      // ponytail: saves the first opted-in person's split as the canonical one
+      savingsSubSplit: splits.find((s) => s.subSplit)?.savingsSplit,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
@@ -244,6 +269,60 @@ export default function PayoutPage() {
                       </button>
                     </div>
 
+                    {/* ── Sub-Split (per-person) ──────────────────── */}
+                    {split.subSplit && (
+                      <div className="border-t border-zinc-100 bg-zinc-50/50 px-4 pb-4 dark:border-zinc-700 dark:bg-zinc-900/30 sm:px-6">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSplits((prev) =>
+                              prev.map((s) =>
+                                s.id === split.id ? { ...s, subSplitOpen: !s.subSplitOpen } : s
+                              )
+                            )
+                          }
+                          className="flex w-full items-center gap-2 py-3 text-sm font-medium text-zinc-600 dark:text-zinc-400"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                            className={`h-4 w-4 transition-transform ${split.subSplitOpen ? 'rotate-90' : ''}`}
+                          >
+                            <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                          </svg>
+                          Savings Sub-Split
+                        </button>
+                        {split.subSplitOpen && (
+                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                            {(Object.keys(DEFAULT_SAVINGS_SPLIT) as (keyof SavingsSubSplit)[]).map(
+                              (key) => (
+                                <div key={key}>
+                                  <label htmlFor={`savings-split-${split.id}-${key}`} className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                                    {LABELS[key]}
+                                  </label>
+                                  <div className="relative">
+                                    <input
+                                      id={`savings-split-${split.id}-${key}`}
+                                      type="number"
+                                      step="any"
+                                      min={0}
+                                      max={100}
+                                      value={split.savingsSplit[key] || ''}
+                                      onChange={(e) => handleSubSplitChange(split.id, key, e.target.value)}
+                                      className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 pr-7 text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400"
+                                    />
+                                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-zinc-400">
+                                      %
+                                    </span>
+                                  </div>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                   </Fragment>
                 ))}
@@ -255,60 +334,6 @@ export default function PayoutPage() {
                 </Button>
               </div>
             </section>
-
-            {/* ── Savings Split (shared percentages) ────────── */}
-            {splits.some((s) => s.subSplit) && (
-              <section className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
-                <button
-                  type="button"
-                  onClick={() => setSavingsOpen((v) => !v)}
-                  className="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium text-zinc-700 dark:text-zinc-300 sm:px-6"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    className={`h-4 w-4 transition-transform ${savingsOpen ? 'rotate-90' : ''}`}
-                  >
-                    <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
-                  </svg>
-                  Savings Split
-                  <span className="ml-auto text-xs font-normal text-zinc-400">
-                    {splits.filter((s) => s.subSplit).length} person{splits.filter((s) => s.subSplit).length !== 1 ? 's' : ''}
-                  </span>
-                </button>
-                {savingsOpen && (
-                  <div className="border-t border-zinc-100 px-4 pb-4 pt-3 dark:border-zinc-700 sm:px-6">
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      {(Object.keys(DEFAULT_SAVINGS_SPLIT) as (keyof SavingsSubSplit)[]).map(
-                        (key) => (
-                          <div key={key}>
-                            <label htmlFor={`savings-split-${key}`} className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                              {LABELS[key]}
-                            </label>
-                            <div className="relative">
-                              <input
-                                id={`savings-split-${key}`}
-                                type="number"
-                                step="any"
-                                min={0}
-                                max={100}
-                                value={savingsSplit[key] || ''}
-                                onChange={(e) => handleSubSplitChange(key, e.target.value)}
-                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 pr-7 text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400"
-                              />
-                              <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-zinc-400">
-                                %
-                              </span>
-                            </div>
-                          </div>
-                        )
-                      )}
-                    </div>
-                  </div>
-                )}
-              </section>
-            )}
 
             {/* ── Validation / Summary Bar ─────────────────── */}
             <section
@@ -370,7 +395,7 @@ export default function PayoutPage() {
                   <tbody>
                     {splits.map((split, idx) => {
                       const amount = amounts[idx] ?? 0;
-                      const ssa = split.subSplit ? subSplitAmounts(amount) : null;
+                      const ssa = split.subSplit ? subSplitAmounts(amount, split.savingsSplit) : null;
                       return (
                         <Fragment key={split.id}>
                           <tr className="border-b border-zinc-100 text-zinc-800 last:border-0 dark:border-zinc-800 dark:text-zinc-200">
@@ -417,7 +442,7 @@ export default function PayoutPage() {
               <div className="divide-y divide-zinc-100 dark:divide-zinc-700 lg:hidden">
                 {splits.map((split, idx) => {
                   const amount = amounts[idx] ?? 0;
-                  const ssa = split.subSplit ? subSplitAmounts(amount) : null;
+                  const ssa = split.subSplit ? subSplitAmounts(amount, split.savingsSplit) : null;
                   return (
                     <div key={split.id} className="px-4 py-3 sm:px-6">
                       <div className="flex items-center justify-between">
