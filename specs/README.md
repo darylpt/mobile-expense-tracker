@@ -43,6 +43,6 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | Quick Add sticky defaults | ✅ Done | Three options reviewed: (1) "Copy Last" link — one extra tap, only one entry; (2) Recent chips — most visual, takes space on mobile, more code; (3) Sticky defaults — zero UI, ~3 lines changed, covers 90% of use case (daily coffee). **Chose Option 3:** type/category/account/description persist after submit, only amount clears. User types amount and hits enter for repetitive entries. Chips can be added on top later if needed. |
 | Subcategory support | ⚪ Not yet scoped | Phase 1.5, lowest priority. |
 | `phase-2-investments.md` | 🔵 Deferred | Stock Portfolio Tracker, Dividend Log, DCA Rotation Log. Out of scope until Phase 1.5 wraps. |
-| [`codebase-audit-backlog.md`](./codebase-audit-backlog.md) | 🟡 Ready to hand off | Comprehensive 2026-07-10 audit. All 4 P1 items fixed 2026-07-10. |
+| [`codebase-audit-backlog.md`](./codebase-audit-backlog.md) | ✅ Done | Comprehensive 2026-07-10 audit. All P1 fixed 2026-07-10. All P2 resolved 2026-07-11. Full-codebase critic review 2026-07-11: 10 critical/high fixes (sync correctness, React performance, a11y), 1 won't-fix, 10 deferred to P3. |
 
 **Legend:** ✅ Done · 🟡 Ready to hand off · ⚪ Not yet scoped · 🔵 Deferred

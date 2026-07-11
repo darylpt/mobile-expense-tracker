@@ -372,6 +372,7 @@ export function parseCsv(text: string): ParsedCsv {
     expenseCount,
     transferCount,
     carryOverCount,
+    totalAmount,
     truncated,
   };
 

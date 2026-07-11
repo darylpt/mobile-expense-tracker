@@ -32,9 +32,6 @@ import { CsvImportPreview } from '@/components/forms/CsvImportPreview';
 // ── Main page ────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const { state: authState, signOut } = useAuth();
-  const router = useRouter();
-
   const {
     accounts,
     isLoading: accountsLoading,
@@ -55,16 +52,6 @@ export default function SettingsPage() {
 
   const [activeTab, setActiveTab] = useState<'accounts' | 'categories' | 'preferences' | 'data'>('accounts');
   const [mobilePage, setMobilePage] = useState<string | null>(null);
-
-  const handleSignOut = async () => {
-    try { await backgroundSync(); } catch { /* ignore */ }
-    const pending = await getSyncQueueCount();
-    if (pending > 0 && !window.confirm(
-      `You have ${pending} unsaved change${pending === 1 ? '' : 's'} that couldn't be synced. Signing out will lose these changes. Continue?`
-    )) return;
-    await signOut();
-    router.push('/login');
-  };
 
   // ── Mobile drill-down sub-page ──
   if (mobilePage) {

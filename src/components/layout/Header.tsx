@@ -128,13 +128,13 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
   }, []);
 
   // ── Sync status ──────────────────────────────────────────
-  const [lastSync, setLastSync] = useState<number | null>(null);
+  const [lastSync, setLastSync] = useState<number | null>(() => {
+    try { const ts = localStorage.getItem('last_sync_time'); return ts ? parseInt(ts, 10) : null; } catch { return null; }
+  });
   const [isSyncing, setIsSyncing] = useState(false);
   const syncTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
-    const ts = localStorage.getItem('last_sync_time');
-    if (ts) setLastSync(parseInt(ts, 10));
     // Refresh the relative-time display every 30s
     syncTimer.current = setInterval(() => {
       const ts = localStorage.getItem('last_sync_time');

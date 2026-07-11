@@ -446,13 +446,13 @@ export function TransactionList() {
               </button>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <select value={getAccountParam() ?? ''} onChange={(e) => setParam('account', e.target.value || null)} className="block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 sm:w-48">
+              <select value={getAccountParam() ?? ''} onChange={(e) => setParam('account', e.target.value || null)} aria-label="Filter by account" className="block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 sm:w-48">
                 <option value="">All accounts</option>
                 {ctx.accounts.map(acct => (<option key={acct.id} value={acct.id}>{acct.name}</option>))}
               </select>
               <div className="relative flex-1">
                 <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                <input type="text" value={getQParam() ?? ''} onChange={(e) => setParam('q', e.target.value || null)} placeholder="Search description or category..." className="block w-full rounded-lg border border-zinc-300 bg-white py-2 pl-10 pr-3 text-sm text-zinc-900 placeholder-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-blue-400" />
+                <input type="text" value={getQParam() ?? ''} onChange={(e) => setParam('q', e.target.value || null)} aria-label="Search transactions" placeholder="Search description or category..." className="block w-full rounded-lg border border-zinc-300 bg-white py-2 pl-10 pr-3 text-sm text-zinc-900 placeholder-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-blue-400" />
               </div>
             </div>
           </div>
@@ -500,17 +500,17 @@ export function TransactionList() {
         {/* Search input */}
         <div className="relative flex-1 max-w-[260px]">
           <svg className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          <input type="text" value={getQParam() ?? ''} onChange={(e) => setParam('q', e.target.value || null)} placeholder="Search description…" className="block w-full rounded-lg border border-zinc-300 bg-white py-1.5 pl-8 pr-3 text-sm text-zinc-900 placeholder-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-blue-400" />
+          <input type="text" value={getQParam() ?? ''} onChange={(e) => setParam('q', e.target.value || null)} placeholder="Search description…" aria-label="Search transactions" className="block w-full rounded-lg border border-zinc-300 bg-white py-1.5 pl-8 pr-3 text-sm text-zinc-900 placeholder-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-blue-400" />
         </div>
 
         {/* Account dropdown */}
-        <select value={getAccountParam() ?? ''} onChange={(e) => setParam('account', e.target.value || null)} className="block w-44 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400">
+        <select value={getAccountParam() ?? ''} onChange={(e) => setParam('account', e.target.value || null)} aria-label="Filter by account" className="block w-44 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400">
           <option value="">All accounts</option>
           {ctx.accounts.map(acct => (<option key={acct.id} value={acct.id}>{acct.name}</option>))}
         </select>
 
         {/* Category dropdown */}
-        <select value={getCatParam() ?? ''} onChange={(e) => setParam('cat', e.target.value || null)} className="block w-44 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400">
+        <select value={getCatParam() ?? ''} onChange={(e) => setParam('cat', e.target.value || null)} aria-label="Filter by category" className="block w-44 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400">
           <option value="">All categories</option>
           {uniqueCategories.map(cat => (<option key={cat} value={cat}>{cat}</option>))}
         </select>

@@ -40,10 +40,6 @@ const FIELD_MAP: Record<string, string> = {
   deletedAt: 'deleted_at',
   userId: 'user_id',
   sortOrder: 'sort_order',
-  // stored as camelCase in IDB already — no rename needed for these but map for completeness:
-  created_at: 'created_at',
-  updated_at: 'updated_at',
-  deleted_at: 'deleted_at',
 };
 
 /** Reverse map: snake_case → camelCase */
@@ -117,22 +113,24 @@ export async function processSyncQueue(): Promise<void> {
         case 'create':
         case 'update': {
           // Stamp user_id on outgoing payload before transform
-          const payload = { ...entry.payload, userId: user.id };
+          const payload = { ...(entry.payload as Record<string, unknown>), userId: user.id };
           // Cast dates from ms-number to ISO string for Postgres
           const remotePayload = preparePayloadForRemote(payload);
-          await supabase.from(tableName).upsert(remotePayload, {
+          const { error: upsertError } = await supabase.from(tableName).upsert(remotePayload, {
             onConflict: 'id',
             ignoreDuplicates: false,
           });
+          if (upsertError) throw upsertError;
           break;
         }
         case 'delete': {
           // Soft-delete: set deleted_at + updated_at instead of hard DELETE
           const now = new Date().toISOString();
-          await supabase
+          const { error: deleteError } = await supabase
             .from(tableName)
             .update({ deleted_at: now, updated_at: now })
             .eq('id', entry.recordId);
+          if (deleteError) throw deleteError;
           break;
         }
       }

@@ -9,14 +9,11 @@ import { useTransactionContext } from '@/context/TransactionContext';
  */
 export function GlobalErrorBanner() {
   const ctx = useTransactionContext();
-  const [dismissed, setDismissed] = React.useState(false);
+  // Use error message as key to auto-reset dismissed state on error change
+  const [dismissed, setDismissed] = React.useState<string | null>(null);
+  const isDismissed = dismissed === ctx.error;
 
-  // Reset dismissed state when error changes
-  React.useEffect(() => {
-    if (ctx.error) setDismissed(false);
-  }, [ctx.error]);
-
-  if (!ctx.error || dismissed) return null;
+  if (!ctx.error || isDismissed) return null;
 
   return (
     <div
@@ -28,7 +25,7 @@ export function GlobalErrorBanner() {
       </svg>
       <span className="flex-1">{ctx.error}</span>
       <button
-        onClick={() => setDismissed(true)}
+        onClick={() => setDismissed(ctx.error)}
         className="shrink-0 rounded p-0.5 text-red-500 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900/30"
         aria-label="Dismiss error"
       >

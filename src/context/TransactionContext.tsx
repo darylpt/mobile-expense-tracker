@@ -6,7 +6,7 @@
 
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import type { Transaction, Account, Category, MonthYear } from '@/types';
 import {
   getAllTransactions,
@@ -136,35 +136,42 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
       return;
     }
 
+    let cancelled = false;
+
     if (authState === 'unauthenticated') {
       // User signed out or has no session
       const marker = localStorage.getItem(LAST_USER_KEY);
       if (marker) {
         clearAllLocalData().then(() => {
+          if (cancelled) return;
           localStorage.removeItem(LAST_USER_KEY);
           refreshTransactions(); // renders empty state
         }).catch(() => {}); // ponytail: fire-and-forget, errors logged inside
       }
-      return;
+      return () => { cancelled = true; };
     }
 
     // authenticated
     if (authState === 'authenticated' && user) {
-      const marker = localStorage.getItem(LAST_USER_KEY);
       const doSync = async () => {
+        const marker = localStorage.getItem(LAST_USER_KEY);
         if (marker && marker !== user.id) {
           // Different user — wipe local cache
           await clearAllLocalData();
         }
+        if (cancelled) return;
         localStorage.setItem(LAST_USER_KEY, user.id);
         if (navigator.onLine) {
           await backgroundSync();
         }
+        if (cancelled) return;
         await refreshTransactions();
       };
       doSync().catch(() => {}); // ponytail: fire-and-forget, errors handled inside
     }
-  }, [authState, user, refreshTransactions, clearAllLocalData, backgroundSync]);
+
+    return () => { cancelled = true; };
+  }, [authState, user, refreshTransactions]);
 
   // Auth-aware online listener: sync when coming back online
   useEffect(() => {
@@ -175,7 +182,7 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
     };
     window.addEventListener('online', handleOnline);
     return () => window.removeEventListener('online', handleOnline);
-  }, [authState, user, refreshTransactions, backgroundSync]);
+  }, [authState, user, refreshTransactions]);
 
   // Add a transaction
   const addTransaction = useCallback(
@@ -233,20 +240,23 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
     }
   }, []);
 
-  // Context value
-  const value: TransactionContextValue = {
-    transactions,
-    accounts,
-    categories,
-    isLoading,
-    error,
-    monthYear,
-    setMonthYear,
-    addTransaction,
-    updateTransaction,
-    deleteTransaction,
-    refreshTransactions,
-  };
+  // Context value — memoized to prevent unnecessary re-renders of consumers
+  const value: TransactionContextValue = useMemo(
+    () => ({
+      transactions,
+      accounts,
+      categories,
+      isLoading,
+      error,
+      monthYear,
+      setMonthYear,
+      addTransaction,
+      updateTransaction,
+      deleteTransaction,
+      refreshTransactions,
+    }),
+    [transactions, accounts, categories, isLoading, error, monthYear, setMonthYear, addTransaction, updateTransaction, deleteTransaction, refreshTransactions]
+  );
 
   return (
     <TransactionContext.Provider value={value}>

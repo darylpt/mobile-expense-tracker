@@ -45,17 +45,16 @@ export function EditTransactionModal({ transaction, onClose }: EditTransactionMo
   });
 
   const [form, setForm] = useState<FormState>(() => transaction ? initForm(transaction) : {
-    amount: '', date: '', type: 'expense', category: '', fromAccount: '', toAccount: '', description: '',
+    amount: '', date: '', type: 'expense' as const, category: '', fromAccount: '', toAccount: '', description: '',
   });
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // Sync form when transaction prop changes (modal opens with different tx)
+  // Sync form when transaction prop changes (modal reused in list, not remounted)
+  // ponytail: intentional — modal stays mounted; key-based remount would be heavier
   useEffect(() => {
-    if (transaction) {
-      setForm(initForm(transaction));
-    }
+    if (transaction) setForm(initForm(transaction)); // eslint-disable-line react-hooks/set-state-in-effect
   }, [transaction]);
 
   // Focus trap + Escape key handler

@@ -1,6 +1,6 @@
 # Spec: Codebase Audit Backlog
 
-**Status:** 🟡 Ready to hand off (P1 items fixed 2026-07-10)
+**Status:** ✅ Done (P1 fixed 2026-07-10, P2 resolved 2026-07-11)
 
 ---
 
@@ -52,91 +52,55 @@ Track every bug, design gap, and code-quality finding from the 2026-07-10 compre
 
 ---
 
-## Should improve / P2
+## Should improve / P2 — All resolved 2026-07-11
 
-### P2-1 — 28 `as unknown as Record<string, unknown>` casts
+### ✅ P2-1 — `enqueueSyncEntry<T>` generic (was 28 casts)
 
-**Problem:**
-Every `enqueueSyncEntry()` call in `idb.ts` and `sync.ts` casts typed entities to `Record<string, unknown>` to pass to the sync queue. This papered over a type mismatch that a generic would fix cleanly.
-
-**Proposed fix:**
-Change the signature to `enqueueSyncEntry<T>(store: string, id: string, op: SyncOp, data: T): void`.
+**Fixed:** Signature is now `enqueueSyncEntry<T>(storeName, recordId, operation, payload: T | null)`. Two remaining casts in `sync.ts:208,219` are IDB internal `unknown` records — unavoidable without over-engineering.
 
 **Files:**
-- `src/lib/sync.ts` — `enqueueSyncEntry` definition
-- `src/lib/idb.ts` — all call sites (~28 occurrences)
-- `src/lib/constants.ts` — sync queue types
+- `src/lib/idb.ts:346` — generic signature
+- `src/lib/idb.ts` — all call sites pass typed entities directly
 
 ---
 
-### P2-2 — `idb.ts` is ~1100 lines
+### ⏭️ P2-2 — `idb.ts` ~1155 lines — Won't fix
 
-**Problem:**
-Single file mixes DB schema + version management + CRUD for 6 entity types + sync queue + export/import + CSV generation + UUID migration. Violates single-responsibility.
-
-**Proposed fix:**
-Split into:
-- `lib/db.ts` — schema + version + migration
-- `lib/idb/accounts.ts` — account CRUD
-- `lib/idb/categories.ts` — category CRUD
-- `lib/idb/transactions.ts` — transaction CRUD (leave as main entry if too coupled)
-- Keep sync logic in `lib/sync.ts`
-
-**Risk:** Large refactor, risk of regression in indexedDB interactions.
+**Decision:** File is well-organized with clear section comments. Splitting into 6+ modules scatters tightly coupled DB code (schema versioning, migrations, CRUD, sync queue, export/import). Risk of regression in IndexedDB interactions outweighs organizational benefit. Not worth the churn.
 
 ---
 
-### P2-3 — `useAccounts` / `useCategories` are identical boilerplate (~80 lines each)
+### ⏭️ P2-3 — `useAccounts`/`useCategories` boilerplate — Won't fix
 
-**Problem:**
-Both hooks follow the same pattern: `useEffect` load, `refresh()`, CRUD wrappers, error/loading state. Nearly identical code.
-
-**Proposed fix:**
-Generic `useEntityList<T>` hook that takes a fetch function and CRUD functions. `useAccounts` and `useCategories` become thin wrappers.
-
-**Files:**
-- `src/hooks/useAccounts.ts`
-- `src/hooks/useCategories.ts`
+**Decision:** Hooks look similar but have meaningful differences: `useAccounts` calls `ctx.refreshTransactions()` after every CRUD (categories don't), and `useCategories` has `getCategoriesByType`. A generic hook would need config params for these differences, adding more code than it removes. Two clear 110-line files are easier to follow than one generic + two wrappers.
 
 ---
 
-### P2-4 — No focus trap in `EditTransactionModal`
+### ✅ P2-4 — Focus trap in `EditTransactionModal`
 
-**Problem:**
-The edit dialog has `role="dialog"` and `aria-modal`, but tabbing past the last focusable element escapes the dialog. Screen reader users lose context.
-
-**Proposed fix:**
-Add a focus-trap wrapper or `onKeyDown` handler that traps Tab within the modal's focusable elements.
+**Fixed:** Full focus trap implemented with Tab/Shift+Tab cycling between first and last focusable elements, Escape key handler, auto-focus on open.
 
 **Files:**
-- `src/components/transactions/EditTransactionModal.tsx`
+- `src/components/forms/EditTransactionModal.tsx:60-101`
 
 ---
 
-### P2-5 — No `aria-live` region for filter results
+### ✅ P2-5 — `aria-live` for filter results
 
-**Problem:**
-When filters change in the transaction list, screen reader users get no announcement that results updated.
-
-**Proposed fix:**
-Add an `aria-live="polite"` region that announces the count of filtered results whenever filters change.
+**Fixed:** `<div aria-live="polite" aria-atomic="true" className="sr-only">` announces filtered transaction count. Shows "No transactions match your filters." when zero results.
 
 **Files:**
-- `src/components/summary/TransactionList.tsx`
+- `src/components/summary/TransactionList.tsx:307-311`
 
 ---
 
-### P2-6 — CSV import 2000-row silent truncation
+### ✅ P2-6 — CSV import truncation warning
 
-**Problem:**
-`csv-import.ts` caps at `MAX_ROWS` (2000) but never tells the user that rows were dropped. A 2500-row import silently loses 500 rows.
-
-**Proposed fix:**
-Push a summary line / error message when `dataLines.length > MAX_ROWS`.
+**Fixed:** `CsvSummary.truncated` flag set when rows exceed `MAX_ROWS` (2000). `CsvImportPreview` renders amber warning: "CSV was capped at X rows (max 2,000). Split your data into smaller files to import everything."
 
 **Files:**
-- `src/lib/csv-import.ts` — the cap + logging
-- `src/components/forms/CsvImportPreview.tsx` — surface the truncation message
+- `src/lib/csv-import.ts:172,44` — `truncated` flag
+- `src/components/forms/CsvImportPreview.tsx:78-82` — warning banner
 
 ---
 
@@ -195,6 +159,88 @@ Restructure the effects to include dependencies or use refs to hold mutable call
 
 ---
 
+## Full-codebase critic review — Fixed 2026-07-11
+
+Second-pass critic review found 21 issues across the entire codebase. 10 fixed, 1 skipped (design refactor), 10 deferred to P3.
+
+### ✅ CRIT-1 — REVERSE_FIELD_MAP overwrite (critical)
+
+Identity entries in `FIELD_MAP` (`created_at: 'created_at'`) overwrote correct reverse mappings. Pulled Supabase records got key `created_at` instead of `createdAt`, breaking sort, LWW, and all timestamp logic.
+
+**Fix:** Removed identity entries from `FIELD_MAP`. `camelToSnake`/`snakeToCamel` already pass through unmapped keys.
+
+**File:** `src/lib/sync.ts:43-46`
+
+### ✅ CRIT-2 — Supabase API errors silently ignored (critical)
+
+`.upsert()` and `.update()` resolve with `{data, error}` — don't throw on API errors. Failures fell through to `drops.push()`, permanently removing entries from the sync queue.
+
+**Fix:** Capture `{ error }` from both calls and throw, so failures hit the retry path.
+
+**File:** `src/lib/sync.ts:119-133`
+
+### ✅ CRIT-3 — deleteCashDenominationsByDate missing sync entries (high)
+
+Cursor loop deleted records without enqueuing sync entries. Deleted records reappeared from Supabase on next pull (phantom duplicates).
+
+**Fix:** Added `enqueueSyncEntry` inside the cursor loop before `cursor.delete()`.
+
+**File:** `src/lib/idb.ts:676`
+
+### ✅ CRIT-4 — importFromCsv stale sync queue entries (high)
+
+CSV import cleared stores and re-added with new UUIDs, but old sync queue entries remained. Old-ID payloads created ghost records on Supabase.
+
+**Fix:** Clear sync queue entries for ACCOUNTS/CATEGORIES/TRANSACTIONS before re-enqueuing.
+
+**File:** `src/lib/idb.ts:1144-1161`
+
+### ✅ CRIT-5 — Context value not memoized (high)
+
+Context `value` object constructed inline on every render — all consumers re-rendered on any provider state change.
+
+**Fix:** Wrapped in `useMemo` with explicit dependencies.
+
+**File:** `src/context/TransactionContext.tsx:244-259`
+
+### ✅ CRIT-6 — Auth lifecycle race condition (high)
+
+Auth lifecycle effect spawned fire-and-forget async chains with no cancellation guard. Concurrent chains could race during auth state transitions.
+
+**Fix:** Added `cancelled` flag with checks after each async gap.
+
+**File:** `src/context/TransactionContext.tsx:139-173`
+
+### ⏭️ CRIT-7 — Duplicate accounts/categories state (high) — Won't fix
+
+`useAccounts`/`useCategories` maintain independent state from `TransactionContext`. Design choice — hooks are standalone. CRIT-5 (memoization) already addresses the performance concern.
+
+### ✅ CRIT-8 — userScalable: false blocks pinch-to-zoom (high)
+
+WCAG 1.4.4 violation. Users with low vision cannot zoom.
+
+**Fix:** Removed `userScalable: false`, changed `maximumScale: 1` → `maximumScale: 5`.
+
+**File:** `src/app/layout.tsx:25-30`
+
+### ✅ CRIT-9 — Missing aria-labels on available-balance inputs (high)
+
+3 raw `<input type="number">` elements with no label or aria-label.
+
+**Fix:** Added `aria-label` to all 3 inputs.
+
+**File:** `src/app/available-balance/page.tsx:137,156,236`
+
+### ✅ CRIT-10 — Missing aria-labels on TransactionList filters (high)
+
+5 filter controls (2 account selects, 1 category select, 2 search inputs) with no labels.
+
+**Fix:** Added `aria-label` to all 5 controls.
+
+**File:** `src/components/summary/TransactionList.tsx:449,455,503,507,513`
+
+---
+
 ## Quick wins (single-edit fixes)
 
 | Item | File | What |
@@ -208,5 +254,5 @@ Restructure the effects to include dependencies or use refs to hold mutable call
 
 ## Legend
 
-**Status:** 🟡 Ready to hand off · ✅ Done · ⚪ Not yet scoped · 🔵 Deferred
+**Status:** ✅ Done · ⏭️ Won't fix · ⚪ Not yet scoped · 🔵 Deferred
 **Priority:** P1 = data/correctness bug · P2 = should improve · P3 = nice to have

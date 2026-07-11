@@ -152,15 +152,8 @@ const DOT_CLASS: Record<GroupKey, string> = { income: 'bg-emerald-500', expense:
 const BAR_CLASS: Record<GroupKey, string> = { income: 'bg-emerald-500', expense: 'bg-red-500', transfer: 'bg-blue-500' };
 
 function CategoryBreakdownList({ items }: BreakdownListProps) {
-  if (items.length === 0) {
-    return (
-      <p className="py-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
-        No transactions this month.
-      </p>
-    );
-  }
-
   // Group by type, preserve insert order within each group
+  // ponytail: moved useMemo before early return — hooks must be unconditional
   const groups = useMemo(() => {
     const g: Record<GroupKey, typeof items> = { income: [], expense: [], transfer: [] };
     for (const item of items) {
@@ -169,6 +162,14 @@ function CategoryBreakdownList({ items }: BreakdownListProps) {
     }
     return g;
   }, [items]);
+
+  if (items.length === 0) {
+    return (
+      <p className="py-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
+        No transactions this month.
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-5">

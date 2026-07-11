@@ -20,6 +20,7 @@ var mockStore: Transaction[] = [];
 jest.mock('@/lib/idb', () => ({
   getAllTransactions: jest.fn(() => Promise.resolve([...mockStore])),
   getAllAccounts: jest.fn(() => Promise.resolve([])),
+  getAllCategories: jest.fn(() => Promise.resolve([])),
   addTransaction: jest.fn(
     async (
       tx: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>

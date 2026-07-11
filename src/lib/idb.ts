@@ -21,8 +21,8 @@ export interface SyncQueueEntry {
   storeName: string;
   recordId: string;
   operation: SyncOperation;
-  /** Full data snapshot (null for deletes) */
-  payload: Record<string, unknown> | null;
+  // ponytail: unknown is fine here — IndexedDB accepts any structured-cloneable value
+  payload: unknown;
   timestamp: number;
   retryCount: number;
 }
@@ -343,7 +343,7 @@ function requestSync(): void {
   }, 2000);
 }
 
-export async function enqueueSyncEntry<T extends Record<string, unknown>>(
+export async function enqueueSyncEntry<T>(
   storeName: string,
   recordId: string,
   operation: SyncOperation,
@@ -673,6 +673,7 @@ export async function deleteCashDenominationsByDate(date: string): Promise<void>
   const index = store.index('date');
   let cursor = await index.openCursor(date);
   while (cursor) {
+    enqueueSyncEntry(STORES.CASH_DENOMINATIONS, cursor.value.id, 'delete', null);
     await cursor.delete();
     cursor = await cursor.continue();
   }
@@ -1139,6 +1140,25 @@ export async function importFromCsv(csvText: string): Promise<ParsedCsv> {
   }
 
   await tx.done;
+
+  // Clear stale sync queue entries for the stores we just wiped
+  // to prevent old-ID payloads from creating ghost records on Supabase.
+  const syncTx = db.transaction(STORES.SYNC_QUEUE, 'readwrite');
+  const syncStore = syncTx.objectStore(STORES.SYNC_QUEUE);
+  const syncIndex = syncStore.index('byTimestamp');
+  let syncCursor = await syncIndex.openCursor();
+  while (syncCursor) {
+    const entry = syncCursor.value as { storeName: string };
+    if (
+      entry.storeName === STORES.ACCOUNTS ||
+      entry.storeName === STORES.CATEGORIES ||
+      entry.storeName === STORES.TRANSACTIONS
+    ) {
+      await syncCursor.delete();
+    }
+    syncCursor = await syncCursor.continue();
+  }
+  await syncTx.done;
 
   // Enqueue sync entries so imported data gets pushed to Supabase
   for (const acct of addedAccounts) {
