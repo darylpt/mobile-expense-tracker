@@ -1,6 +1,6 @@
 # Spec: Codebase Audit Backlog
 
-**Status:** ✅ Done (P1 fixed 2026-07-10, P2 resolved 2026-07-11)
+**Status:** ✅ Done (P1 fixed 2026-07-10, P2 resolved 2026-07-11, P3/critic resolved 2026-07-11)
 
 ---
 
@@ -104,64 +104,41 @@ Track every bug, design gap, and code-quality finding from the 2026-07-10 compre
 
 ---
 
-## Nice to have / P3
+## Nice to have / P3 — All resolved 2026-07-11
 
-### P3-1 — Inline `formatDate()` into `getToday()`
+### ✅ P3-1 — Inline `formatDate()` into `getToday()`
 
-**Problem:**
-`formatDate()` is only called from `getToday()` in `utils.ts`. Unnecessary function wrapper.
-
-**Proposed fix:**
-Inline the logic.
+**Fixed:** Already inlined in a prior session. `getToday()` uses inline date logic directly.
 
 **Files:**
-- `src/lib/utils.ts` lines 15-27
+- `src/lib/utils.ts`
 
 ---
 
-### P3-2 — `MonthYear.month` is 0-indexed, undocumented
+### ✅ P3-2 — `MonthYear.month` is 0-indexed, undocumented
 
-**Problem:**
-The `month` field in `MonthYear` is 0-indexed (0 = January). All existing code handles this, but it's an off-by-one trap for contributors.
-
-**Proposed fix:**
-Add a JSDoc comment to the type, or convert to 1-indexed with a migration.
+**Fixed:** Added JSDoc comment `/** 0-indexed month (0 = January, 11 = December) */` to the `month` field.
 
 **Files:**
-- `src/types/index.d.ts` — `MonthYear` type definition
+- `src/types/index.d.ts:142`
 
 ---
 
-### P3-3 — Payout naming inconsistency
+### ⏭️ P3-3 — Payout naming inconsistency — Won't fix
 
-**Problem:**
-Some places use `savingsSubSplit` (field name), others use `subSplit` (aria-label). Inconsistent terminology.
-
-**Proposed fix:**
-Pick one (`subSplit` is shorter) and rename consistently.
-
-**Files:**
-- `src/app/payout/page.tsx`
+**Decision:** `subSplit` (boolean flag on `SplitRow`) and `savingsSubSplit` (persisted field on `Payout` type) serve different purposes. Renaming would confuse semantics, not clarify them.
 
 ---
 
-### P3-4 — 3 `eslint-disable react-hooks/exhaustive-deps`
+### ⏭️ P3-4 — eslint-disable suppressions — Won't fix
 
-**Problem:**
-Three places suppress the exhaustive-deps rule. Each is a stale-closure risk if the captured value changes.
-
-**Proposed fix:**
-Restructure the effects to include dependencies or use refs to hold mutable callbacks.
-
-**Files:**
-- `src/context/TransactionContext.tsx` — lines 159, 171
-- (any other file with this suppression)
+**Decision:** Only 2 remain: `no-var` in test file (Jest requires `var`), `set-state-in-effect` in `EditTransactionModal` (intentional — modal stays mounted, state update in effect is deliberate). Both are legitimate with explanatory comments.
 
 ---
 
-## Full-codebase critic review — Fixed 2026-07-11
+## Full-codebase critic review — All resolved 2026-07-11
 
-Second-pass critic review found 21 issues across the entire codebase. 10 fixed, 1 skipped (design refactor), 10 deferred to P3.
+Second-pass critic review found 21 issues across the entire codebase. All 21 resolved (18 fixed, 3 won't-fix).
 
 ### ✅ CRIT-1 — REVERSE_FIELD_MAP overwrite (critical)
 
@@ -239,16 +216,93 @@ WCAG 1.4.4 violation. Users with low vision cannot zoom.
 
 **File:** `src/components/summary/TransactionList.tsx:449,455,503,507,513`
 
----
+### ✅ CRIT-11 — ensureUuids runs on every sync cycle (medium)
 
-## Quick wins (single-edit fixes)
+`ensureUuids()` does a full O(accounts+categories) scan every time `backgroundSync()` runs. Since it's a one-shot migration, subsequent runs are pure waste.
 
-| Item | File | What |
-|------|------|------|
-| P3-1 inline `formatDate` | `src/lib/utils.ts` | One-line function inline |
-| Sync key doc update | `README.md` | Already correct (`last_sync_time`) |
-| Account delete guard | `src/app/settings/page.tsx:336` | Already present — document as intentional |
-| Category delete guard | `src/app/settings/page.tsx:691` | Already present — document as intentional |
+**Fix:** Added `localStorage.getItem('uuid_migration_done')` guard at the top of the function. Sets the flag after successful completion.
+
+**File:** `src/lib/idb.ts:969-971, 1051`
+
+### ✅ CRIT-12 — importFromCsv only clears 3 of 6 stores (medium)
+
+CSV import replaced accounts, categories, and transactions but left stale cash denominations, payouts, and budget targets from the previous import.
+
+**Fix:** Expanded the transaction to clear all 6 stores. Sync queue cleanup also expanded to cover entries from all stores.
+
+**File:** `src/lib/idb.ts:1115-1172`
+
+### ✅ CRIT-13 — useAccounts useCallback deps include entire context (medium)
+
+Three `useCallback` hooks depended on `ctx` (the entire context object), which is recreated every render via spread. Caused unnecessary re-renders of consuming components.
+
+**Fix:** Changed dependencies to `[refresh, ctx.refreshTransactions]` — `ctx.refreshTransactions` is a stable `useCallback` reference.
+
+**File:** `src/hooks/useAccounts.ts:63, 75, 87`
+
+### ✅ CRIT-14 — Duplicate fetch logic in TransactionContext (medium)
+
+Mount `useEffect` duplicated the fetch logic in `refreshTransactions` (getAllTransactions + getAllAccounts + getAllCategories + error handling + loading state).
+
+**Fix:** Replaced mount effect with `refreshTransactions()` call. The `useCallback` is stable (empty deps), so the effect runs once on mount.
+
+**File:** `src/context/TransactionContext.tsx:100-102`
+
+### ✅ CRIT-15 — Settings toggle switch has no accessible name (medium)
+
+The `<button role="switch">` inside `ToggleSwitch` had no accessible name. Parent `<label>` wrapping doesn't provide implicit labeling for `<button>` elements (only for form controls).
+
+**Fix:** Added `aria-label={label}` to the switch button.
+
+**File:** `src/app/settings/page.tsx:1043`
+
+### ✅ CRIT-16 — Mobile nav has no aria-current (medium)
+
+The bottom tab bar buttons had no `aria-current="page"` on the active tab.
+
+**Fix:** Added `aria-current={isActive ? 'page' : undefined}` to each tab button.
+
+**File:** `src/components/layout/Header.tsx:308`
+
+### ✅ CRIT-17 — Duplicate h2 headings on desktop (medium)
+
+TransactionList had an unconditional `<h2>Transactions</h2>` (visible on both breakpoints) plus a second `<h2>` inside `hidden lg:flex`. On desktop, both were visible.
+
+**Fix:** Added `lg:hidden` to the first `<h2>`.
+
+**File:** `src/components/summary/TransactionList.tsx:296`
+
+### ✅ CRIT-18 — parseDate allows invalid day-per-month (low)
+
+`parseDate()` used `day > 31` as the only range check. Feb 30, Apr 31, etc. passed validation.
+
+**Fix:** Replaced with `new Date(year, month, 0).getDate()` to get the actual last day of the month.
+
+**File:** `src/lib/csv-import.ts:130-131`
+
+### ✅ CRIT-19 — UUID remap silently keeps raw account names (low)
+
+If an account name in CSV transactions didn't match any existing account, the fallback `?? t.fromAccount` left the raw name in place — silently breaking UUID-based data integrity.
+
+**Fix:** Explicit throw with descriptive error message identifying the problematic account.
+
+**File:** `src/lib/csv-import.ts:359-367`
+
+### ✅ CRIT-20 — Redundant dynamic import in settings export (low)
+
+`handleExportCsv` used `await import('@/lib/idb')` to get `getAllTransactions`, but it was already statically imported at the top of the file.
+
+**Fix:** Removed the redundant dynamic import.
+
+**File:** `src/app/settings/page.tsx:1083-1098`
+
+### ✅ CRIT-21 — Button component has no default type (low)
+
+The `<button>` in `Button.tsx` had no `type` attribute, defaulting to `"submit"` per HTML spec. Could cause accidental form submissions.
+
+**Fix:** Added `type="button"` default. Callers can override via `{...rest}` spread.
+
+**File:** `src/components/common/Button.tsx:47`
 
 ---
 

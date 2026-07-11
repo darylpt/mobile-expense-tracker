@@ -1040,6 +1040,7 @@ function ToggleRow({
       <button
         role="switch"
         aria-checked={checked}
+        aria-label={label}
         onClick={onChange}
         className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors ${
           checked ? 'bg-blue-600' : 'bg-zinc-300 dark:bg-zinc-600'
@@ -1081,7 +1082,6 @@ function BackupSection() {
 
   const handleExportCsv = async () => {
     try {
-      const { getAllTransactions } = await import('@/lib/idb');
       const txs = await getAllTransactions();
       const csv = transactionsToCsv(txs);
       const blob = new Blob([csv], { type: 'text/csv' });

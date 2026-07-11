@@ -305,6 +305,7 @@ function MobileBottomNav({ tabs, pathname }: { tabs: TabDef[]; pathname: string 
             <button
               key={tab.href}
               onClick={() => router.push(tab.href)}
+              aria-current={isActive ? 'page' : undefined}
               className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
                 isActive
                   ? 'text-blue-600 dark:text-blue-400'

@@ -126,7 +126,9 @@ function parseDate(raw: string, format: DateFormat = 'us'): string | null {
   if (isNaN(a) || isNaN(b) || isNaN(year)) return null;
   const month = format === 'eu' ? b : a;
   const day = format === 'eu' ? a : b;
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  if (month < 1 || month > 12 || day < 1) return null;
+  const maxDay = new Date(year, month, 0).getDate();
+  if (day > maxDay) return null;
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
@@ -354,10 +356,14 @@ export function parseCsv(text: string): ParsedCsv {
   // ── Remap transaction references from names → UUIDs ──
   for (const t of transactions) {
     if (t.fromAccount) {
-      t.fromAccount = accountUuid.get(t.fromAccount.toLowerCase()) ?? t.fromAccount;
+      const fromUuid = accountUuid.get(t.fromAccount.toLowerCase());
+      if (!fromUuid) throw new Error(`Account "${t.fromAccount}" not found during UUID remap`);
+      t.fromAccount = fromUuid;
     }
     if (t.toAccount) {
-      t.toAccount = accountUuid.get(t.toAccount.toLowerCase()) ?? t.toAccount;
+      const toUuid = accountUuid.get(t.toAccount.toLowerCase());
+      if (!toUuid) throw new Error(`Account "${t.toAccount}" not found during UUID remap`);
+      t.toAccount = toUuid;
     }
   }
 

@@ -44,6 +44,7 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
+      type="button"
       className={`
         inline-flex items-center justify-center gap-2 font-medium
         transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2

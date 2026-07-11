@@ -60,7 +60,7 @@ export function useAccounts() {
       setError(message);
       throw new Error(message);
     }
-  }, [refresh, ctx]);
+  }, [refresh, ctx.refreshTransactions]);
 
   const updateAccount = useCallback(async (account: Partial<Account> & Pick<Account, 'id'>): Promise<void> => {
     try {
@@ -72,7 +72,7 @@ export function useAccounts() {
       setError(message);
       throw new Error(message);
     }
-  }, [refresh, ctx]);
+  }, [refresh, ctx.refreshTransactions]);
 
   const deleteAccount = useCallback(async (id: string): Promise<void> => {
     try {
@@ -84,7 +84,7 @@ export function useAccounts() {
       setError(message);
       throw new Error(message);
     }
-  }, [refresh, ctx]);
+  }, [refresh, ctx.refreshTransactions]);
 
   const moveAccountTo = useCallback(async (id: string, targetIndex: number): Promise<void> => {
     try {

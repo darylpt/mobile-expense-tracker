@@ -98,31 +98,8 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        setError(null);
-        const [txs, accts, cats] = await Promise.all([
-          getAllTransactions(),
-          getAllAccounts(),
-          getAllCategories(),
-        ]);
-        if (cancelled) return;
-        setTransactions(txs);
-        setAccounts(accts);
-        setCategories(cats);
-      } catch (err) {
-        if (cancelled) return;
-        const message = err instanceof Error ? err.message : 'Failed to load data';
-        setError(message);
-        console.error('[TransactionContext] Error loading data:', err);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
-  }, []);
+    refreshTransactions();
+  }, [refreshTransactions]);
 
   // Auth lifecycle: manage local cache per user
   useEffect(() => {

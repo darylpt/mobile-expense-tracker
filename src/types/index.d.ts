@@ -139,6 +139,7 @@ export interface BudgetTarget {
 
 /** The current month/year selection for the summary view */
 export interface MonthYear {
-  month: number; // 0-indexed (0 = January)
+  /** 0-indexed month (0 = January, 11 = December) */
+  month: number;
   year: number;
 }

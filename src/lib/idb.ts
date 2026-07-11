@@ -965,6 +965,11 @@ function isUuid(s: string): boolean {
 export async function ensureUuids(): Promise<void> {
   const db = await getDB();
 
+  // ponytail: one-shot migration guard — skip if already completed
+  try {
+    if (localStorage.getItem('uuid_migration_done')) return;
+  } catch { /* localStorage unavailable */ }
+
   // ── 1. Accounts ──
   const accounts = await db.getAll(STORES.ACCOUNTS);
   const acctMap = new Map<string, string>(); // old slug → new UUID
@@ -1043,6 +1048,7 @@ export async function ensureUuids(): Promise<void> {
       await db.put(STORES.SYNC_QUEUE, entry);
     }
   }
+  try { localStorage.setItem('uuid_migration_done', '1'); } catch { /* ignore */ }
 }
 
 /**
@@ -1107,7 +1113,7 @@ export async function importFromCsv(csvText: string): Promise<ParsedCsv> {
 
   const db = await getDB();
   const tx = db.transaction(
-    [STORES.ACCOUNTS, STORES.CATEGORIES, STORES.TRANSACTIONS],
+    [STORES.ACCOUNTS, STORES.CATEGORIES, STORES.TRANSACTIONS, STORES.CASH_DENOMINATIONS, STORES.PAYOUTS, STORES.BUDGET_TARGETS],
     'readwrite'
   );
 
@@ -1118,6 +1124,9 @@ export async function importFromCsv(csvText: string): Promise<ParsedCsv> {
   await acctStore.clear();
   await catStore.clear();
   await txStore.clear();
+  await tx.objectStore(STORES.CASH_DENOMINATIONS).clear();
+  await tx.objectStore(STORES.PAYOUTS).clear();
+  await tx.objectStore(STORES.BUDGET_TARGETS).clear();
 
   const now = Date.now();
 
@@ -1152,7 +1161,10 @@ export async function importFromCsv(csvText: string): Promise<ParsedCsv> {
     if (
       entry.storeName === STORES.ACCOUNTS ||
       entry.storeName === STORES.CATEGORIES ||
-      entry.storeName === STORES.TRANSACTIONS
+      entry.storeName === STORES.TRANSACTIONS ||
+      entry.storeName === STORES.CASH_DENOMINATIONS ||
+      entry.storeName === STORES.PAYOUTS ||
+      entry.storeName === STORES.BUDGET_TARGETS
     ) {
       await syncCursor.delete();
     }

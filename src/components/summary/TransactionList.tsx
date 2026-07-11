@@ -293,7 +293,7 @@ export function TransactionList() {
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
-      <h2 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">
+      <h2 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100 lg:hidden">
         Transactions
       </h2>
 
