@@ -244,59 +244,7 @@ export default function PayoutPage() {
                       </button>
                     </div>
 
-                    {/* ── Sub-Split (per-person toggle) ──────── */}
-                    {split.subSplit && (
-                      <div className="border-t border-zinc-100 bg-zinc-50/50 px-4 pb-4 dark:border-zinc-700 dark:bg-zinc-900/30 sm:px-6">
-                        <button
-                          type="button"
-                          onClick={() => setSavingsOpen((v) => !v)}
-                          className="flex w-full items-center gap-2 py-3 text-sm font-medium text-zinc-600 dark:text-zinc-400"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 20 20"
-                            fill="currentColor"
-                            className={`h-4 w-4 transition-transform ${savingsOpen ? 'rotate-90' : ''}`}
-                          >
-                            <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
-                          </svg>
-                          Savings Sub-Split
-                        </button>
-                        {savingsOpen && (
-                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                            {(Object.keys(DEFAULT_SAVINGS_SPLIT) as (keyof SavingsSubSplit)[]).map(
-                              (key) => (
-                                <div key={key}>
-                                  <label htmlFor={`savings-split-${key}`} className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                                    {LABELS[key]}
-                                  </label>
-                                  <div className="relative">
-                                    <input
-                                      id={`savings-split-${key}`}
-                                      type="number"
-                                      step="any"
-                                      min={0}
-                                      max={100}
-                                      value={savingsSplit[key] || ''}
-                                      onChange={(e) => handleSubSplitChange(key, e.target.value)}
-                                      className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 pr-7 text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400"
-                                    />
-                                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-zinc-400">
-                                      %
-                                    </span>
-                                  </div>
-                                  {amounts[idx] > 0 && (
-                                    <p className="mt-0.5 text-xs text-zinc-400 tabular-nums">
-                                      {formatCurrency(subSplitAmounts(amounts[idx])[key])}
-                                    </p>
-                                  )}
-                                </div>
-                              )
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
+
                   </Fragment>
                 ))}
               </div>
@@ -307,6 +255,60 @@ export default function PayoutPage() {
                 </Button>
               </div>
             </section>
+
+            {/* ── Savings Split (shared percentages) ────────── */}
+            {splits.some((s) => s.subSplit) && (
+              <section className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+                <button
+                  type="button"
+                  onClick={() => setSavingsOpen((v) => !v)}
+                  className="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium text-zinc-700 dark:text-zinc-300 sm:px-6"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className={`h-4 w-4 transition-transform ${savingsOpen ? 'rotate-90' : ''}`}
+                  >
+                    <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                  </svg>
+                  Savings Split
+                  <span className="ml-auto text-xs font-normal text-zinc-400">
+                    {splits.filter((s) => s.subSplit).length} person{splits.filter((s) => s.subSplit).length !== 1 ? 's' : ''}
+                  </span>
+                </button>
+                {savingsOpen && (
+                  <div className="border-t border-zinc-100 px-4 pb-4 pt-3 dark:border-zinc-700 sm:px-6">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {(Object.keys(DEFAULT_SAVINGS_SPLIT) as (keyof SavingsSubSplit)[]).map(
+                        (key) => (
+                          <div key={key}>
+                            <label htmlFor={`savings-split-${key}`} className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                              {LABELS[key]}
+                            </label>
+                            <div className="relative">
+                              <input
+                                id={`savings-split-${key}`}
+                                type="number"
+                                step="any"
+                                min={0}
+                                max={100}
+                                value={savingsSplit[key] || ''}
+                                onChange={(e) => handleSubSplitChange(key, e.target.value)}
+                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 pr-7 text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400"
+                              />
+                              <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-zinc-400">
+                                %
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
 
             {/* ── Validation / Summary Bar ─────────────────── */}
             <section
