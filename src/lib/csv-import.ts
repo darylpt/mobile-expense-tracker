@@ -308,8 +308,9 @@ export function parseCsv(text: string): ParsedCsv {
 
   // ── Generate UUIDs for all accounts and categories ──
   // Map from lowercase name for case-insensitive matching
+  const sortedAccountNames = [...accountNames].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   const accountUuid = new Map<string, string>();
-  for (const name of accountNames) {
+  for (const name of sortedAccountNames) {
     accountUuid.set(name.toLowerCase(), crypto.randomUUID());
   }
   const categoryUuid = new Map<string, string>();
@@ -322,7 +323,7 @@ export function parseCsv(text: string): ParsedCsv {
   // ── Build accounts ──
   const accounts: Account[] = [];
   let acctSortOrder = 0;
-  for (const name of accountNames) {
+  for (const name of sortedAccountNames) {
     const entry = carryOverEntries.get(name);
     const startingBalance = entry ? entry.amount : 0;
     accounts.push({
@@ -339,8 +340,11 @@ export function parseCsv(text: string): ParsedCsv {
   // ── Build categories (excluding Carry Over) ──
   const categories: Category[] = [];
   let catSortOrder = 0;
-  for (const [catName, rows] of categoryRows) {
-    if (catName.toLowerCase() === 'carry over') continue; // not a real category
+  const sortedCategoryNames = [...categoryRows.keys()]
+    .filter((k) => k.toLowerCase() !== 'carry over')
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  for (const catName of sortedCategoryNames) {
+    const rows = categoryRows.get(catName)!;
     const categoryType = inferCategoryType(rows);
     categories.push({
       id: categoryUuid.get(catName.toLowerCase())!,
