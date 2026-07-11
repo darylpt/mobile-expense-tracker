@@ -21,6 +21,7 @@ import {
   importAllData,
   transactionsToCsv,
   importFromCsv,
+  deduplicateTransactions,
 } from '@/lib/idb';
 import { formatCurrency } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
@@ -102,6 +103,7 @@ export default function SettingsPage() {
                 <div className="space-y-6">
                   <BackupSection />
                   <ImportSection />
+                  <DataRepairSection />
                 </div>
               )}
             </>
@@ -164,6 +166,7 @@ export default function SettingsPage() {
             <div className="space-y-6">
               <BackupSection />
               <ImportSection />
+              <DataRepairSection />
             </div>
           )}
         </div>
@@ -1395,6 +1398,56 @@ function formatSyncTime(ts: number): string {
   const month = (d.getMonth() + 1).toString().padStart(2, '0');
   const day = d.getDate().toString().padStart(2, '0');
   return `${month}/${day} ${hours}:${mins}`;
+}
+
+// ============================================================
+// Data Repair Section
+// ============================================================
+
+function DataRepairSection() {
+  const [msg, setMsg] = useState<string | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
+
+  const handleDedup = async () => {
+    if (!window.confirm('This will scan for duplicate transactions caused by previous imports and remove them. Proceed?')) return;
+    setIsRunning(true);
+    setMsg(null);
+    try {
+      const result = await deduplicateTransactions();
+      if (result.deleted === 0 && result.relinked === 0 && result.remaining === 0) {
+        setMsg('No duplicates found. Your data is clean.');
+      } else {
+        const parts: string[] = [];
+        if (result.deleted > 0) parts.push(`${result.deleted} duplicate${result.deleted !== 1 ? 's' : ''} removed`);
+        if (result.relinked > 0) parts.push(`${result.relinked} transaction${result.relinked !== 1 ? 's' : ''} re-linked to correct accounts`);
+        if (result.remaining > 0) parts.push(`${result.remaining} transaction${result.remaining !== 1 ? 's' : ''} still orphaned (no match found)`);
+        setMsg(`Done: ${parts.join(', ')}. Reload to see changes.`);
+      }
+    } catch {
+      setMsg('Repair failed — check console for details.');
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
+      <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+        Data Repair
+      </h2>
+      <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+        Fix duplicate transactions from previous CSV imports. Removes confirmed duplicates and re-links orphaned transactions to the most likely accounts.
+      </p>
+      <Button variant="secondary" size="sm" onClick={handleDedup} disabled={isRunning}>
+        {isRunning ? 'Scanning…' : 'Deduplicate Transactions'}
+      </Button>
+      {msg && (
+        <p role="status" aria-live="polite" className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
+          {msg}
+        </p>
+      )}
+    </section>
+  );
 }
 
 // ============================================================

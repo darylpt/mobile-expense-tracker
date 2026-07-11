@@ -1185,3 +1185,104 @@ export async function importFromCsv(csvText: string): Promise<ParsedCsv> {
 
   return parsed;
 }
+
+// ============================================================
+// Transaction Deduplication
+// ============================================================
+
+/**
+ * Scan for orphaned transactions (references to deleted accounts) and
+ * either delete confirmed duplicates or re-link them to the most likely
+ * valid account based on historical frequency.
+ */
+export async function deduplicateTransactions(): Promise<{ deleted: number; relinked: number; remaining: number }> {
+  const db = await getDB();
+  const allTxs = await db.getAll(STORES.TRANSACTIONS);
+  const accounts = await db.getAll(STORES.ACCOUNTS);
+  const validIds = new Set(accounts.map((a) => a.id));
+
+  // Find orphaned transactions
+  const orphaned = allTxs.filter((tx) => {
+    const fromBad = tx.fromAccount && !validIds.has(tx.fromAccount);
+    const toBad = tx.toAccount && !validIds.has(tx.toAccount);
+    return fromBad || toBad;
+  });
+
+  if (orphaned.length === 0) return { deleted: 0, relinked: 0, remaining: 0 };
+
+  // Build twin index: key = "date|amount|type|description" → array of valid transactions
+  const validTxs = allTxs.filter((tx) => {
+    const fromOk = !tx.fromAccount || validIds.has(tx.fromAccount);
+    const toOk = !tx.toAccount || validIds.has(tx.toAccount);
+    return fromOk && toOk;
+  });
+
+  const twinIndex = new Map<string, typeof validTxs>();
+  for (const tx of validTxs) {
+    const key = `${tx.date}|${tx.amount}|${tx.type}|${tx.category}|${tx.description ?? ''}`;
+    const group = twinIndex.get(key) ?? [];
+    group.push(tx);
+    twinIndex.set(key, group);
+  }
+
+  let deleted = 0;
+  let relinked = 0;
+  let remaining = 0;
+
+  for (const tx of orphaned) {
+    const key = `${tx.date}|${tx.amount}|${tx.type}|${tx.category}|${tx.description ?? ''}`;
+    const twins = twinIndex.get(key);
+
+    if (twins && twins.length > 0) {
+      // Confirmed duplicate — delete
+      await db.delete(STORES.TRANSACTIONS, tx.id);
+      enqueueSyncEntry(STORES.TRANSACTIONS, tx.id, 'delete', null);
+      deleted++;
+    } else {
+      // No twin — try to re-link by finding the most common valid account for this transaction type + category
+      const fromCounts = new Map<string, number>();
+      const toCounts = new Map<string, number>();
+      for (const v of validTxs) {
+        if (v.type === tx.type && v.category === tx.category) {
+          if (v.fromAccount) fromCounts.set(v.fromAccount, (fromCounts.get(v.fromAccount) ?? 0) + 1);
+          if (v.toAccount) toCounts.set(v.toAccount, (toCounts.get(v.toAccount) ?? 0) + 1);
+        }
+      }
+      // Fallback: if no category matches, use type-wide counts
+      if (fromCounts.size === 0 && toCounts.size === 0) {
+        for (const v of validTxs) {
+          if (v.type === tx.type) {
+            if (v.fromAccount) fromCounts.set(v.fromAccount, (fromCounts.get(v.fromAccount) ?? 0) + 1);
+            if (v.toAccount) toCounts.set(v.toAccount, (toCounts.get(v.toAccount) ?? 0) + 1);
+          }
+        }
+      }
+
+      let changed = false;
+      if (tx.fromAccount && !validIds.has(tx.fromAccount)) {
+        const best = [...fromCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+        if (best) {
+          tx.fromAccount = best[0];
+          changed = true;
+        }
+      }
+      if (tx.toAccount && !validIds.has(tx.toAccount)) {
+        const best = [...toCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+        if (best) {
+          tx.toAccount = best[0];
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        await db.put(STORES.TRANSACTIONS, tx);
+        enqueueSyncEntry(STORES.TRANSACTIONS, tx.id, 'update', tx);
+        relinked++;
+      } else {
+        remaining++;
+      }
+    }
+  }
+
+  return { deleted, relinked, remaining };
+}
