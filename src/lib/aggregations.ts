@@ -162,6 +162,38 @@ export function calculateAccountBalances(
     });
   }
 
+  // ---- Catch-all row for orphaned account IDs ----
+  // Transactions may reference account IDs that no longer exist in the accounts array
+  // (e.g., deleted on another device). Collect their inflow/outflow into a single row
+  // so the totals stay correct.
+  const knownIds = new Set(accounts.map((a) => a.id));
+  let orphanInflow = 0;
+  let orphanOutflow = 0;
+  let orphanStarting = 0;
+  for (const [id, amount] of inflow) {
+    if (!knownIds.has(id)) orphanInflow += amount;
+  }
+  for (const [id, amount] of outflow) {
+    if (!knownIds.has(id)) orphanOutflow += amount;
+  }
+  for (const [id, amount] of priorNet) {
+    if (!knownIds.has(id)) orphanStarting += amount;
+  }
+  if (orphanInflow > 0 || orphanOutflow > 0 || orphanStarting !== 0) {
+    const orphanEnding = orphanStarting + orphanInflow - orphanOutflow;
+    totalStarting += orphanStarting;
+    totalInflow += orphanInflow;
+    totalOutflow += orphanOutflow;
+    rows.push({
+      accountId: '_orphaned',
+      accountName: 'Deleted accounts',
+      startingBalance: orphanStarting,
+      inflow: orphanInflow,
+      outflow: orphanOutflow,
+      endingBalance: orphanEnding,
+    });
+  }
+
   // TOTAL row
   const totalEnding = totalStarting + totalInflow - totalOutflow;
   rows.push({

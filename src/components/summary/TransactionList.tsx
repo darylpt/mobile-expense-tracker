@@ -67,6 +67,12 @@ export function TransactionList() {
   // Account name lookups
   const accountMap = useMemo(() => new Map(ctx.accounts.map(a => [a.id, a.name])), [ctx.accounts]);
 
+  /** Resolve an account id to a display name, falling back gracefully if the account was deleted. */
+  const accountLabel = (id: string | null): string => {
+    if (!id) return '';
+    return accountMap.get(id) ?? 'Deleted account';
+  };
+
   // Current month displayed in the month selector
   const displayMonthYear = useMemo(() => {
     const monthParam = searchParams.get('month');
@@ -654,18 +660,18 @@ export function TransactionList() {
                         <div className="mt-0.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                           {tx.category}
                         </div>
-                        <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
-                          {tx.type === 'income'
-                            ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
-                            : tx.type === 'expense'
-                              ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
-                              : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
-                        </div>
-                      </div>
-                    ))}
+                    <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+                      {tx.type === 'income'
+                        ? `→ ${accountLabel(tx.toAccount)}`
+                        : tx.type === 'expense'
+                          ? `${accountLabel(tx.fromAccount)} →`
+                          : `${accountLabel(tx.fromAccount)} → ${accountLabel(tx.toAccount)}`}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            </div>
+          ))}
             </div>
           ) : (
             <div className="divide-y divide-zinc-100 dark:divide-zinc-700 lg:hidden">
@@ -725,10 +731,10 @@ export function TransactionList() {
                   </div>
                   <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
                     {tx.type === 'income'
-                      ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
+                      ? `→ ${accountLabel(tx.toAccount)}`
                       : tx.type === 'expense'
-                        ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
-                        : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
+                        ? `${accountLabel(tx.fromAccount)} →`
+                        : `${accountLabel(tx.fromAccount)} → ${accountLabel(tx.toAccount)}`}
                   </div>
                 </div>
               ))}
@@ -774,10 +780,10 @@ export function TransactionList() {
                       </td>
                       <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
                         {tx.type === 'income'
-                          ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
+                          ? `→ ${accountLabel(tx.toAccount)}`
                           : tx.type === 'expense'
-                            ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
-                            : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
+                            ? `${accountLabel(tx.fromAccount)} →`
+                            : `${accountLabel(tx.fromAccount)} → ${accountLabel(tx.toAccount)}`}
                       </td>
                       <td className={`py-2.5 pl-4 text-right text-sm font-semibold tabular-nums ${
                         tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :
@@ -831,10 +837,10 @@ export function TransactionList() {
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
                       {tx.type === 'income'
-                        ? `→ ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`
+                        ? `→ ${accountLabel(tx.toAccount)}`
                         : tx.type === 'expense'
-                          ? `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} →`
-                          : `${accountMap.get(tx.fromAccount ?? '') ?? tx.fromAccount ?? ''} → ${accountMap.get(tx.toAccount ?? '') ?? tx.toAccount ?? ''}`}
+                          ? `${accountLabel(tx.fromAccount)} →`
+                          : `${accountLabel(tx.fromAccount)} → ${accountLabel(tx.toAccount)}`}
                     </td>
                     <td className={`py-2.5 pl-4 text-right text-sm font-semibold tabular-nums ${
                       tx.type === 'income' ? 'text-emerald-700 dark:text-emerald-400' :

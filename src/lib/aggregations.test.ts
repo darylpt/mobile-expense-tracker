@@ -155,6 +155,63 @@ describe('calculateAccountBalances', () => {
     expect(gotyme!.endingBalance).toBe(49000);    // 45000 + 5000 - 1000
   });
 
+  it('includes orphaned accounts in a "Deleted accounts" catch-all row', () => {
+    const orphanId = 'orphan-uuid-123';
+    const txs = [
+      { id: '1', date: '2026-06-15', type: 'income' as const, amount: 1000, fromAccount: null, toAccount: orphanId, category: 'Salary', description: '', createdAt: 0, updatedAt: 0 },
+      { id: '2', date: '2026-06-20', type: 'expense' as const, amount: 300, fromAccount: orphanId, toAccount: null, category: 'Food', description: '', createdAt: 0, updatedAt: 0 },
+    ];
+    const result = calculateAccountBalances(txs, [], ACCOUNTS, JUNE_2026);
+    const orphanRow = result.find((r) => r.accountId === '_orphaned');
+    expect(orphanRow).toBeDefined();
+    expect(orphanRow!.accountName).toBe('Deleted accounts');
+    expect(orphanRow!.inflow).toBe(1000);
+    expect(orphanRow!.outflow).toBe(300);
+    expect(orphanRow!.endingBalance).toBe(700);
+    // TOTAL should include orphaned amounts
+    const totalRow = result.find((r) => r.accountId === 'TOTAL');
+    expect(totalRow!.inflow).toBe(1000);
+    expect(totalRow!.outflow).toBe(300);
+  });
+
+  it('includes orphan prior-period flows in starting balance', () => {
+    const orphanId = 'orphan-prior-456';
+    // Prior-period income to orphan (before the month)
+    const priorTxs = [
+      { id: 'p1', date: '2026-05-15', type: 'income' as const, amount: 5000, fromAccount: null, toAccount: orphanId, category: 'Salary', description: '', createdAt: 0, updatedAt: 0 },
+    ];
+    // Current-month expense from orphan
+    const currentTxs = [
+      { id: 'c1', date: '2026-06-10', type: 'expense' as const, amount: 2000, fromAccount: orphanId, toAccount: null, category: 'Food', description: '', createdAt: 0, updatedAt: 0 },
+    ];
+    const result = calculateAccountBalances(currentTxs, priorTxs, ACCOUNTS, JUNE_2026);
+    const orphanRow = result.find((r) => r.accountId === '_orphaned');
+    expect(orphanRow).toBeDefined();
+    expect(orphanRow!.startingBalance).toBe(5000); // prior income
+    expect(orphanRow!.inflow).toBe(0);
+    expect(orphanRow!.outflow).toBe(2000);
+    expect(orphanRow!.endingBalance).toBe(3000); // 5000 - 2000
+    // TOTAL should reflect the orphan's prior + current activity
+    const totalRow = result.find((r) => r.accountId === 'TOTAL');
+    expect(totalRow!.startingBalance).toBe(5000);
+    expect(totalRow!.outflow).toBe(2000);
+    expect(totalRow!.endingBalance).toBe(3000);
+  });
+
+  it('shows orphan row for prior-only activity with no current-month transactions', () => {
+    const orphanId = 'orphan-prior-only-789';
+    const priorTxs = [
+      { id: 'p1', date: '2026-05-20', type: 'transaction' as const, amount: 3000, fromAccount: ACCOUNTS[0].id, toAccount: orphanId, category: 'Transfer', description: '', createdAt: 0, updatedAt: 0 },
+    ];
+    const result = calculateAccountBalances([], priorTxs, ACCOUNTS, JUNE_2026);
+    const orphanRow = result.find((r) => r.accountId === '_orphaned');
+    expect(orphanRow).toBeDefined();
+    expect(orphanRow!.startingBalance).toBe(3000);
+    expect(orphanRow!.inflow).toBe(0);
+    expect(orphanRow!.outflow).toBe(0);
+    expect(orphanRow!.endingBalance).toBe(3000);
+  });
+
   it('TOTAL row sums all columns', () => {
     const currentTxs: Transaction[] = [
       tx({ date: '2026-06-01', type: 'income', amount: 45000, toAccount: 'gotyme' }),
