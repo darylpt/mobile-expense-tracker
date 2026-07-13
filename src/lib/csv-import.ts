@@ -267,6 +267,12 @@ export function parseCsv(text: string): ParsedCsv {
       continue;
     }
 
+    // ponytail: transfers must use different accounts — catch at import time, not at UI time
+    if (hasFrom && hasTo && fromAccount.toLowerCase() === toAccount.toLowerCase()) {
+      errors.push({ row: rowNum, message: 'Transfer must use different From and To accounts' });
+      continue;
+    }
+
     // Account collection
     if (hasFrom) accountNames.add(fromAccount);
     if (hasTo) accountNames.add(toAccount);
@@ -419,4 +425,29 @@ export function inferCategoryType(rows: CsvRow[]): Transaction['type'] {
   if (hasTransfer && !hasIncome && !hasExpense) return 'transaction';
   if (hasIncome && !hasExpense) return 'income';
   return 'expense';
+}
+
+// ── Storage quota check ────────────────────────────────────────
+
+/**
+ * Check if IDB storage is nearly full before a bulk import.
+ * Returns a warning string if usage > 80% of quota, null otherwise.
+ * Silently returns null if navigator.storage is unavailable.
+ */
+export async function checkStorageQuota(estimatedRecords: number): Promise<string | null> {
+  try {
+    if (!navigator.storage?.estimate) return null;
+    const { usage = 0, quota = 0 } = await navigator.storage.estimate();
+    if (!quota) return null;
+    const estimatedImportBytes = estimatedRecords * 500; // ponytail: rough avg per record
+    const projectedUsage = usage + estimatedImportBytes;
+    const usagePercent = (projectedUsage / quota) * 100;
+    if (usagePercent > 80) {
+      return `Your browser storage is nearly full (${Math.round(usagePercent)}% projected). Import may fail. Consider deleting old data or using a different browser profile.`;
+    }
+    return null;
+  } catch {
+    // ponytail: storage API unavailable or errored — skip silently
+    return null;
+  }
 }

@@ -1,4 +1,4 @@
-import { inferCategoryType, type CsvRow } from './csv-import';
+import { inferCategoryType, parseCsv, checkStorageQuota, type CsvRow } from './csv-import';
 
 describe('inferCategoryType', () => {
   const mockRow = (
@@ -88,5 +88,89 @@ describe('inferCategoryType', () => {
   it('should return "transaction" for a single row with Type=Transfer', () => {
     const rows = [mockRow('Transfer', 'A', 'B', 'Transfer')];
     expect(inferCategoryType(rows)).toBe('transaction');
+  });
+});
+
+describe('parseCsv', () => {
+  it('should error when From Account and To Account are the same', () => {
+    const csv = [
+      'Date,Amount,Description,Type,Category,From Account,To Account',
+      '1/5/2026,₱100.00,Test,Transfer,Transfer,Cash,Cash',
+    ].join('\n');
+    const result = parseCsv(csv);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toContain('Transfer must use different From and To accounts');
+    expect(result.transactions).toHaveLength(0);
+  });
+
+  it('should pass when From Account and To Account differ', () => {
+    const csv = [
+      'Date,Amount,Description,Type,Category,From Account,To Account',
+      '1/5/2026,₱100.00,Test,Transfer,Transfer,Cash,GoTyme',
+    ].join('\n');
+    const result = parseCsv(csv);
+    expect(result.errors).toHaveLength(0);
+    expect(result.transactions).toHaveLength(1);
+  });
+
+  it('should be case-insensitive for account-equal check', () => {
+    const csv = [
+      'Date,Amount,Description,Type,Category,From Account,To Account',
+      '1/5/2026,₱100.00,Test,Transfer,Transfer,cash,Cash',
+    ].join('\n');
+    const result = parseCsv(csv);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toContain('Transfer must use different From and To accounts');
+  });
+});
+
+describe('checkStorageQuota', () => {
+  const originalStorage = navigator.storage;
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'storage', { value: originalStorage, configurable: true });
+  });
+
+  it('should return null when storage is available and usage is low', async () => {
+    Object.defineProperty(navigator, 'storage', {
+      value: {
+        estimate: jest.fn().mockResolvedValue({ usage: 1_000_000, quota: 100_000_000 }),
+      },
+      configurable: true,
+    });
+    const warning = await checkStorageQuota(100);
+    expect(warning).toBeNull();
+  });
+
+  it('should return warning when projected usage exceeds 80%', async () => {
+    Object.defineProperty(navigator, 'storage', {
+      value: {
+        estimate: jest.fn().mockResolvedValue({ usage: 79_000_000, quota: 100_000_000 }),
+      },
+      configurable: true,
+    });
+    // 5000 records × 500 bytes = 2.5MB → 79MB + 2.5MB = 81.5% > 80%
+    const warning = await checkStorageQuota(5000);
+    expect(warning).toContain('nearly full');
+  });
+
+  it('should return null when navigator.storage is undefined', async () => {
+    Object.defineProperty(navigator, 'storage', {
+      value: undefined,
+      configurable: true,
+    });
+    const warning = await checkStorageQuota(100);
+    expect(warning).toBeNull();
+  });
+
+  it('should return null when estimate throws', async () => {
+    Object.defineProperty(navigator, 'storage', {
+      value: {
+        estimate: jest.fn().mockRejectedValue(new Error('not supported')),
+      },
+      configurable: true,
+    });
+    const warning = await checkStorageQuota(100);
+    expect(warning).toBeNull();
   });
 });

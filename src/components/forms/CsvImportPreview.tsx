@@ -5,10 +5,11 @@
 
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/common/Button';
 import { formatCurrency } from '@/lib/utils';
 import type { ParsedCsv } from '@/lib/csv-import';
+import { checkStorageQuota } from '@/lib/csv-import';
 
 interface CsvImportPreviewProps {
   parsed: ParsedCsv | null;
@@ -23,6 +24,14 @@ export function CsvImportPreview({
   onCancel,
   isImporting,
 }: CsvImportPreviewProps) {
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!parsed) return;
+    const totalRecords = parsed.summary.validRows + parsed.accounts.length + parsed.categories.length;
+    checkStorageQuota(totalRecords).then(setStorageWarning);
+  }, [parsed]);
+
   if (!parsed) return null;
 
   const { accounts, categories, transactions, errors, summary } = parsed;
@@ -78,6 +87,23 @@ export function CsvImportPreview({
       {summary.truncated && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
           ⚠ CSV was capped at {summary.validRows} rows (max 2,000). Split your data into smaller files to import everything.
+        </div>
+      )}
+
+      {/* ── Negative starting balance warning ── */}
+      {accounts.filter((a) => a.startingBalance < 0).length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+          {accounts
+            .filter((a) => a.startingBalance < 0)
+            .map((a) => `Account "${a.name}" has a negative starting balance (${formatCurrency(a.startingBalance)}).`)
+            .join(' ')} This may indicate an overdraft.
+        </div>
+      )}
+
+      {/* ── Storage quota warning ── */}
+      {storageWarning && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+          ⚠ {storageWarning}
         </div>
       )}
 
