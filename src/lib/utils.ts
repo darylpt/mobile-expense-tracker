@@ -151,7 +151,11 @@ export function calculateCategoryBreakdown(txs: Transaction[]): CategoryBreakdow
     }
   }
 
-  const totalAmount = txs.reduce((sum, tx) => sum + tx.amount, 0);
+  // Compute totals per type so each category's percentage is relative to its type group
+  const typeTotals = new Map<string, number>();
+  for (const tx of txs) {
+    typeTotals.set(tx.type, (typeTotals.get(tx.type) ?? 0) + tx.amount);
+  }
 
   return Array.from(grouped.entries())
     .map(([category, data]) => ({
@@ -159,7 +163,7 @@ export function calculateCategoryBreakdown(txs: Transaction[]): CategoryBreakdow
       type: data.type,
       totalAmount: data.totalAmount,
       count: data.count,
-      percentage: totalAmount > 0 ? (data.totalAmount / totalAmount) * 100 : 0,
+      percentage: data.totalAmount > 0 ? (data.totalAmount / (typeTotals.get(data.type) ?? 1)) * 100 : 0,
     }))
     .sort((a, b) => b.totalAmount - a.totalAmount);
 }

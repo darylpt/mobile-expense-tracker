@@ -9,7 +9,7 @@ import React, { useState, useMemo } from 'react';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useCategories } from '@/hooks/useCategories';
 import { useAccounts } from '@/hooks/useAccounts';
-import { formatCurrency, formatCurrencyShort } from '@/lib/utils';
+import { useTransactionContext, formatAmount } from '@/context/TransactionContext';
 
 type BreakdownTab = 'category' | 'account';
 
@@ -17,6 +17,7 @@ export function CategoryBreakdown() {
   const { categoryBreakdown, accountBreakdown, isLoading } = useTransactions();
   const { categories } = useCategories();
   const { accounts } = useAccounts();
+  const { hideAmounts } = useTransactionContext();
   const [activeTab, setActiveTab] = useState<BreakdownTab>('category');
 
   // Merge categories with transactions — show every known category, even with ₱0.00
@@ -130,9 +131,9 @@ export function CategoryBreakdown() {
       </div>
 
       {activeTab === 'category' ? (
-        <CategoryBreakdownList items={enrichedCategoryBreakdown} />
+        <CategoryBreakdownList items={enrichedCategoryBreakdown} hideAmounts={hideAmounts} />
       ) : (
-        <AccountBreakdownList items={enrichedAccountBreakdown} />
+        <AccountBreakdownList items={enrichedAccountBreakdown} hideAmounts={hideAmounts} />
       )}
     </div>
   );
@@ -144,6 +145,7 @@ export function CategoryBreakdown() {
 
 interface BreakdownListProps {
   items: { category: string; totalAmount: number; count: number; percentage: number; type: string }[];
+  hideAmounts: boolean;
 }
 
 type GroupKey = 'income' | 'expense' | 'transfer';
@@ -151,7 +153,7 @@ const GROUP_LABEL: Record<GroupKey, string> = { income: 'Income', expense: 'Expe
 const DOT_CLASS: Record<GroupKey, string> = { income: 'bg-emerald-500', expense: 'bg-red-500', transfer: 'bg-blue-500' };
 const BAR_CLASS: Record<GroupKey, string> = { income: 'bg-emerald-500', expense: 'bg-red-500', transfer: 'bg-blue-500' };
 
-function CategoryBreakdownList({ items }: BreakdownListProps) {
+function CategoryBreakdownList({ items, hideAmounts }: BreakdownListProps) {
   // Group by type, preserve insert order within each group
   // ponytail: moved useMemo before early return — hooks must be unconditional
   const groups = useMemo(() => {
@@ -195,7 +197,7 @@ function CategoryBreakdownList({ items }: BreakdownListProps) {
                         </span>
                       </div>
                       <span className="text-zinc-600 dark:text-zinc-400">
-                        {formatCurrencyShort(item.totalAmount)}
+                        {formatAmount(item.totalAmount, hideAmounts)}
                       </span>
                     </div>
                     {/* Progress bar */}
@@ -224,7 +226,7 @@ function CategoryBreakdownList({ items }: BreakdownListProps) {
 // Account breakdown list
 // ============================================================
 
-function AccountBreakdownList({ items }: { items: { account: string; totalIncome: number; totalExpenses: number; netFlow: number }[] }) {
+function AccountBreakdownList({ items, hideAmounts }: { items: { account: string; totalIncome: number; totalExpenses: number; netFlow: number }[]; hideAmounts: boolean }) {
   if (items.length === 0) {
     return (
       <p className="py-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
@@ -251,12 +253,12 @@ function AccountBreakdownList({ items }: { items: { account: string; totalIncome
                   : 'text-red-700 dark:text-red-400'
               }`}
             >
-              {formatCurrencyShort(item.netFlow)}
+              {formatAmount(item.netFlow, hideAmounts)}
             </span>
           </div>
           <div className="mt-1.5 flex gap-4 text-xs text-zinc-500 dark:text-zinc-400">
-            <span>In: {formatCurrency(item.totalIncome)}</span>
-            <span>Out: {formatCurrency(item.totalExpenses)}</span>
+            <span>In: {formatAmount(item.totalIncome, hideAmounts)}</span>
+            <span>Out: {formatAmount(item.totalExpenses, hideAmounts)}</span>
           </div>
         </div>
       ))}

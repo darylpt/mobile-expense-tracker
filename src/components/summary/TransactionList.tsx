@@ -8,15 +8,16 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
-import { useTransactionContext } from '@/context/TransactionContext';
+import { useTransactionContext, formatAmount } from '@/context/TransactionContext';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { formatCurrency, formatMonthYear, getPreviousMonthYear, getNextMonthYear, getCurrentMonthYear } from '@/lib/utils';
+import { formatMonthYear, getPreviousMonthYear, getNextMonthYear, getCurrentMonthYear } from '@/lib/utils';
 import { Button } from '@/components/common/Button';
 import { EditTransactionModal } from '@/components/forms/EditTransactionModal';
 import type { Transaction, TransactionType } from '@/types';
 
 export function TransactionList() {
   const ctx = useTransactionContext();
+  const { hideAmounts } = ctx;
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -343,14 +344,14 @@ export function TransactionList() {
       {/* Desktop summary stats — 4 metric cards                           */}
       {/* ================================================================ */}
       <div className="hidden lg:grid lg:grid-cols-4 lg:gap-4 lg:mb-4">
-        <StatCard label="Income" value={formatCurrency(summaryStats.income)} color="text-emerald-700 dark:text-emerald-400" />
-        <StatCard label="Expenses" value={formatCurrency(summaryStats.expenses)} color="text-red-700 dark:text-red-400" />
+        <StatCard label="Income" value={formatAmount(summaryStats.income, hideAmounts)} color="text-emerald-700 dark:text-emerald-400" />
+        <StatCard label="Expenses" value={formatAmount(summaryStats.expenses, hideAmounts)} color="text-red-700 dark:text-red-400" />
         <StatCard
           label="Net"
-          value={formatCurrency(Math.abs(summaryStats.net))}
+          value={formatAmount(Math.abs(summaryStats.net), hideAmounts)}
           color={summaryStats.net >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}
         />
-        <StatCard label="Transfers" value={formatCurrency(summaryStats.transfers)} color="text-zinc-700 dark:text-zinc-300" />
+        <StatCard label="Transfers" value={formatAmount(summaryStats.transfers, hideAmounts)} color="text-zinc-700 dark:text-zinc-300" />
       </div>
 
       {/* ================================================================ */}
@@ -628,7 +629,7 @@ export function TransactionList() {
                               tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
                               'text-blue-700 dark:text-blue-400'
                             }`}>
-                              {formatCurrency(tx.amount)}
+                              {formatAmount(tx.amount, hideAmounts)}
                             </span>
                             <div className="relative">
                               <button onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
@@ -695,7 +696,7 @@ export function TransactionList() {
                         tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
                         'text-blue-700 dark:text-blue-400'
                       }`}>
-                        {formatCurrency(tx.amount)}
+                        {formatAmount(tx.amount, hideAmounts)}
                       </span>
                       <div className="relative">
                         <button onClick={() => setActionMenuId(actionMenuId === tx.id ? null : tx.id)}
@@ -790,7 +791,7 @@ export function TransactionList() {
                         tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
                         'text-zinc-700 dark:text-zinc-300'
                       }`}>
-                        {formatCurrency(tx.amount)}
+                        {formatAmount(tx.amount, hideAmounts)}
                       </td>
                       <td className="whitespace-nowrap py-2.5 pl-4 text-right">
                         <button
@@ -847,7 +848,7 @@ export function TransactionList() {
                       tx.type === 'expense' ? 'text-red-700 dark:text-red-400' :
                       'text-zinc-700 dark:text-zinc-300'
                     }`}>
-                      {formatCurrency(tx.amount)}
+                      {formatAmount(tx.amount, hideAmounts)}
                     </td>
                     <td className="whitespace-nowrap py-2.5 pl-4 text-right">
                       <button

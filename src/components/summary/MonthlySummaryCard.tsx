@@ -9,13 +9,12 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { useTransactionContext } from '@/context/TransactionContext';
+import { useTransactionContext, formatAmount } from '@/context/TransactionContext';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useCategories } from '@/hooks/useCategories';
 import { getAllBudgetTargets, setBudgetTarget } from '@/lib/idb';
 import { calculateIncomeBreakdown, calculateExpenseBreakdown } from '@/lib/aggregations';
 import {
-  formatCurrency,
   formatMonthYear,
   getPreviousMonthYear,
   getNextMonthYear,
@@ -118,6 +117,7 @@ export function MonthlySummaryCard() {
   const handleNextMonth = () => setMonthYear(getNextMonthYear(monthYear));
 
   const ctx = useTransactionContext();
+  const { hideAmounts } = ctx;
 
   if (isLoading) {
     return <LoadingSkeleton />;
@@ -165,19 +165,19 @@ export function MonthlySummaryCard() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <StatCard
           label="Income"
-          value={formatCurrency(summary.totalIncome)}
+          value={formatAmount(summary.totalIncome, hideAmounts)}
           sub={`${summary.incomeCount} ${summary.incomeCount === 1 ? 'entry' : 'entries'}`}
           color="text-emerald-700 dark:text-emerald-400"
         />
         <StatCard
           label="Expenses"
-          value={formatCurrency(summary.totalExpenses)}
+          value={formatAmount(summary.totalExpenses, hideAmounts)}
           sub={`${summary.expenseCount} ${summary.expenseCount === 1 ? 'entry' : 'entries'}`}
           color="text-red-700 dark:text-red-400"
         />
         <StatCard
           label="Net"
-          value={formatCurrency(Math.abs(summary.netBalance))}
+          value={formatAmount(Math.abs(summary.netBalance), hideAmounts)}
           sub={`${summary.transferCount} transfer${summary.transferCount !== 1 ? 's' : ''}`}
           color={summary.netBalance >= 0 ? 'text-blue-700 dark:text-blue-300' : 'text-red-700 dark:text-red-300'}
         />
@@ -191,13 +191,13 @@ export function MonthlySummaryCard() {
 
       {/* Row 2: Accounts table — desktop only, mobile uses CategoryBreakdown */}
       <div className="hidden md:block">
-        <AccountsTable rows={accountBalances} />
+        <AccountsTable rows={accountBalances} hideAmounts={hideAmounts} />
       </div>
 
       {/* Row 2: Income Breakdown (1/2) | Expenses Breakdown (1/2) — desktop only, mobile uses CategoryBreakdown */}
       <div className="hidden md:block md:space-y-6 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">
-        <IncomeBreakdownTable rows={incomeBreakdown} />
-        <ExpenseBreakdownTable rows={expenseBreakdown} />
+        <IncomeBreakdownTable rows={incomeBreakdown} hideAmounts={hideAmounts} />
+        <ExpenseBreakdownTable rows={expenseBreakdown} hideAmounts={hideAmounts} />
       </div>
 
       {/* ── Budget Targets Editor — full-width below grid ── */}
@@ -323,7 +323,7 @@ interface AccountRow {
   endingBalance: number;
 }
 
-function AccountsTable({ rows }: { rows: AccountRow[] }) {
+function AccountsTable({ rows, hideAmounts }: { rows: AccountRow[]; hideAmounts: boolean }) {
   if (rows.length === 0) {
     return (
       <SectionCard title="Accounts">
@@ -356,15 +356,15 @@ function AccountsTable({ rows }: { rows: AccountRow[] }) {
                 className="border-b border-zinc-100 text-zinc-800 last:border-0 dark:border-zinc-800 dark:text-zinc-200"
               >
                 <td className="py-2 pr-4 font-medium">{row.accountName}</td>
-                <td className="py-2 px-2 text-right tabular-nums">{formatCurrency(row.startingBalance)}</td>
+                <td className="py-2 px-2 text-right tabular-nums">{formatAmount(row.startingBalance, hideAmounts)}</td>
                 <td className="py-2 px-2 text-right tabular-nums text-emerald-700 dark:text-emerald-400">
-                  {formatCurrency(row.inflow)}
+                  {formatAmount(row.inflow, hideAmounts)}
                 </td>
                 <td className="py-2 px-2 text-right tabular-nums text-red-700 dark:text-red-400">
-                  {formatCurrency(row.outflow)}
+                  {formatAmount(row.outflow, hideAmounts)}
                 </td>
                 <td className="py-2 pl-2 text-right tabular-nums font-semibold">
-                  {formatCurrency(row.endingBalance)}
+                  {formatAmount(row.endingBalance, hideAmounts)}
                 </td>
               </tr>
             ))}
@@ -372,16 +372,16 @@ function AccountsTable({ rows }: { rows: AccountRow[] }) {
               <tr className="border-t-2 border-zinc-300 bg-zinc-50 font-semibold dark:border-zinc-600 dark:bg-zinc-800/40">
                 <td className="py-2.5 pr-4 text-sm text-zinc-900 dark:text-zinc-100">TOTAL</td>
                 <td className="py-2.5 px-2 text-right tabular-nums text-zinc-900 dark:text-zinc-100">
-                  {formatCurrency(totalRow.startingBalance)}
+                  {formatAmount(totalRow.startingBalance, hideAmounts)}
                 </td>
                 <td className="py-2.5 px-2 text-right tabular-nums text-emerald-700 dark:text-emerald-400">
-                  {formatCurrency(totalRow.inflow)}
+                  {formatAmount(totalRow.inflow, hideAmounts)}
                 </td>
                 <td className="py-2.5 px-2 text-right tabular-nums text-red-700 dark:text-red-400">
-                  {formatCurrency(totalRow.outflow)}
+                  {formatAmount(totalRow.outflow, hideAmounts)}
                 </td>
                 <td className="py-2.5 pl-2 text-right tabular-nums text-zinc-900 dark:text-zinc-100">
-                  {formatCurrency(totalRow.endingBalance)}
+                  {formatAmount(totalRow.endingBalance, hideAmounts)}
                 </td>
               </tr>
             )}
@@ -402,7 +402,7 @@ interface IncomeRow {
   percentage: number;
 }
 
-function IncomeBreakdownTable({ rows }: { rows: IncomeRow[] }) {
+function IncomeBreakdownTable({ rows, hideAmounts }: { rows: IncomeRow[]; hideAmounts: boolean }) {
   return (
     <SectionCard title="Income Breakdown">
       <div className="overflow-x-auto">
@@ -438,7 +438,7 @@ function IncomeBreakdownTable({ rows }: { rows: IncomeRow[] }) {
                         : 'text-emerald-700 dark:text-emerald-400'
                     }`}
                   >
-                    {formatCurrency(row.amount)}
+                    {formatAmount(row.amount, hideAmounts)}
                   </td>
                   <td className="py-2 pl-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">
                     {row.percentage.toFixed(1)}%
@@ -465,7 +465,7 @@ interface ExpenseRow {
   percentage: number;
 }
 
-function ExpenseBreakdownTable({ rows }: { rows: ExpenseRow[] }) {
+function ExpenseBreakdownTable({ rows, hideAmounts }: { rows: ExpenseRow[]; hideAmounts: boolean }) {
   return (
     <SectionCard title="Expenses Breakdown">
       <div className="overflow-x-auto">
@@ -497,10 +497,10 @@ function ExpenseBreakdownTable({ rows }: { rows: ExpenseRow[] }) {
                     {row.category}
                   </td>
                   <td className="py-2 px-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">
-                    {formatCurrency(row.planned)}
+                    {formatAmount(row.planned, hideAmounts)}
                   </td>
                   <td className="py-2 px-2 text-right tabular-nums text-red-700 dark:text-red-400">
-                    {formatCurrency(row.amount)}
+                    {formatAmount(row.amount, hideAmounts)}
                   </td>
                   <td
                     className={`py-2 px-2 text-right tabular-nums ${
@@ -509,7 +509,7 @@ function ExpenseBreakdownTable({ rows }: { rows: ExpenseRow[] }) {
                         : 'text-red-700 dark:text-red-400'
                     }`}
                   >
-                    {formatCurrency(Math.abs(row.difference))}
+                    {formatAmount(Math.abs(row.difference), hideAmounts)}
                   </td>
                   <td className="py-2 pl-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">
                     {row.percentage.toFixed(1)}%

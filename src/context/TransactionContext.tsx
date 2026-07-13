@@ -18,7 +18,7 @@ import {
 } from '@/lib/idb';
 import { backgroundSync } from '@/lib/sync';
 import { clearAllLocalData } from '@/lib/idb';
-import { getCurrentMonthYear } from '@/lib/utils';
+import { getCurrentMonthYear, formatCurrency } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 
 /** localStorage key to track which user's data is cached locally */
@@ -51,6 +51,10 @@ interface TransactionContextValue {
   deleteTransaction: (id: string) => Promise<void>;
   /** Force a refresh of transactions from IndexedDB */
   refreshTransactions: () => Promise<void>;
+  /** Whether monetary amounts should be hidden (shown as asterisks) */
+  hideAmounts: boolean;
+  /** Toggle the hide amounts state */
+  toggleHideAmounts: () => void;
 }
 
 // ============================================================
@@ -75,6 +79,8 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [monthYear, setMonthYear] = useState<MonthYear>(getCurrentMonthYear());
+  const [hideAmounts, setHideAmounts] = useState(false);
+  const toggleHideAmounts = useCallback(() => setHideAmounts((h) => !h), []);
 
   // Fetch all data from IndexedDB on mount
   const refreshTransactions = useCallback(async () => {
@@ -231,8 +237,10 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
       updateTransaction,
       deleteTransaction,
       refreshTransactions,
+      hideAmounts,
+      toggleHideAmounts,
     }),
-    [transactions, accounts, categories, isLoading, error, monthYear, setMonthYear, addTransaction, updateTransaction, deleteTransaction, refreshTransactions]
+    [transactions, accounts, categories, isLoading, error, monthYear, setMonthYear, addTransaction, updateTransaction, deleteTransaction, refreshTransactions, hideAmounts, toggleHideAmounts]
   );
 
   return (
@@ -257,4 +265,11 @@ export function useTransactionContext(): TransactionContextValue {
     );
   }
   return ctx;
+}
+
+/**
+ * Format a monetary amount, respecting the hideAmounts toggle.
+ */
+export function formatAmount(amount: number, hidden: boolean): string {
+  return hidden ? '****' : formatCurrency(amount);
 }
