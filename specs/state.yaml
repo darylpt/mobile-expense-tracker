@@ -1,7 +1,7 @@
 project: "mobile-expense-tracker"
 version: "2.0.0"
-phase: "build"
-current_epic: "edge-case-hardening"
+phase: "release"
+current_epic: null
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
