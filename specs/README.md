@@ -41,8 +41,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | Category compound-key dedup fix | ✅ Done | `enrichedCategoryBreakdown` used `Set<string>` keyed by name only — same-name categories with different types silently dropped. Fixed by using compound key `"name|type"`. |
 | Settings mobile card layout | ✅ Done | Accounts & Categories tables on <768px replaced with vertical card stack (flex cards with drag handle, name, icon buttons). Desktop table unchanged. Inline edit/add forms render as stacked cards. Eliminates horizontal scrolling on mobile. |
 | Quick Add sticky defaults | ✅ Done | Three options reviewed: (1) "Copy Last" link — one extra tap, only one entry; (2) Recent chips — most visual, takes space on mobile, more code; (3) Sticky defaults — zero UI, ~3 lines changed, covers 90% of use case (daily coffee). **Chose Option 3:** type/category/account/description persist after submit, only amount clears. User types amount and hits enter for repetitive entries. Chips can be added on top later if needed. |
-| Subcategory support | ⚪ Not yet scoped | Phase 1.5, lowest priority. |
-| `phase-2-investments.md` | 🔵 Deferred | Stock Portfolio Tracker, Dividend Log, DCA Rotation Log. Out of scope until Phase 1.5 wraps. |
+| `phase-2-investments.md` | 🔵 Deferred | Stock Portfolio Tracker, Dividend Log, DCA Rotation Log. |
 | [`codebase-audit-backlog.md`](./codebase-audit-backlog.md) | ✅ Done | Comprehensive 2026-07-10 audit. All P1 fixed 2026-07-10. All P2 resolved 2026-07-11. Full-codebase critic review: 18 fixes (sync correctness, React performance, a11y, CSV validation, a11y), 3 won't-fix. All 21 items resolved. |
 
 **Legend:** ✅ Done · 🟡 Ready to hand off · ⚪ Not yet scoped · 🔵 Deferred
