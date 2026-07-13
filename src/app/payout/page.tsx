@@ -86,6 +86,9 @@ export default function PayoutPage() {
   // ── Validation ───────────────────────────────────────────
 
   const warnings: string[] = [];
+  if (totalAmount <= 0) {
+    warnings.push('Total amount must be greater than zero');
+  }
   if (splitMode === 'percentage') {
     const totalPct = splits.reduce((sum, s) => sum + s.value, 0);
     if (Math.abs(totalPct - 100) > 0.01) {
