@@ -1,8 +1,8 @@
 project: "mobile-expense-tracker"
-version: "0.2.17"
+version: "0.2.18"
 phase: "done"
 current_epic: null
-last_action: "2026-07-15 — low-severity hardening: QuickAdd double-submit guard + Payout empty-splits guard"
+last_action: "2026-07-15 — atomic sync queue refactor + failed-sync UI visibility"
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
