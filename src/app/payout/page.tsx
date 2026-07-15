@@ -149,7 +149,7 @@ export default function PayoutPage() {
     );
   };
 
-  const canSave = warnings.length === 0;
+  const canSave = warnings.length === 0 && splits.length > 0;
 
   // ponytail: blocks save when percentages don't sum to 100% (or amounts don't match total)
   const handleSave = async () => {

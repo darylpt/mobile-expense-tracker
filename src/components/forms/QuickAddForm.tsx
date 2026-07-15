@@ -71,6 +71,7 @@ export function QuickAddForm() {
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return; // ponytail: belt-and-suspenders double-submit guard
     setError(null);
 
     // Validation
