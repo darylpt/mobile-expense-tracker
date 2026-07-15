@@ -151,11 +151,9 @@ Google Sheets exports as UTF-8 by default, but manual CSV exports from other too
 
 ## 5. UI / Interaction Edge Cases
 
-### 5.1 Quick Add double-submit — UNHANDLED
+### 5.1 Quick Add double-submit — FIXED 2026-07-15
 
-No debounce or disable on the submit button. Rapid double-click could create duplicate transactions.
-
-**Recommendation:** Disable the submit button while `isSubmitting` is true (already has this state, just need to wire it to the button).
+Added `if (isSubmitting) return;` guard at top of `handleSubmit` in `QuickAddForm.tsx`. Button already receives `isLoading` prop — the guard is belt-and-suspenders against React state update races.
 
 ### 5.2 Edit modal + delete race — UNHANDLED
 
@@ -163,11 +161,9 @@ User opens edit modal for Transaction X, then deletes Transaction X from the lis
 
 **Impact:** Low. The update would create a new entry or fail gracefully. But worth noting.
 
-### 5.3 Transaction list filter + pagination interaction — UNHANDLED
+### 5.3 Transaction list filter + pagination interaction — ALREADY HANDLED
 
-User filters to show 5 results, then clears filters. Does pagination reset to page 1? If the user was on page 3 of unfiltered results, do they stay on page 3?
-
-**Recommendation:** Reset pagination when filters change. This is likely already implemented but should be explicit in the spec.
+`TransactionList.tsx` lines 216-223: `useEffect` deletes `page` from URL params when `hasActiveFilters` is true. Filtered view forces `totalPages=1` and shows all results. Clearing filters navigates to `/transactions` (no page param) → pagination resumes at page 1. No code change needed.
 
 ### 5.4 Settings with many accounts/categories — PERFORMANCE
 
@@ -179,17 +175,13 @@ No virtualization on the accounts/categories lists. With 50+ entries, the Settin
 
 ## 6. Payout Edge Cases
 
-### 6.1 Payout with 0 persons — UNHANDLED
+### 6.1 Payout with 0 persons — FIXED 2026-07-15
 
-If all person rows are removed, the payout has no splits. The save button should be disabled or a warning shown.
+`canSave` now requires `splits.length > 0` in `payout/page.tsx`. Save button is disabled when all person rows are removed.
 
-**Recommendation:** Disable save when splits array is empty.
+### 6.2 Negative totalAmount — ALREADY HANDLED
 
-### 6.2 Negative totalAmount — UNVALIDATED
-
-A negative payout amount doesn't make physical sense. The form likely prevents this via the amount input, but there's no explicit validation.
-
-**Recommendation:** Add `totalAmount > 0` validation before save.
+`payout/page.tsx` line 89: `if (totalAmount <= 0)` validation already catches negative and zero amounts. Input has `min={0}` as well. No code change needed.
 
 ### 6.3 Savings sub-split percentages ≠ 100% — DOCUMENTED
 

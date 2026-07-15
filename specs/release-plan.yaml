@@ -77,10 +77,10 @@
 
 ## Non-Goals
 
-- Quick Add double-submit guard (low severity, separate ticket)
-- Payout empty-splits guard (low severity, separate ticket)
-- Payout negative amount validation (low severity, separate ticket)
-- Transaction list filter+pagination reset (low severity, needs investigation)
+- ✅ Quick Add double-submit guard — fixed 2026-07-15 (belt-and-suspenders guard in handleSubmit)
+- ✅ Payout empty-splits guard — fixed 2026-07-15 (canSave requires splits.length > 0)
+- ✅ Payout negative amount validation — already handled (totalAmount <= 0 check existed)
+- ✅ Transaction list filter+pagination reset — already handled (page param deleted on filter change)
 
 ## Success Criteria
 
