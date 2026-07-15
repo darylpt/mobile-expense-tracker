@@ -58,3 +58,6 @@ next-env.d.ts
 
 /specs/data
 /specs/sheets
+
+# token optimizer artifacts
+/token-optimizer/
