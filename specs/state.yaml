@@ -1,7 +1,13 @@
 project: "mobile-expense-tracker"
-version: "2.0.0"
-phase: "release"
+version: "0.2.17"
+phase: "done"
 current_epic: null
+last_action: "2026-07-15 — low-severity hardening: QuickAdd double-submit guard + Payout empty-splits guard"
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
+  tests_passing: 71
+  eslint_errors: 0
+  eslint_warnings: 0
+  ts_errors: 0
+  build_clean: true
