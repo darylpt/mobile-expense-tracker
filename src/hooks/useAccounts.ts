@@ -18,7 +18,7 @@ import {
 import { useTransactionContext } from '@/context/TransactionContext';
 
 export function useAccounts() {
-  const ctx = useTransactionContext();
+  const { refreshTransactions } = useTransactionContext();
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -53,38 +53,38 @@ export function useAccounts() {
     try {
       const id = await addAccountToDB(account);
       await refresh();
-      await ctx.refreshTransactions();
+      await refreshTransactions();
       return id;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to add account';
       setError(message);
       throw new Error(message);
     }
-  }, [refresh, ctx.refreshTransactions]);
+  }, [refresh, refreshTransactions]);
 
   const updateAccount = useCallback(async (account: Partial<Account> & Pick<Account, 'id'>): Promise<void> => {
     try {
       await updateAccountToDB(account);
       await refresh();
-      await ctx.refreshTransactions();
+      await refreshTransactions();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update account';
       setError(message);
       throw new Error(message);
     }
-  }, [refresh, ctx.refreshTransactions]);
+  }, [refresh, refreshTransactions]);
 
   const deleteAccount = useCallback(async (id: string): Promise<void> => {
     try {
       await deleteAccountFromDB(id);
       await refresh();
-      await ctx.refreshTransactions();
+      await refreshTransactions();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to delete account';
       setError(message);
       throw new Error(message);
     }
-  }, [refresh, ctx.refreshTransactions]);
+  }, [refresh, refreshTransactions]);
 
   const moveAccountTo = useCallback(async (id: string, targetIndex: number): Promise<void> => {
     try {

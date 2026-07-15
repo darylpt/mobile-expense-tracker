@@ -103,7 +103,9 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
     }
   }, []);
 
+  // ponytail: mount-init pattern — refreshTransactions is stable (useCallback([])).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshTransactions();
   }, [refreshTransactions]);
 

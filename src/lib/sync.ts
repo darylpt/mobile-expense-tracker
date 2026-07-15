@@ -88,6 +88,9 @@ function snakeToCamel(record: Record<string, unknown>): Record<string, unknown> 
 export async function processSyncQueue(): Promise<void> {
   if (!navigator.onLine || !supabase) return;
 
+  // Clear previous failure count — we're retrying now
+  try { localStorage.removeItem('sync_failed_count'); } catch { /* ignore */ }
+
   // Resolve current user — bail if no session
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
@@ -143,6 +146,10 @@ export async function processSyncQueue(): Promise<void> {
       if (entry.retryCount >= 5) {
         console.warn('[Sync] Dropping queue entry after 5 retries:', entry.id);
         drops.push(entry.id);
+        try {
+          const prev = parseInt(localStorage.getItem('sync_failed_count') ?? '0', 10);
+          localStorage.setItem('sync_failed_count', String(prev + 1));
+        } catch { /* localStorage unavailable */ }
       } else {
         retries.push(entry);
       }
@@ -333,4 +340,20 @@ function preparePayloadForRemote(
   delete converted.deleted_at;
 
   return converted;
+}
+
+/** Number of sync entries that were dropped after max retries. */
+export function getFailedSyncCount(): number {
+  try {
+    return parseInt(localStorage.getItem('sync_failed_count') ?? '0', 10);
+  } catch {
+    return 0;
+  }
+}
+
+/** Clear the failed sync counter (call after retry). */
+export function clearFailedSyncCount(): void {
+  try {
+    localStorage.removeItem('sync_failed_count');
+  } catch { /* ignore */ }
 }

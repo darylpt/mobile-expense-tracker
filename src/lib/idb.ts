@@ -4,7 +4,7 @@
 // cash denominations, and payouts.
 // ============================================================
 
-import { openDB, type IDBPDatabase } from 'idb';
+import { openDB, type IDBPDatabase, type IDBPObjectStore } from 'idb';
 import type { Transaction, Account, Category, CashDenomination, Payout, BudgetTarget } from '@/types';
 import { DB_NAME, DB_VERSION, STORES } from './constants';
 import { generateId } from './utils';
@@ -253,21 +253,22 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
         let cursor = await txStore.openCursor();
         while (cursor) {
           const record = cursor.value;
+          const legacy = record as Record<string, unknown>;
           const updates: Partial<Transaction> = {};
 
           // Rename type: 'Income' → 'income', 'Expense' → 'expense', 'Transfer' → 'transaction'
           if (record.type === 'Income') {
             updates.type = 'income';
             updates.fromAccount = null;
-            updates.toAccount = record.account ?? null;
+            updates.toAccount = (legacy.account as string) ?? null;
           } else if (record.type === 'Expense') {
             updates.type = 'expense';
-            updates.fromAccount = record.account ?? null;
+            updates.fromAccount = (legacy.account as string) ?? null;
             updates.toAccount = null;
           } else if (record.type === 'Transfer') {
             updates.type = 'transaction';
-            updates.fromAccount = record.account ?? null;
-            updates.toAccount = record.account ?? null;
+            updates.fromAccount = (legacy.account as string) ?? null;
+            updates.toAccount = (legacy.account as string) ?? null;
           }
 
           // Keep the old `account` field for backward compat
@@ -303,13 +304,9 @@ export async function clearAllLocalData(): Promise<void> {
  * Enqueue a sync entry for the outbox pattern.
  * Called after each local CRUD to track unsynced changes.
  *
- * ponytail: The queue write runs in its own transaction (not the
- * same transaction as the data write). If the app crashes between
- * the data write and the queue write, the change is never pushed
- * to Supabase. A future full pull from Supabase will eventually
- * reconcile, so this is acceptable for a 2-user household. If
- * data-loss risk becomes a concern, merge both writes into a
- * single readwrite transaction.
+ * Simple CRUD functions now use enqueueSyncEntryInTx() inside a
+ * shared transaction for atomicity. This function is still used by
+ * batch operations (import, resync, dedup) where a separate tx is acceptable.
  */
 /**
  * Count pending sync entries that haven't been pushed to Supabase yet.
@@ -341,6 +338,29 @@ function requestSync(): void {
       // ponytail: fire-and-forget, local data is safe either way
     }
   }, 2000);
+}
+
+/**
+ * Enqueue a sync entry within an existing IDB transaction.
+ * Used by CRUD functions to atomically write data + sync queue entry.
+ */
+function enqueueSyncEntryInTx(
+  syncStore: IDBPObjectStore<ExpenseTrackerDB, (typeof STORES)[keyof typeof STORES][], typeof STORES.SYNC_QUEUE, 'readwrite'>,
+  storeName: string,
+  recordId: string,
+  operation: SyncOperation,
+  payload: unknown
+): void {
+  const seq = ++syncSeqCounter;
+  syncStore.add({
+    id: generateId(),
+    storeName,
+    recordId,
+    operation,
+    payload,
+    timestamp: seq,
+    retryCount: 0,
+  });
 }
 
 export async function enqueueSyncEntry<T>(
@@ -381,11 +401,44 @@ export async function getAllTransactions(): Promise<Transaction[]> {
 }
 
 /**
+ * Validate a transaction record against spec §3.2 rules.
+ * Throws on invalid data — callers should catch and surface to user.
+ */
+function validateTransaction(tx: Pick<Transaction, 'type' | 'amount' | 'category' | 'date' | 'fromAccount' | 'toAccount'>): void {
+  if (typeof tx.amount !== 'number' || !isFinite(tx.amount) || tx.amount <= 0) {
+    throw new Error('Transaction amount must be a positive number');
+  }
+  if (!tx.date || !/^\d{4}-\d{2}-\d{2}$/.test(tx.date)) {
+    throw new Error('Transaction date must be in YYYY-MM-DD format');
+  }
+  if (!tx.category || tx.category.trim() === '') {
+    throw new Error('Transaction category is required');
+  }
+  switch (tx.type) {
+    case 'income':
+      if (!tx.toAccount) throw new Error('Income transactions require a destination account');
+      if (tx.fromAccount) throw new Error('Income transactions must not have a source account');
+      break;
+    case 'expense':
+      if (!tx.fromAccount) throw new Error('Expense transactions require a source account');
+      break;
+    case 'transaction':
+      if (!tx.fromAccount) throw new Error('Transfer transactions require a source account');
+      if (!tx.toAccount) throw new Error('Transfer transactions require a destination account');
+      if (tx.fromAccount === tx.toAccount) throw new Error('Transfer source and destination accounts must differ');
+      break;
+    default:
+      throw new Error(`Invalid transaction type: ${tx.type}`);
+  }
+}
+
+/**
  * Add a new transaction. Generates id and timestamps if missing.
  */
 export async function addTransaction(
   tx: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<string> {
+  validateTransaction(tx);
   const db = await getDB();
   const now = Date.now();
   const newTx: Transaction = {
@@ -394,9 +447,11 @@ export async function addTransaction(
     createdAt: now,
     updatedAt: now,
   };
-  await db.add(STORES.TRANSACTIONS, newTx);
-  // Enqueue sync entry (fire-and-forget, own transaction)
-  enqueueSyncEntry(STORES.TRANSACTIONS, newTx.id, 'create', newTx);
+  const idbTx = db.transaction([STORES.TRANSACTIONS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.TRANSACTIONS).add(newTx);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.TRANSACTIONS, newTx.id, 'create', newTx);
+  await idbTx.done;
+  requestSync();
   return newTx.id;
 }
 
@@ -404,14 +459,18 @@ export async function addTransaction(
  * Update an existing transaction.
  */
 export async function updateTransaction(tx: Transaction): Promise<void> {
+  validateTransaction(tx);
   const db = await getDB();
   const existing = await db.get(STORES.TRANSACTIONS, tx.id);
   if (!existing) {
     throw new Error(`Transaction with id "${tx.id}" not found`);
   }
   const updated = { ...tx, updatedAt: Date.now() };
-  await db.put(STORES.TRANSACTIONS, updated);
-  enqueueSyncEntry(STORES.TRANSACTIONS, tx.id, 'update', updated);
+  const idbTx = db.transaction([STORES.TRANSACTIONS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.TRANSACTIONS).put(updated);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.TRANSACTIONS, tx.id, 'update', updated);
+  await idbTx.done;
+  requestSync();
 }
 
 /**
@@ -419,8 +478,11 @@ export async function updateTransaction(tx: Transaction): Promise<void> {
  */
 export async function deleteTransaction(id: string): Promise<void> {
   const db = await getDB();
-  await db.delete(STORES.TRANSACTIONS, id);
-  enqueueSyncEntry(STORES.TRANSACTIONS, id, 'delete', null);
+  const idbTx = db.transaction([STORES.TRANSACTIONS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.TRANSACTIONS).delete(id);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.TRANSACTIONS, id, 'delete', null);
+  await idbTx.done;
+  requestSync();
 }
 
 // ============================================================
@@ -457,8 +519,11 @@ export async function addAccount(
     updatedAt: now,
     sortOrder: account.sortOrder ?? maxOrder + 1000,
   };
-  await db.add(STORES.ACCOUNTS, record);
-  enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record);
+  const idbTx = db.transaction([STORES.ACCOUNTS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.ACCOUNTS).add(record);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.ACCOUNTS, record.id, 'create', record);
+  await idbTx.done;
+  requestSync();
   return record.id;
 }
 
@@ -474,8 +539,11 @@ export async function updateAccount(
     throw new Error(`Account with id "${account.id}" not found`);
   }
   const updated = { ...existing, ...account, updatedAt: Date.now() };
-  await db.put(STORES.ACCOUNTS, updated);
-  enqueueSyncEntry(STORES.ACCOUNTS, account.id, 'update', updated);
+  const idbTx = db.transaction([STORES.ACCOUNTS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.ACCOUNTS).put(updated);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.ACCOUNTS, account.id, 'update', updated);
+  await idbTx.done;
+  requestSync();
 }
 
 /**
@@ -483,8 +551,11 @@ export async function updateAccount(
  */
 export async function deleteAccount(id: string): Promise<void> {
   const db = await getDB();
-  await db.delete(STORES.ACCOUNTS, id);
-  enqueueSyncEntry(STORES.ACCOUNTS, id, 'delete', null);
+  const idbTx = db.transaction([STORES.ACCOUNTS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.ACCOUNTS).delete(id);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.ACCOUNTS, id, 'delete', null);
+  await idbTx.done;
+  requestSync();
 }
 
 // ============================================================
@@ -507,15 +578,18 @@ async function reorderAccountsTo(id: string, targetIndex: number): Promise<void>
   sorted.splice(targetIndex, 0, item);
 
   const now = Date.now();
-  const tx = db.transaction(STORES.ACCOUNTS, 'readwrite');
+  const tx = db.transaction([STORES.ACCOUNTS, STORES.SYNC_QUEUE], 'readwrite');
   const store = tx.objectStore(STORES.ACCOUNTS);
+  const syncStore = tx.objectStore(STORES.SYNC_QUEUE);
   const updated = sorted.map((acct, i) => ({ ...acct, sortOrder: i * 1000, updatedAt: now }));
   await Promise.all(updated.map((acct) => store.put(acct)));
-  await tx.done;
 
   for (const acct of updated) {
-    enqueueSyncEntry(STORES.ACCOUNTS, acct.id, 'update', acct);
+    enqueueSyncEntryInTx(syncStore, STORES.ACCOUNTS, acct.id, 'update', acct);
   }
+
+  await tx.done;
+  requestSync();
 }
 
 /** Move account to a specific position (0-based) in the sorted list. */
@@ -559,8 +633,11 @@ export async function addCategory(
     updatedAt: now,
     sortOrder: category.sortOrder ?? maxOrder + 1000,
   };
-  await db.add(STORES.CATEGORIES, record);
-  enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record);
+  const idbTx = db.transaction([STORES.CATEGORIES, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.CATEGORIES).add(record);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.CATEGORIES, record.id, 'create', record);
+  await idbTx.done;
+  requestSync();
   return record.id;
 }
 
@@ -576,8 +653,11 @@ export async function updateCategory(
     throw new Error(`Category with id "${category.id}" not found`);
   }
   const updated = { ...existing, ...category, updatedAt: Date.now() };
-  await db.put(STORES.CATEGORIES, updated);
-  enqueueSyncEntry(STORES.CATEGORIES, category.id, 'update', updated);
+  const idbTx = db.transaction([STORES.CATEGORIES, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.CATEGORIES).put(updated);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.CATEGORIES, category.id, 'update', updated);
+  await idbTx.done;
+  requestSync();
 }
 
 /**
@@ -585,8 +665,11 @@ export async function updateCategory(
  */
 export async function deleteCategory(id: string): Promise<void> {
   const db = await getDB();
-  await db.delete(STORES.CATEGORIES, id);
-  enqueueSyncEntry(STORES.CATEGORIES, id, 'delete', null);
+  const idbTx = db.transaction([STORES.CATEGORIES, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.CATEGORIES).delete(id);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.CATEGORIES, id, 'delete', null);
+  await idbTx.done;
+  requestSync();
 }
 
 // ============================================================
@@ -611,15 +694,18 @@ async function reorderCategoriesTo(id: string, targetIndex: number): Promise<voi
   group.splice(targetIndex, 0, item);
 
   const now = Date.now();
-  const tx = db.transaction(STORES.CATEGORIES, 'readwrite');
+  const tx = db.transaction([STORES.CATEGORIES, STORES.SYNC_QUEUE], 'readwrite');
   const store = tx.objectStore(STORES.CATEGORIES);
+  const syncStore = tx.objectStore(STORES.SYNC_QUEUE);
   const updated = group.map((cat, i) => ({ ...cat, sortOrder: i * 1000, updatedAt: now }));
   await Promise.all(updated.map((cat) => store.put(cat)));
-  await tx.done;
 
   for (const cat of updated) {
-    enqueueSyncEntry(STORES.CATEGORIES, cat.id, 'update', cat);
+    enqueueSyncEntryInTx(syncStore, STORES.CATEGORIES, cat.id, 'update', cat);
   }
+
+  await tx.done;
+  requestSync();
 }
 
 /** Move category to a specific position (0-based) within its type group. */
@@ -648,8 +734,11 @@ export async function addCashDenomination(
   const db = await getDB();
   const id = generateId();
   const record = { ...cd, id };
-  await db.add(STORES.CASH_DENOMINATIONS, record);
-  enqueueSyncEntry(STORES.CASH_DENOMINATIONS, id, 'create', record);
+  const idbTx = db.transaction([STORES.CASH_DENOMINATIONS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.CASH_DENOMINATIONS).add(record);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.CASH_DENOMINATIONS, id, 'create', record);
+  await idbTx.done;
+  requestSync();
   return id;
 }
 
@@ -658,8 +747,11 @@ export async function addCashDenomination(
  */
 export async function deleteCashDenomination(id: string): Promise<void> {
   const db = await getDB();
-  await db.delete(STORES.CASH_DENOMINATIONS, id);
-  enqueueSyncEntry(STORES.CASH_DENOMINATIONS, id, 'delete', null);
+  const idbTx = db.transaction([STORES.CASH_DENOMINATIONS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.CASH_DENOMINATIONS).delete(id);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.CASH_DENOMINATIONS, id, 'delete', null);
+  await idbTx.done;
+  requestSync();
 }
 
 /**
@@ -668,16 +760,18 @@ export async function deleteCashDenomination(id: string): Promise<void> {
  */
 export async function deleteCashDenominationsByDate(date: string): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(STORES.CASH_DENOMINATIONS, 'readwrite');
+  const tx = db.transaction([STORES.CASH_DENOMINATIONS, STORES.SYNC_QUEUE], 'readwrite');
   const store = tx.objectStore(STORES.CASH_DENOMINATIONS);
+  const syncStore = tx.objectStore(STORES.SYNC_QUEUE);
   const index = store.index('date');
   let cursor = await index.openCursor(date);
   while (cursor) {
-    enqueueSyncEntry(STORES.CASH_DENOMINATIONS, cursor.value.id, 'delete', null);
+    enqueueSyncEntryInTx(syncStore, STORES.CASH_DENOMINATIONS, cursor.value.id, 'delete', null);
     await cursor.delete();
     cursor = await cursor.continue();
   }
   await tx.done;
+  requestSync();
 }
 
 // ============================================================
@@ -701,8 +795,11 @@ export async function addPayout(
   const db = await getDB();
   const id = generateId();
   const record = { ...payout, id };
-  await db.add(STORES.PAYOUTS, record);
-  enqueueSyncEntry(STORES.PAYOUTS, id, 'create', record);
+  const idbTx = db.transaction([STORES.PAYOUTS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.PAYOUTS).add(record);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.PAYOUTS, id, 'create', record);
+  await idbTx.done;
+  requestSync();
   return id;
 }
 
@@ -715,8 +812,11 @@ export async function updatePayout(payout: Payout): Promise<void> {
   if (!existing) {
     throw new Error(`Payout with id "${payout.id}" not found`);
   }
-  await db.put(STORES.PAYOUTS, payout);
-  enqueueSyncEntry(STORES.PAYOUTS, payout.id, 'update', payout);
+  const idbTx = db.transaction([STORES.PAYOUTS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.PAYOUTS).put(payout);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.PAYOUTS, payout.id, 'update', payout);
+  await idbTx.done;
+  requestSync();
 }
 
 /**
@@ -724,8 +824,11 @@ export async function updatePayout(payout: Payout): Promise<void> {
  */
 export async function deletePayout(id: string): Promise<void> {
   const db = await getDB();
-  await db.delete(STORES.PAYOUTS, id);
-  enqueueSyncEntry(STORES.PAYOUTS, id, 'delete', null);
+  const idbTx = db.transaction([STORES.PAYOUTS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.PAYOUTS).delete(id);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.PAYOUTS, id, 'delete', null);
+  await idbTx.done;
+  requestSync();
 }
 
 // ============================================================
@@ -781,8 +884,9 @@ export async function setBudgetTarget(
   month?: string
 ): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(STORES.BUDGET_TARGETS, 'readwrite');
+  const tx = db.transaction([STORES.BUDGET_TARGETS, STORES.SYNC_QUEUE], 'readwrite');
   const store = tx.objectStore(STORES.BUDGET_TARGETS);
+  const syncStore = tx.objectStore(STORES.SYNC_QUEUE);
   const index = store.index('category');
 
   const targetMonth = month ?? null;
@@ -799,7 +903,9 @@ export async function setBudgetTarget(
         updatedAt: now,
       };
       await cursor.update(updated);
-      enqueueSyncEntry(STORES.BUDGET_TARGETS, updated.id, 'update', updated);
+      enqueueSyncEntryInTx(syncStore, STORES.BUDGET_TARGETS, updated.id, 'update', updated);
+      await tx.done;
+      requestSync();
       return;
     }
     cursor = await cursor.continue();
@@ -815,7 +921,9 @@ export async function setBudgetTarget(
     updatedAt: now,
   };
   await store.add(newTarget);
-  enqueueSyncEntry(STORES.BUDGET_TARGETS, newTarget.id, 'create', newTarget);
+  enqueueSyncEntryInTx(syncStore, STORES.BUDGET_TARGETS, newTarget.id, 'create', newTarget);
+  await tx.done;
+  requestSync();
 }
 
 /**

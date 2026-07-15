@@ -43,7 +43,7 @@ A **local-first personal finance PWA** that replaces a Google Sheets budget trac
 | `budgetTargets` | UUID | Per-category planned amounts (global default or per-month override) |
 | `syncQueue` | auto-increment | Pending outbound sync entries (FIFO by monotonic counter) |
 
-**DB version:** 9 (current). Migrations v2→v9 handled in `idb.ts` upgrade callback.
+**DB version:** 10 (current). Migrations v2→v10 handled in `idb.ts` upgrade callback.
 
 ### 3.2 Transaction Record
 

@@ -14,8 +14,6 @@ export interface Transaction {
   category: string;       // e.g., "Food", "Paycheck", "Savings Transfer"
   fromAccount: string | null; // account id; null for pure income
   toAccount: string | null;   // account id; null for pure expense
-  /** @deprecated kept for backward compat during migration */
-  account?: string;
   description?: string;   // Optional text description
   createdAt: number;      // Timestamp for creation (e.g., Date.now())
   updatedAt: number;      // Timestamp for last update
