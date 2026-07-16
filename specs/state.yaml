@@ -1,8 +1,11 @@
 project: "mobile-expense-tracker"
-version: "0.2.18"
-phase: "done"
-current_epic: null
-last_action: "2026-07-15 — atomic sync queue refactor + failed-sync UI visibility"
+version: "0.2.19"
+phase: "build"
+current_epic: "transaction-month-default"
+last_action: "2026-07-16 — completed: transactions default to current-month filter with 'All time' toggle"
+  story_start: "2026-07-16T00:00:00Z"
+  story_end: "2026-07-16T00:00:00Z"
+  story: "transaction-month-default"
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"

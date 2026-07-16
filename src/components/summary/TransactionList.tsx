@@ -47,6 +47,7 @@ export function TransactionList() {
   };
 
   const getMonthParam = () => searchParams.get('month');
+  const isAllMode = searchParams.get('month') === 'all';
   const getTypeParam = (): TransactionType[] => {
     const p = searchParams.get('type');
     return p ? (p.split(',').filter(Boolean) as TransactionType[]) : ['income', 'expense', 'transaction'];
@@ -77,7 +78,7 @@ export function TransactionList() {
   // Current month displayed in the month selector
   const displayMonthYear = useMemo(() => {
     const monthParam = searchParams.get('month');
-    if (monthParam) {
+    if (monthParam && monthParam !== 'all') {
       const [yearStr, monthStr] = monthParam.split('-');
       return { year: parseInt(yearStr, 10), month: parseInt(monthStr, 10) - 1 };
     }
@@ -91,7 +92,11 @@ export function TransactionList() {
   );
 
   // Active filter counts
-  const activeFilterCount = [getMonthParam(), getAccountParam(), getCatParam(), getQParam()].filter(Boolean).length;
+  const monthForCount = getMonthParam();
+  const activeFilterCount = [
+    monthForCount && monthForCount !== 'all' ? monthForCount : null,
+    getAccountParam(), getCatParam(), getQParam()
+  ].filter(Boolean).length;
   const typeFilterActive = getTypeParam().length < 3;
   const totalActiveFilters = activeFilterCount + (typeFilterActive ? 1 : 0);
 
@@ -125,13 +130,22 @@ export function TransactionList() {
 
     // Month filter
     const monthParam = searchParams.get('month');
-    if (monthParam) {
+    if (monthParam === 'all') {
+      // no month filter — show all
+    } else if (monthParam) {
       const [yearStr, monthStr] = monthParam.split('-');
       const year = parseInt(yearStr, 10);
       const month = parseInt(monthStr, 10) - 1;
       result = result.filter(tx => {
         const d = new Date(tx.date);
         return d.getFullYear() === year && d.getMonth() === month;
+      });
+    } else {
+      // No month param → default to current month
+      const cur = getCurrentMonthYear();
+      result = result.filter(tx => {
+        const d = new Date(tx.date);
+        return d.getFullYear() === cur.year && d.getMonth() === cur.month;
       });
     }
 
@@ -179,7 +193,9 @@ export function TransactionList() {
   const hasActiveFilters = useMemo(() => {
     const typeRaw = searchParams.get('type');
     const selectedTypes = typeRaw ? (typeRaw.split(',').filter(Boolean) as TransactionType[]) : ['income', 'expense', 'transaction'];
-    return !!searchParams.get('month') || !!searchParams.get('account') || !!searchParams.get('cat') || !!searchParams.get('q') || selectedTypes.length < 3;
+    const monthParam = searchParams.get('month');
+    const monthActive = monthParam !== null && monthParam !== 'all';
+    return monthActive || !!searchParams.get('account') || !!searchParams.get('cat') || !!searchParams.get('q') || selectedTypes.length < 3;
   }, [searchParams]);
 
   const totalPages = hasActiveFilters ? 1 : Math.max(1, Math.ceil(filteredTransactions.length / PAGE_SIZE));
@@ -332,10 +348,16 @@ export function TransactionList() {
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
           <span className="min-w-[140px] text-center text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            {formatMonthYear(displayMonthYear)}
+            {isAllMode ? 'All time' : formatMonthYear(displayMonthYear)}
           </span>
           <button onClick={goToNextMonth} className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200" aria-label="Next month">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+          </button>
+          <button
+            onClick={() => isAllMode ? removeParam('month') : setParam('month', 'all')}
+            className={`text-xs font-medium rounded px-2 py-1 transition-colors ${isAllMode ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
+          >
+            All time
           </button>
         </div>
       </div>
@@ -443,12 +465,15 @@ export function TransactionList() {
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               </Button>
               <span className="min-w-[140px] text-center text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                {formatMonthYear(displayMonthYear)}
+                {isAllMode ? 'All time' : formatMonthYear(displayMonthYear)}
               </span>
               <Button variant="ghost" size="sm" onClick={goToNextMonth} aria-label="Next month">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
               </Button>
-              <button onClick={() => removeParam('month')} className={`text-xs font-medium ${getMonthParam() ? 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300' : 'text-zinc-400 dark:text-zinc-500'}`}>
+              <button
+                onClick={() => isAllMode ? removeParam('month') : setParam('month', 'all')}
+                className={`text-xs font-medium ${isAllMode ? 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300' : 'text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300'}`}
+              >
                 All time
               </button>
             </div>
@@ -534,7 +559,7 @@ export function TransactionList() {
                 <button onClick={() => toggleType(t)} aria-label={`Remove ${t} filter`} className="ml-0.5 leading-none hover:text-blue-900 dark:hover:text-blue-200">×</button>
               </span>
             ))}
-            {getMonthParam() && (
+            {getMonthParam() && getMonthParam() !== 'all' && (
               <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                 {formatMonthYear(displayMonthYear)}
                 <button onClick={() => removeParam('month')} aria-label="Remove month filter" className="ml-0.5 leading-none hover:text-blue-900 dark:hover:text-blue-200">×</button>
@@ -933,7 +958,7 @@ function FilterPills({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {monthParam && (
+      {monthParam && monthParam !== 'all' && (
         <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
           {formatMonthYear(displayMonthYear)}
           <button onClick={onRemoveMonth} aria-label="Remove month filter" className="ml-0.5 leading-none hover:text-blue-900 dark:hover:text-blue-200">×</button>
