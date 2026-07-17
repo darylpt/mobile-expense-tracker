@@ -4,7 +4,7 @@
 
 /** IDB database configuration */
 export const DB_NAME = 'expense-tracker-db';
-export const DB_VERSION = 10;
+export const DB_VERSION = 11;
 
 /** Object store names */
 export const STORES = {
@@ -15,4 +15,7 @@ export const STORES = {
   PAYOUTS: 'payouts',
   BUDGET_TARGETS: 'budgetTargets',
   SYNC_QUEUE: 'syncQueue',
+  STOCKS: 'stocks',
+  STOCK_TRANSACTIONS: 'stockTransactions',
+  DIVIDENDS: 'dividends',
 } as const;

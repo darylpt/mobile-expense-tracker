@@ -1,19 +1,21 @@
 project: "mobile-expense-tracker"
-version: "0.2.21"
+version: "0.3.0"
 phase: "build"
-current_epic: "ci-and-auto-backup"
-last_action: "2026-07-17 — completed: Edge-case hardening (CSV validation + IDB quota check) confirmed already implemented"
-  story_start: "2026-07-17T00:00:00Z"
-  story_end: "2026-07-17T00:00:00Z"
-  stories:
-    - "ci-pipeline"
-    - "auto-backup"
-    - "csv-validation-hardening"
-    - "idb-quota-check"
+current_epic: "stock-portfolio-tracker"
+current_story: "complete"
+last_action: "2026-07-17 — Phase 2 complete: Stock Portfolio Tracker (6 stories, 19 new tests, 90 total)"
+story_end: "2026-07-17T00:00:00Z"
+stories:
+  - "stock-schema"
+  - "stock-crud"
+  - "stock-prices"
+  - "stock-transactions"
+  - "stock-dashboard"
+  - "stock-tests"
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
-  tests_passing: 71
+  tests_passing: 90
   eslint_errors: 0
   eslint_warnings: 5
   ts_errors: 0

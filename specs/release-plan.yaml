@@ -1,45 +1,171 @@
-# Release Plan — Hardening Pass (v0.2.16)
+# Release Plan — Stock Portfolio Tracker (Phase 2)
+#
+# Target: Add stock portfolio tracking to the expense tracker PWA.
+# Philippine stocks only. Manual entry + Yahoo Finance price lookup.
+# Separate tracking layer — no integration with expense ledger.
+#
+# Phase: plan → build → verify → release
+# Created: 2026-07-17
 
-> Target: Address 3 medium-severity edge cases from edge-case-analysis.md
-> Phase: plan → build → verify → release
-> Created: 2026-07-13
+epics:
+  - name: "stock-portfolio-tracker"
+    status: "completed"
+    stories:
 
----
+      # ── Story 1: DB Schema + Types ─────────────────────────────
+      - id: "stock-schema"
+        title: "Add 3 IndexedDB stores and TypeScript types for stocks"
+        depends: []
+        status: "completed"
+        description: |
+          Bump DB_VERSION from 10 → 11. Add stores: `stocks`, `stockTransactions`,
+          `dividends`. Add TypeScript interfaces. Write upgrade migration in idb.ts.
+        acceptance:
+          - "3 new STORES constants exported from constants.ts"
+          - "Stock, StockTransaction, Dividend interfaces in types/index.d.ts"
+          - "ExpenseTrackerDB schema updated with 3 new store type defs"
+          - "idb.ts upgrade handler creates stores on version 11"
+          - "DB opens successfully with new stores"
+          - "0 TS errors, 0 ESLint errors"
+        files:
+          - "src/lib/constants.ts"
+          - "src/types/index.d.ts"
+          - "src/lib/idb.ts"
 
-## Epic: Edge-Case Hardening — ✅ COMPLETED 2026-07-17
+      # ── Story 2: Stock CRUD in Settings ────────────────────────
+      - id: "stock-crud"
+        title: "Manage tickers in Settings (add, edit, delete, reorder)"
+        depends: ["stock-schema"]
+        status: "completed"
+        description: |
+          Add a "Stocks" section to the Settings page. CRUD for ticker list.
+          Uses existing patterns from Accounts/Categories sections (editable name,
+          sortOrder, delete with confirmation). Ticker field validates PSE format
+          (2-8 uppercase alphanumeric).
+        acceptance:
+          - "Settings page has a new 'Stocks' tab/section"
+          - "Add ticker: input for ticker + name, saves to stocks store"
+          - "Edit ticker: inline edit name"
+          - "Delete ticker: confirmation dialog, removes from store"
+          - "Reorder: drag or up/down buttons (reuse existing pattern)"
+          - "0 TS errors, 0 ESLint errors"
+        files:
+          - "src/app/settings/page.tsx"
+          - "src/lib/idb.ts (add CRUD helpers: addStock, updateStock, deleteStock, getAllStocks)"
 
-### Story 1: Cross-Tab Auth Guard ✅
-Already handled by existing implementation.
+      # ── Story 3: Yahoo Finance Price API ───────────────────────
+      - id: "stock-prices"
+        title: "Fetch current stock prices from Yahoo Finance"
+        depends: ["stock-schema"]
+        status: "completed"
+        description: |
+          Yahoo Finance v8 API (unofficial, free). PH stocks queried with .PS suffix
+          (e.g. BDO.PS). Single-stock and batch fetch. Stores price + timestamp in
+          the stocks record. Rate-limit handling: if fetch fails, show error, user
+          falls back to manual entry. No auto-refresh, no background polling.
+          A "Refresh Prices" button on the stocks page triggers batch fetch.
+        acceptance:
+          - "fetchStockPrice(ticker) returns { price, currency } from Yahoo Finance"
+          - "fetchAllPrices(stocks) batch-updates currentPrice on all stocks"
+          - "Rate limit / network error caught → returns null, UI shows error toast"
+          - "Manual price override respected (user-typed price not overwritten by refresh unless explicitly refreshed)"
+          - "Unit test: mock fetch returns price → function parses correctly"
+          - "Unit test: mock fetch fails → function returns null"
+          - "0 TS errors, 0 ESLint errors"
+        files:
+          - "src/lib/stock-prices.ts (new)"
+          - "src/lib/stock-prices.test.ts (new)"
 
-### Story 2: CSV Import Validation Hardening ✅
-- 2a: Duplicate-account transfer check in `parseCsv()` (`csv-import.ts:271`)
-- 2b: Negative starting balance warning in `CsvImportPreview.tsx:93-101`
-- Tests: duplicate-account error test in `csv-import.test.ts:120`
+      # ── Story 4: Transactions + Dividends + Holdings Page ──────
+      - id: "stock-transactions"
+        title: "Buy/sell log, dividend log, holdings computation, and /stocks page"
+        depends: ["stock-schema", "stock-prices"]
+        status: "completed"
+        description: |
+          The main /stocks route. Three sections:
+          1. Holdings table: ticker, shares owned, avg cost basis, current price,
+             market value, unrealized gain/loss (amount + %), realized gain/loss
+          2. Transaction log: buy/sell list, filterable by ticker, date-sorted desc
+          3. Dividend log: cash/stock dividend list, filterable by ticker
+          Add Transaction form (buy/sell): stock selector, date, shares, price/share,
+          fees (optional). Computes totalAmount = shares × price + fees.
+          Add Dividend form: stock selector, date, type (cash/stock), amount,
+          sharesReceived (stock type only).
+          Holdings computed from: sum of buy shares − sum of sell shares, avg cost
+          basis (weighted average of buy prices).
+        acceptance:
+          - "/stocks route renders without error"
+          - "Holdings table shows correct shares, avg cost, value, gain/loss"
+          - "Transaction log shows all buy/sell records sorted by date desc"
+          - "Dividend log shows all dividend records sorted by date desc"
+          - "Add Transaction form validates and saves to stockTransactions store"
+          - "Add Dividend form validates and saves to dividends store"
+          - "Delete transaction/dividend with confirmation"
+          - "Empty state when no stocks configured"
+          - "0 TS errors, 0 ESLint errors"
+        files:
+          - "src/app/stocks/page.tsx (new)"
+          - "src/components/stocks/HoldingsTable.tsx (new)"
+          - "src/components/stocks/TransactionLog.tsx (new)"
+          - "src/components/stocks/DividendLog.tsx (new)"
+          - "src/components/forms/StockTransactionForm.tsx (new)"
+          - "src/components/forms/DividendForm.tsx (new)"
+          - "src/lib/idb.ts (add: addStockTransaction, deleteStockTransaction, getAllStockTransactions, addDividend, deleteDividend, getAllDividends)"
+          - "src/lib/holdings.ts (new — compute: shares, avg cost, realized P&L)"
 
-### Story 3: Pre-Import IDB Quota Check ✅
-- `checkStorageQuota()` helper in `csv-import.ts:437`
-- Called from `CsvImportPreview.tsx:32` via `useEffect`
-- Storage warning banner displayed at `CsvImportPreview.tsx:104-108`
-- Tests: 4 cases in `csv-import.test.ts:127-176`
+      # ── Story 5: Dashboard Widget + Tab Bar ────────────────────
+      - id: "stock-dashboard"
+        title: "Portfolio summary card on dashboard + 6th bottom tab"
+        depends: ["stock-crud", "stock-transactions"]
+        status: "completed"
+        description: |
+          Add a "Portfolio" summary card to the main dashboard (/). Shows:
+          total market value, total invested (cost basis), total dividends received,
+          unrealized gain/loss (amount + %). Disabled/hidden when no stocks configured.
+          Add 6th tab "Stocks" to the mobile bottom tab bar (reuse existing
+          BottomNav component pattern).
+        acceptance:
+          - "Dashboard shows Portfolio card when stocks exist in DB"
+          - "Card hidden when no stocks configured"
+          - "Values match holdings page totals"
+          - "Bottom tab bar has 6 tabs: Summary, Transactions, Balance, Payout, Stocks, Settings"
+          - "0 TS errors, 0 ESLint errors"
+        files:
+          - "src/components/summary/PortfolioSummaryCard.tsx (new)"
+          - "src/app/page.tsx"
+          - "src/components/layout/BottomNav.tsx"
 
----
+      # ── Story 6: Tests ─────────────────────────────────────────
+      - id: "stock-tests"
+        title: "Unit tests for holdings computation, price API, and CRUD"
+        depends: ["stock-transactions"]
+        status: "completed"
+        description: |
+          Unit tests covering:
+          - holdings.ts: buy/sell → correct shares, avg cost, realized P&L
+          - holdings.ts: empty state → all zeros
+          - holdings.ts: partial sells → correct remaining avg cost
+          - stock-prices.ts: valid response parsing
+          - stock-prices.ts: error/rate-limit handling
+          - idb.ts: CRUD for stocks, stockTransactions, dividends
+        acceptance:
+          - "All new tests pass"
+          - "All 71 existing tests still pass"
+          - "0 TS errors, 0 ESLint errors"
+        files:
+          - "src/lib/holdings.test.ts (new)"
+          - "src/lib/stock-prices.test.ts (new)"
+          - "src/lib/idb.test.ts (extend)"
 
-## Execution Order
+# ── Execution Order ─────────────────────────────────────────
+# 1 → 2 → 3 → 4 → 5 → 6
+# Story 1 (schema) must go first. Stories 2 and 3 can run in parallel.
+# Stories 4, 5, 6 are strictly sequential.
 
-1. **Story 2** (CSV Validation) — two sub-tasks, touches parser + preview component
-2. **Story 3** (IDB Quota) — touches parser + preview component, builds on Story 2's preview changes
-
-## Non-Goals
-
-- ✅ Quick Add double-submit guard — fixed 2026-07-15 (belt-and-suspenders guard in handleSubmit)
-- ✅ Payout empty-splits guard — fixed 2026-07-15 (canSave requires splits.length > 0)
-- ✅ Payout negative amount validation — already handled (totalAmount <= 0 check existed)
-- ✅ Transaction list filter+pagination reset — already handled (page param deleted on filter change)
-
-## Success Criteria
-
-- All 42 existing unit tests pass
-- New unit tests for each story pass
-- 0 ESLint errors, 0 TS errors
-- Manual E2E: CSV with duplicate-account transfer shows error in preview
-- Manual E2E: import preview shows storage warning when quota is low
+# ── Non-Goals ─────────────────────────────────────────────────
+# - No expense-tracker integration (stocks are a separate tracking layer)
+# - No "DCA rotation log" — the buy/sell log covers it
+# - No auto-refresh prices — manual button only
+# - No dividend → income auto-creation
+# - No stock split / reverse split tracking
+# - No Philippine fund-specific fields (UITF/ETF treated as generic stocks)

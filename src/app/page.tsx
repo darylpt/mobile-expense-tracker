@@ -10,6 +10,7 @@ import { Header } from '@/components/layout/Header';
 import { QuickAddForm } from '@/components/forms/QuickAddForm';
 import { MonthlySummaryCard } from '@/components/summary/MonthlySummaryCard';
 import { CategoryBreakdown } from '@/components/summary/CategoryBreakdown';
+import { PortfolioSummaryCard } from '@/components/summary/PortfolioSummaryCard';
 
 export default function Home() {
   return (
@@ -32,6 +33,10 @@ export default function Home() {
           <CategoryBreakdown />
         </section>
 
+        {/* Portfolio summary — shown when stocks exist */}
+        <section>
+          <PortfolioSummaryCard />
+        </section>
 
       </main>
 

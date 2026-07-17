@@ -14,6 +14,7 @@ import { Input } from '@/components/common/Input';
 import { useAuth } from '@/context/AuthContext';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useCategories } from '@/hooks/useCategories';
+import { useStocks } from '@/hooks/useStocks';
 import { useRouter } from 'next/navigation';
 import {
   getAllTransactions,
@@ -25,7 +26,7 @@ import {
   getAutoBackup,
 } from '@/lib/idb';
 import { formatCurrency } from '@/lib/utils';
-import type { Account, Category, TransactionType } from '@/types';
+import type { Account, Category, Stock, TransactionType } from '@/types';
 import { parseCsv, type ParsedCsv } from '@/lib/csv-import';
 import { getSyncQueueCount, resyncAll } from '@/lib/idb';
 import { backgroundSync } from '@/lib/sync';
@@ -52,7 +53,16 @@ export default function SettingsPage() {
     moveCategoryTo,
   } = useCategories();
 
-  const [activeTab, setActiveTab] = useState<'accounts' | 'categories' | 'preferences' | 'data'>('accounts');
+  const {
+    stocks,
+    isLoading: stocksLoading,
+    addStock: addStockFn,
+    updateStock: updateStockFn,
+    deleteStock: deleteStockFn,
+    moveStockTo,
+  } = useStocks();
+
+  const [activeTab, setActiveTab] = useState<'accounts' | 'categories' | 'stocks' | 'preferences' | 'data'>('accounts');
   const [mobilePage, setMobilePage] = useState<string | null>(null);
 
   // ── Mobile drill-down sub-page ──
@@ -72,7 +82,7 @@ export default function SettingsPage() {
         </button>
 
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-20 pt-6 sm:px-6 sm:pb-0 sm:pt-8">
-          {accountsLoading || categoriesLoading ? (
+          {accountsLoading || categoriesLoading || stocksLoading ? (
             <LoadingSkeleton />
           ) : (
             <>
@@ -92,6 +102,15 @@ export default function SettingsPage() {
                   onUpdate={updateCategory}
                   onDelete={deleteCategory}
                   onMoveTo={moveCategoryTo}
+                />
+              )}
+              {mobilePage === 'stocks' && (
+                <StocksSection
+                  stocks={stocks}
+                  onAdd={addStockFn}
+                  onUpdate={updateStockFn}
+                  onDelete={deleteStockFn}
+                  onMoveTo={moveStockTo}
                 />
               )}
               {mobilePage === 'preferences' && (
@@ -115,7 +134,7 @@ export default function SettingsPage() {
 }
 
   // ── Main hub / desktop layout ──
-  const content = accountsLoading || categoriesLoading ? (
+  const content = accountsLoading || categoriesLoading || stocksLoading ? (
     <LoadingSkeleton />
   ) : (
     <>
@@ -128,6 +147,9 @@ export default function SettingsPage() {
             </SidebarTab>
             <SidebarTab active={activeTab === 'categories'} onClick={() => setActiveTab('categories')}>
               🏷️ Categories
+            </SidebarTab>
+            <SidebarTab active={activeTab === 'stocks'} onClick={() => setActiveTab('stocks')}>
+              📈 Stocks
             </SidebarTab>
             <SidebarTab active={activeTab === 'preferences'} onClick={() => setActiveTab('preferences')}>
               ☁️ Preferences &amp; Sync
@@ -157,6 +179,15 @@ export default function SettingsPage() {
               onMoveTo={moveCategoryTo}
             />
           )}
+          {activeTab === 'stocks' && (
+            <StocksSection
+              stocks={stocks}
+              onAdd={addStockFn}
+              onUpdate={updateStockFn}
+              onDelete={deleteStockFn}
+              onMoveTo={moveStockTo}
+            />
+          )}
           {activeTab === 'preferences' && (
             <div className="space-y-6">
               <TabVisibilitySection />
@@ -182,6 +213,7 @@ export default function SettingsPage() {
           <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/50">
             <HubLink onClick={() => setMobilePage('accounts')}>Accounts &amp; Balances</HubLink>
             <HubLink onClick={() => setMobilePage('categories')}>Category Mapping</HubLink>
+            <HubLink onClick={() => setMobilePage('stocks')}>📈 Stock Tickers</HubLink>
           </div>
         </div>
         <div>
@@ -582,6 +614,227 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
           <Button variant="ghost" size="sm" onClick={startAdd}>
             + Add Account
           </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ============================================================
+// Stocks Section
+// ============================================================
+
+interface StocksSectionProps {
+  stocks: Stock[];
+  onAdd: (stock: Omit<Stock, 'id' | 'createdAt' | 'updatedAt'>) => Promise<string>;
+  onUpdate: (stock: Partial<Stock> & Pick<Stock, 'id'>) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onMoveTo: (id: string, targetIndex: number) => Promise<void>;
+}
+
+function StocksSection({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: StocksSectionProps) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [addMode, setAddMode] = useState(false);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [deleteWarning, setDeleteWarning] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const startEdit = (stock: Stock) => {
+    setEditingId(stock.id);
+    setEditValues({ ticker: stock.ticker, name: stock.name });
+    setAddMode(false);
+    setDeleteWarning(null);
+  };
+
+  const startAdd = () => {
+    setAddMode(true);
+    setEditingId(null);
+    setEditValues({ ticker: '', name: '' });
+    setDeleteWarning(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditValues({});
+  };
+
+  const cancelAdd = () => {
+    setAddMode(false);
+    setEditValues({});
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingId) return;
+    const ticker = editValues.ticker?.trim().toUpperCase();
+    const name = editValues.name?.trim();
+    if (!ticker || !name) return;
+    if (!/^[A-Z0-9]{2,8}$/.test(ticker)) {
+      setDeleteWarning('Ticker must be 2-8 uppercase letters/numbers (e.g. BDO, SM, JFC).');
+      return;
+    }
+    try {
+      await onUpdate({ id: editingId, ticker, name });
+      setEditingId(null);
+      setEditValues({});
+      setDeleteWarning(null);
+    } catch {
+      setDeleteWarning('Failed to save stock.');
+    }
+  };
+
+  const handleSaveAdd = async () => {
+    const ticker = editValues.ticker?.trim().toUpperCase();
+    const name = editValues.name?.trim();
+    if (!ticker || !name) return;
+    if (!/^[A-Z0-9]{2,8}$/.test(ticker)) {
+      setDeleteWarning('Ticker must be 2-8 uppercase letters/numbers (e.g. BDO, SM, JFC).');
+      return;
+    }
+    const duplicate = stocks.find(s => s.ticker === ticker);
+    if (duplicate) {
+      setDeleteWarning(`Ticker "${ticker}" already exists.`);
+      return;
+    }
+    try {
+      await onAdd({ ticker, name, currentPrice: null, priceUpdatedAt: null, sortOrder: 0 });
+      setAddMode(false);
+      setEditValues({});
+      setDeleteWarning(null);
+    } catch {
+      setDeleteWarning('Failed to add stock.');
+    }
+  };
+
+  const handleDelete = async (stock: Stock) => {
+    if (!window.confirm(`Delete "${stock.ticker}" and all its transactions and dividends?`)) return;
+    try {
+      await onDelete(stock.id);
+    } catch {
+      setDeleteWarning('Failed to delete stock.');
+    }
+  };
+
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverId(id);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    setDragOverId(null);
+    const draggedId = e.dataTransfer.getData('text/plain');
+    if (!draggedId || draggedId === targetId) return;
+    const targetIndex = stocks.findIndex(s => s.id === targetId);
+    if (targetIndex < 0) return;
+    onMoveTo(draggedId, targetIndex);
+  };
+
+  const sorted = [...stocks].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Stocks</h2>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            Manage your stock tickers. Add tickers here, then record buys/sells on the Stocks page.
+          </p>
+        </div>
+        {!addMode && (
+          <Button variant="primary" size="sm" onClick={startAdd}>+ Add Ticker</Button>
+        )}
+      </div>
+
+      {deleteWarning && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
+          {deleteWarning}
+        </p>
+      )}
+
+      {/* Add form */}
+      {addMode && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/50 dark:bg-blue-950/30">
+          <div className="flex flex-wrap gap-3">
+            <Input
+              value={editValues.ticker ?? ''}
+              onChange={(e) => setEditValues({ ...editValues, ticker: e.target.value.toUpperCase() })}
+              placeholder="Ticker (e.g. BDO)"
+              className="w-28"
+              maxLength={8}
+            />
+            <Input
+              value={editValues.name ?? ''}
+              onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}
+              placeholder="Company name"
+              className="flex-1"
+            />
+            <Button variant="primary" size="sm" onClick={handleSaveAdd}>Save</Button>
+            <Button variant="ghost" size="sm" onClick={cancelAdd}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Stock list */}
+      {sorted.length === 0 && !addMode ? (
+        <p className="py-6 text-center text-sm text-zinc-400 dark:text-zinc-500">
+          No stocks yet. Add your first ticker above.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/50">
+          <div className="divide-y divide-zinc-100 dark:divide-zinc-700">
+            {sorted.map((stock) => (
+              <div
+                key={stock.id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, stock.id)}
+                onDragOver={(e) => handleDragOver(e, stock.id)}
+                onDrop={(e) => handleDrop(e, stock.id)}
+                className={`flex items-center gap-3 px-4 py-3 transition-colors ${
+                  dragOverId === stock.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                } ${editingId === stock.id ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}
+              >
+                <span className="cursor-grab text-zinc-300 dark:text-zinc-600 select-none">⠿</span>
+
+                {editingId === stock.id ? (
+                  <>
+                    <Input
+                      value={editValues.ticker ?? stock.ticker}
+                      onChange={(e) => setEditValues({ ...editValues, ticker: e.target.value.toUpperCase() })}
+                      className="w-24"
+                      maxLength={8}
+                    />
+                    <Input
+                      value={editValues.name ?? stock.name}
+                      onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}
+                      className="flex-1"
+                    />
+                    <Button variant="primary" size="sm" onClick={handleSaveEdit}>Save</Button>
+                    <Button variant="ghost" size="sm" onClick={cancelEdit}>Cancel</Button>
+                  </>
+                ) : (
+                  <>
+                    <span className="w-20 shrink-0 rounded bg-zinc-100 px-2 py-0.5 text-center font-mono text-sm font-semibold text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300">
+                      {stock.ticker}
+                    </span>
+                    <span className="flex-1 text-sm text-zinc-900 dark:text-zinc-100">{stock.name}</span>
+                    {stock.currentPrice !== null && (
+                      <span className="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
+                        ₱{stock.currentPrice.toFixed(2)}
+                      </span>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={() => startEdit(stock)}>Edit</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDelete(stock)}>✕</Button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </section>

@@ -141,3 +141,43 @@ export interface MonthYear {
   month: number;
   year: number;
 }
+
+/** A stock ticker tracked in the portfolio */
+export interface Stock {
+  id: string;              // uuid
+  ticker: string;          // bare ticker, e.g. "BDO", "SM" (no .PS)
+  name: string;            // full company name
+  currentPrice: number | null;  // from API or manual entry
+  priceUpdatedAt: number | null; // Date.now() when price was last set
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** A buy/sell transaction for a stock */
+export interface StockTransaction {
+  id: string;              // uuid
+  stockId: string;         // -> Stock.id
+  date: string;            // ISO date "YYYY-MM-DD"
+  type: 'buy' | 'sell';
+  shares: number;
+  pricePerShare: number;
+  fees: number;            // default 0
+  totalAmount: number;     // shares * pricePerShare + fees (for buys), shares * pricePerShare - fees (for sells)
+  notes?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** A dividend record for a stock */
+export interface Dividend {
+  id: string;              // uuid
+  stockId: string;         // -> Stock.id
+  date: string;            // ISO date "YYYY-MM-DD"
+  type: 'cash' | 'stock';
+  amount: number;          // cash amount received, or value of stock dividend
+  sharesReceived?: number | null;  // only for stock dividends
+  notes?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}

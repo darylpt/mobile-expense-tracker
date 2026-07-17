@@ -58,6 +58,14 @@ function CashIcon({ className }: { className?: string }) {
   );
 }
 
+function ChartIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1-1m1 1l1-1m5.5 1l1-1m-1 1l-1-1m2.25-2.25l-3.97-3.97a.75.75 0 00-1.06 0l-2.13 2.13a.75.75 0 01-1.06 0L7.5 10.5" />
+    </svg>
+  );
+}
+
 function CogIcon({ className }: { className?: string }) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
@@ -94,6 +102,7 @@ const tabs: TabDef[] = [
   { href: '/transactions', label: 'Transactions', icon: ListIcon, core: true },
   { href: '/available-balance', label: 'Balances', icon: WalletIcon },
   { href: '/payout', label: 'Payout', icon: CashIcon },
+  { href: '/stocks', label: 'Stocks', icon: ChartIcon },
   { href: '/settings', label: 'Settings', icon: CogIcon, core: true },
 ];
 
@@ -116,7 +125,7 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
 
   // ponytail: localStorage for tab preferences — simple, no schema, no IndexedDB migration
   // Listens for `storage` event so same-page toggles in Settings take effect immediately
-  const [tabPrefs, setTabPrefs] = useState({ showBalances: true, showPayout: true });
+  const [tabPrefs, setTabPrefs] = useState({ showBalances: true, showPayout: true, showStocks: true });
   useEffect(() => {
     const read = () => {
       try {
@@ -176,7 +185,8 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
   const visibleTabs = tabs.filter(t =>
     t.core ||
     (t.href === '/available-balance' && tabPrefs.showBalances) ||
-    (t.href === '/payout' && tabPrefs.showPayout)
+    (t.href === '/payout' && tabPrefs.showPayout) ||
+    (t.href === '/stocks' && tabPrefs.showStocks)
   );
 
   return (

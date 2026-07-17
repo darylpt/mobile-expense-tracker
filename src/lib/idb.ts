@@ -5,7 +5,7 @@
 // ============================================================
 
 import { openDB, type IDBPDatabase, type IDBPObjectStore } from 'idb';
-import type { Transaction, Account, Category, CashDenomination, Payout, BudgetTarget } from '@/types';
+import type { Transaction, Account, Category, CashDenomination, Payout, BudgetTarget, Stock, StockTransaction, Dividend } from '@/types';
 import { DB_NAME, DB_VERSION, STORES } from './constants';
 import { generateId } from './utils';
 import { parseCsv, type ParsedCsv } from './csv-import';
@@ -89,6 +89,21 @@ export interface ExpenseTrackerDB {
       byTimestamp: number;
     };
   };
+  [STORES.STOCKS]: {
+    key: string;
+    value: Stock;
+    indexes: { ticker: string; };
+  };
+  [STORES.STOCK_TRANSACTIONS]: {
+    key: string;
+    value: StockTransaction;
+    indexes: { stockId: string; date: string; type: string; };
+  };
+  [STORES.DIVIDENDS]: {
+    key: string;
+    value: Dividend;
+    indexes: { stockId: string; date: string; type: string; };
+  };
 }
 
 /** Singleton database instance */
@@ -153,6 +168,26 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
       if (!db.objectStoreNames.contains(STORES.SYNC_QUEUE)) {
         const sqStore = db.createObjectStore(STORES.SYNC_QUEUE, { keyPath: 'id' });
         sqStore.createIndex('byTimestamp', 'timestamp', { unique: false });
+      }
+
+      // ── New stores added in v11 (stock portfolio tracker) ──
+      if (!db.objectStoreNames.contains(STORES.STOCKS)) {
+        const sStore = db.createObjectStore(STORES.STOCKS, { keyPath: 'id' });
+        sStore.createIndex('ticker', 'ticker', { unique: true });
+      }
+
+      if (!db.objectStoreNames.contains(STORES.STOCK_TRANSACTIONS)) {
+        const stStore = db.createObjectStore(STORES.STOCK_TRANSACTIONS, { keyPath: 'id' });
+        stStore.createIndex('stockId', 'stockId', { unique: false });
+        stStore.createIndex('date', 'date', { unique: false });
+        stStore.createIndex('type', 'type', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains(STORES.DIVIDENDS)) {
+        const dStore = db.createObjectStore(STORES.DIVIDENDS, { keyPath: 'id' });
+        dStore.createIndex('stockId', 'stockId', { unique: false });
+        dStore.createIndex('date', 'date', { unique: false });
+        dStore.createIndex('type', 'type', { unique: false });
       }
 
       // ── Migration: v5 → v6 (category + account sortOrder) ──
@@ -932,6 +967,168 @@ export async function setBudgetTarget(
 export async function getAllBudgetTargets(): Promise<BudgetTarget[]> {
   const db = await getDB();
   return db.getAll(STORES.BUDGET_TARGETS);
+}
+
+// ============================================================
+// Stock CRUD
+// ============================================================
+
+/**
+ * Get all stocks, sorted by sortOrder.
+ */
+export async function getAllStocks(): Promise<Stock[]> {
+  const db = await getDB();
+  const all = await db.getAll(STORES.STOCKS);
+  return all.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+}
+
+/**
+ * Add a new stock. Auto-assigns sortOrder to the end.
+ */
+export async function addStock(
+  stock: Omit<Stock, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<string> {
+  const db = await getDB();
+  const now = Date.now();
+  const id = crypto.randomUUID();
+  const all = await db.getAll(STORES.STOCKS);
+  const maxOrder = all.reduce((max, s) => Math.max(max, s.sortOrder ?? 0), 0);
+  const record: Stock = { ...stock, id, sortOrder: maxOrder + 1000, createdAt: now, updatedAt: now };
+  const idbTx = db.transaction([STORES.STOCKS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.STOCKS).add(record);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.STOCKS, id, 'create', record);
+  await idbTx.done;
+  requestSync();
+  return id;
+}
+
+/**
+ * Update an existing stock.
+ */
+export async function updateStock(
+  stock: Partial<Stock> & Pick<Stock, 'id'>
+): Promise<void> {
+  const db = await getDB();
+  const existing = await db.get(STORES.STOCKS, stock.id);
+  if (!existing) throw new Error(`Stock "${stock.id}" not found`);
+  const updated: Stock = { ...existing, ...stock, updatedAt: Date.now() };
+  const idbTx = db.transaction([STORES.STOCKS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.STOCKS).put(updated);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.STOCKS, stock.id, 'update', updated);
+  await idbTx.done;
+  requestSync();
+}
+
+/**
+ * Delete a stock by ID, cascading to its stock transactions and dividends.
+ */
+export async function deleteStock(id: string): Promise<void> {
+  const db = await getDB();
+  // ponytail: cascade-delete stockTransactions + dividends for this stock
+  const idbTx = db.transaction(
+    [STORES.STOCKS, STORES.STOCK_TRANSACTIONS, STORES.DIVIDENDS, STORES.SYNC_QUEUE],
+    'readwrite'
+  );
+  await idbTx.objectStore(STORES.STOCKS).delete(id);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.STOCKS, id, 'delete', null);
+
+  // Delete stock transactions for this stock
+  const txnIndex = idbTx.objectStore(STORES.STOCK_TRANSACTIONS).index('stockId');
+  let txnCursor = await txnIndex.openCursor(id);
+  while (txnCursor) {
+    enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.STOCK_TRANSACTIONS, txnCursor.value.id, 'delete', null);
+    await txnCursor.delete();
+    txnCursor = await txnCursor.continue();
+  }
+
+  // Delete dividends for this stock
+  const divIndex = idbTx.objectStore(STORES.DIVIDENDS).index('stockId');
+  let divCursor = await divIndex.openCursor(id);
+  while (divCursor) {
+    enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.DIVIDENDS, divCursor.value.id, 'delete', null);
+    await divCursor.delete();
+    divCursor = await divCursor.continue();
+  }
+
+  await idbTx.done;
+  requestSync();
+}
+
+/**
+ * Move a stock to a specific position (0-based) in the sorted list.
+ */
+export async function moveStockTo(id: string, targetIndex: number): Promise<void> {
+  return reorderStocksTo(id, targetIndex);
+}
+
+async function reorderStocksTo(id: string, targetIndex: number): Promise<void> {
+  const db = await getDB();
+  const all = await db.getAll(STORES.STOCKS);
+  const sorted = all.sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+  );
+
+  const fromIdx = sorted.findIndex((s) => s.id === id);
+  if (fromIdx < 0 || targetIndex < 0 || targetIndex >= sorted.length || fromIdx === targetIndex) return;
+
+  const [item] = sorted.splice(fromIdx, 1);
+  sorted.splice(targetIndex, 0, item);
+
+  const now = Date.now();
+  const tx = db.transaction([STORES.STOCKS, STORES.SYNC_QUEUE], 'readwrite');
+  const store = tx.objectStore(STORES.STOCKS);
+  const syncStore = tx.objectStore(STORES.SYNC_QUEUE);
+  const updated = sorted.map((s, i) => ({ ...s, sortOrder: i * 1000, updatedAt: now }));
+  await Promise.all(updated.map((s) => store.put(s)));
+
+  for (const s of updated) {
+    enqueueSyncEntryInTx(syncStore, STORES.STOCKS, s.id, 'update', s);
+  }
+
+  await tx.done;
+  requestSync();
+}
+
+// ── Stock Transaction CRUD ──────────────────────────────────
+
+export async function getAllStockTransactions(): Promise<StockTransaction[]> {
+  const db = await getDB();
+  return db.getAll(STORES.STOCK_TRANSACTIONS);
+}
+
+export async function addStockTransaction(tx: Omit<StockTransaction, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+  const db = await getDB();
+  const now = Date.now();
+  const id = crypto.randomUUID();
+  const record: StockTransaction = { ...tx, id, createdAt: now, updatedAt: now };
+  await db.add(STORES.STOCK_TRANSACTIONS, record);
+  return id;
+}
+
+export async function deleteStockTransaction(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete(STORES.STOCK_TRANSACTIONS, id);
+}
+
+// ── Dividend CRUD ───────────────────────────────────────────
+
+export async function getAllDividends(): Promise<Dividend[]> {
+  const db = await getDB();
+  return db.getAll(STORES.DIVIDENDS);
+}
+
+export async function addDividend(d: Omit<Dividend, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+  const db = await getDB();
+  const now = Date.now();
+  const id = crypto.randomUUID();
+  const record: Dividend = { ...d, id, createdAt: now, updatedAt: now };
+  await db.add(STORES.DIVIDENDS, record);
+  return id;
+}
+
+export async function deleteDividend(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete(STORES.DIVIDENDS, id);
 }
 
 // ============================================================

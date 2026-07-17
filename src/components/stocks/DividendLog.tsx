@@ -1,0 +1,154 @@
+// ============================================================
+// DividendLog - Dividend records log
+// Desktop: table. Mobile: card list.
+// Sort by date descending.
+// ============================================================
+
+'use client';
+
+import React from 'react';
+import { formatCurrency } from '@/lib/utils';
+import type { Dividend, Stock } from '@/types';
+
+interface DividendLogProps {
+  dividends: Dividend[];
+  stocks: Stock[];
+  onDelete: (id: string) => void;
+}
+
+export function DividendLog({ dividends, stocks, onDelete }: DividendLogProps) {
+  const stockMap = new Map(stocks.map((s) => [s.id, s]));
+  const sorted = [...dividends].sort((a, b) => b.date.localeCompare(a.date));
+
+  if (sorted.length === 0) {
+    return (
+      <div className="rounded-xl border border-zinc-200 bg-white p-6 text-center shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">No dividends recorded yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+      {/* ── Desktop table ── */}
+      <div className="hidden md:block overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-zinc-200 text-left text-xs font-medium uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+              <th scope="col" className="px-4 pb-3 pt-3">Date</th>
+              <th scope="col" className="px-4 pb-3 pt-3">Ticker</th>
+              <th scope="col" className="px-4 pb-3 pt-3">Type</th>
+              <th scope="col" className="px-4 pb-3 pt-3 text-right">Amount</th>
+              <th scope="col" className="px-4 pb-3 pt-3 text-right">Shares Received</th>
+              <th scope="col" className="w-16 px-4 pb-3 pt-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((d) => (
+              <tr
+                key={d.id}
+                className="border-b border-zinc-100 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/30"
+              >
+                <td className="whitespace-nowrap px-4 py-3 text-zinc-500 dark:text-zinc-400">
+                  {new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', {
+                    month: 'short', day: 'numeric', year: 'numeric',
+                  })}
+                </td>
+                <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
+                  {stockMap.get(d.stockId)?.ticker ?? d.stockId}
+                </td>
+                <td className="px-4 py-3">
+                  <span
+                    className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                      d.type === 'cash'
+                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                        : 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
+                    }`}
+                  >
+                    {d.type === 'cash' ? 'Cash' : 'Stock'}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+                  {formatCurrency(d.amount)}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+                  {d.type === 'stock' && d.sharesReceived != null
+                    ? d.sharesReceived.toFixed(4)
+                    : '—'}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-right">
+                  <button
+                    onClick={() => onDelete(d.id)}
+                    className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-red-400"
+                    aria-label="Delete dividend record"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Mobile cards ── */}
+      <div className="divide-y divide-zinc-100 dark:divide-zinc-700 md:hidden">
+        {sorted.map((d) => {
+          const ticker = stockMap.get(d.stockId)?.ticker ?? d.stockId;
+          return (
+            <div key={d.id} className="px-4 py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">{ticker}</span>
+                  <span
+                    className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                      d.type === 'cash'
+                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                        : 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
+                    }`}
+                  >
+                    {d.type === 'cash' ? 'Cash' : 'Stock'}
+                  </span>
+                </div>
+                <button
+                  onClick={() => onDelete(d.id)}
+                  className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-red-400"
+                  aria-label="Delete dividend record"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+              <div className="mt-1 grid grid-cols-2 gap-1 text-xs">
+                <div>
+                  <span className="text-zinc-400 dark:text-zinc-500">Date </span>
+                  <span className="text-zinc-700 dark:text-zinc-300">
+                    {new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', {
+                      month: 'short', day: 'numeric', year: 'numeric',
+                    })}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="tabular-nums text-zinc-700 dark:text-zinc-300">
+                    {formatCurrency(d.amount)}
+                  </span>
+                </div>
+              </div>
+              {d.type === 'stock' && d.sharesReceived != null && (
+                <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  Shares received: {d.sharesReceived.toFixed(4)}
+                </div>
+              )}
+              {d.notes && (
+                <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">{d.notes}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

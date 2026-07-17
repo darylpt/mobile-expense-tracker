@@ -308,7 +308,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 
 | Spec | Status |
 |---|---|
-| Phase 2 — Stock Portfolio Tracker | 🔵 Deferred (ticker, shares, cost basis, DCA rotation log) |
+| Phase 2 — Stock Portfolio Tracker | ✅ 6 stories, 19 tests, 90 total |
 
 ---
 
@@ -326,6 +326,64 @@ Date,Amount,Description,Type,Category,From Account,To Account
 
 ---
 
-## 13. What's Left
+## 13. Stock Portfolio Tracker (✅ Phase 2 Complete)
 
-- **Phase 2 (deferred):** Stock Portfolio Tracker, Dividend Log, DCA Rotation Log
+### 13.1 Data Model (3 new IDB stores — v11)
+
+**`stocks`** — tickers tracked:
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid | |
+| ticker | string | Bare ticker, no `.PS` (e.g. `"BDO"`, `"SM"`) |
+| name | string | Full company name |
+| currentPrice | number \| null | From API or manual entry |
+| priceUpdatedAt | number \| null | |
+| sortOrder | integer | |
+| createdAt, updatedAt | number | |
+
+**`stockTransactions`** — buy/sell log:
+
+| Field | Type |
+|---|---|
+| id | uuid |
+| stockId | uuid |
+| date | ISO date |
+| type | `'buy'` \| `'sell'` |
+| shares | number |
+| pricePerShare | number |
+| fees | number (default 0) |
+| totalAmount | number |
+| notes | string \| null |
+
+**`dividends`** — dividend log:
+
+| Field | Type |
+|---|---|
+| id | uuid |
+| stockId | uuid |
+| date | ISO date |
+| type | `'cash'` \| `'stock'` |
+| amount | number |
+| sharesReceived | number \| null |
+| notes | string \| null |
+
+### 13.2 Price Source
+
+Yahoo Finance v8 (unofficial API). PH stocks → `.PS` suffix. Fetch on button press only (no polling). Falls back to manual entry on rate limit.
+
+### 13.3 Screens
+
+| Route | Content |
+|---|---|
+| `/stocks` | Holdings table → Transaction log → Dividend log → Add forms |
+| Settings → Stocks | Ticker CRUD + reorder |
+| Dashboard | Portfolio summary card (total value, invested, dividends, gain/loss) |
+
+### 13.4 Bottom Tab Bar
+
+6 tabs: Summary \| Transactions \| Balance \| Payout \| **Stocks** \| Settings
+
+## 14. What's Left
+
+- **Dividend → expense tracker integration** — auto-create income transactions from dividend records (deferred — separate tracking layer for now)
