@@ -1,16 +1,20 @@
 project: "mobile-expense-tracker"
-version: "0.2.19"
+version: "0.2.21"
 phase: "build"
-current_epic: "transaction-month-default"
-last_action: "2026-07-16 — completed: transactions default to current-month filter with 'All time' toggle"
-  story_start: "2026-07-16T00:00:00Z"
-  story_end: "2026-07-16T00:00:00Z"
-  story: "transaction-month-default"
+current_epic: "ci-and-auto-backup"
+last_action: "2026-07-17 — completed: Edge-case hardening (CSV validation + IDB quota check) confirmed already implemented"
+  story_start: "2026-07-17T00:00:00Z"
+  story_end: "2026-07-17T00:00:00Z"
+  stories:
+    - "ci-pipeline"
+    - "auto-backup"
+    - "csv-validation-hardening"
+    - "idb-quota-check"
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
   tests_passing: 71
   eslint_errors: 0
-  eslint_warnings: 0
+  eslint_warnings: 5
   ts_errors: 0
   build_clean: true

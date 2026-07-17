@@ -4,6 +4,7 @@ import "./globals.css";
 import { AuthProvider, AuthGuard } from "@/context/AuthContext";
 import { TransactionProvider } from "@/context/TransactionContext";
 import { LayoutWithError } from "@/components/layout/LayoutWithError";
+import { AutoBackup } from "@/components/layout/AutoBackup";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -56,6 +57,7 @@ export default function RootLayout({
           <AuthGuard>
             <TransactionProvider>
               <LayoutWithError>{children}</LayoutWithError>
+              <AutoBackup />
             </TransactionProvider>
           </AuthGuard>
         </AuthProvider>

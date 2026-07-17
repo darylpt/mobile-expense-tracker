@@ -229,6 +229,15 @@ Date,Amount,Description,Type,Category,From Account,To Account
 
 ---
 
+### 9.1 Auto-Backup
+
+- On app load, `saveAutoBackup()` exports all data to `localStorage` under keys `auto-backup-data` / `auto-backup-time`
+- Throttled to once per 24 hours — subsequent loads within the window are no-ops
+- `getAutoBackup()` reads + validates the stored backup
+- Settings → Backup & Restore shows "Last auto-backup: X ago" and a "Restore from auto-backup" button
+- Restore uses existing `importAllData()` followed by page reload
+- All errors caught silently — full localStorage or corrupt data won't break the app
+
 ## 9. Backup / Restore
 
 - **JSON export** — all 6 stores as single portable file
@@ -239,6 +248,12 @@ Date,Amount,Description,Type,Category,From Account,To Account
 ---
 
 ## 10. Test Structure
+
+### CI Pipeline (GitHub Actions)
+
+`.github/workflows/ci.yml` — runs on push/PR to `main`:
+- `npm ci` → `lint` → `tsc --noEmit` → `jest` → `build`
+- E2E (Playwright) not included — requires browser deps, run locally
 
 ### Unit Tests (Jest)
 
@@ -284,6 +299,10 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | Seed Data Removal | ✅ App starts clean |
 | Category Reordering | ✅ sortOrder field, DB v6 migration |
 | Bottom Tab Bar | ✅ Mobile fixed bottom nav |
+| CI Pipeline | ✅ GitHub Actions: lint, typecheck, test, build |
+| Auto-Backup | ✅ Daily localStorage snapshot with restore button |
+| CSV Validation Hardening | ✅ Duplicate-account transfer rejection + negative balance warning |
+| IDB Quota Check | ✅ Pre-import storage quota warning (>80%) |
 
 ### Deferred
 
@@ -310,5 +329,3 @@ Date,Amount,Description,Type,Category,From Account,To Account
 ## 13. What's Left
 
 - **Phase 2 (deferred):** Stock Portfolio Tracker, Dividend Log, DCA Rotation Log
-- **No CI pipeline** — tests run locally before manual releases
-- **No auto-backup** — user must export manually; Supabase sync provides cross-device redundancy

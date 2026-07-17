@@ -6,67 +6,21 @@
 
 ---
 
-## Epic: Edge-Case Hardening
+## Epic: Edge-Case Hardening — ✅ COMPLETED 2026-07-17
 
-### Story 1: Cross-Tab Auth Guard — ALREADY HANDLED
+### Story 1: Cross-Tab Auth Guard ✅
+Already handled by existing implementation.
 
-**Finding:** Code review confirmed the existing implementation already handles cross-tab user switches:
-1. `onAuthStateChange` (AuthContext line 70) fires across tabs via Supabase's BroadcastChannel
-2. `setUser()` updates the user → TransactionContext re-renders
-3. Auth lifecycle `useEffect` (TransactionContext line 111) depends on `[authState, user]` → re-runs
-4. Line 141: `marker !== user.id` catches the user switch → clears + re-syncs
+### Story 2: CSV Import Validation Hardening ✅
+- 2a: Duplicate-account transfer check in `parseCsv()` (`csv-import.ts:271`)
+- 2b: Negative starting balance warning in `CsvImportPreview.tsx:93-101`
+- Tests: duplicate-account error test in `csv-import.test.ts:120`
 
-**Action:** No code changes needed. Edge-case-analysis.md false positive.
-
----
-
-### Story 2: CSV Import Validation Hardening
-
-**Problem:** CSV import bypasses form validation rules. Two gaps:
-1. Transfer rows with identical From/To accounts pass import silently
-2. Negative Carry Over amounts set negative starting balances without warning
-
-**Acceptance Criteria:**
-
-**2a — Account-equal transfer check:**
-- In `parseCsv()`, when a non-Carry-Over row has both `From Account` and `To Account` set to the same account name, add a `CsvError` with message: "Transfer must use different From and To accounts"
-- Error rows are excluded from import, shown in the preview error list
-
-**2b — Negative starting balance warning:**
-- In the import preview (`CsvImportPreview`), detect any account with `startingBalance < 0`
-- Show amber warning: "Account '{name}' has a negative starting balance (₱{amount}). This may indicate an overdraft."
-- Warning is advisory — import proceeds
-
-**Files to modify:**
-- `src/lib/csv-import.ts` — add account-equal check in `parseCsv()`
-- `src/components/forms/CsvImportPreview.tsx` — add negative balance warning
-
-**Test:**
-- Unit: CSV row with `From Account=Cash, To Account=Cash` → error in parsed results
-- Unit: Carry Over row with `₱-100.00` → account has `startingBalance: -100`, no error
-- Manual: import CSV with duplicate account transfer → preview shows error row
-
----
-
-### Story 3: Pre-Import IDB Quota Check
-
-**Problem:** Large CSV import could hit browser IDB quota mid-transaction, leaving partial data.
-
-**Acceptance Criteria:**
-- Before `importFromCsv()` runs the atomic write, call `navigator.storage.estimate()`
-- Estimate the import size: `numRecords × ~500 bytes` (rough average per record)
-- If estimated usage + import size > 80% of quota: show warning in preview: "Your browser storage is nearly full. Import may fail. Consider deleting old data or using a different browser profile."
-- Warning is advisory — import proceeds (IDB may still have room, and the estimate is rough)
-- If `navigator.storage` is not available (older browsers), skip the check silently
-
-**Files to modify:**
-- `src/lib/csv-import.ts` — add `checkStorageQuota()` helper, call from `parseCsv()` return or from import UI
-- `src/components/forms/CsvImportPreview.tsx` — display storage warning if applicable
-
-**Test:**
-- Unit: mock `navigator.storage.estimate` returning low quota → warning object returned
-- Unit: mock `navigator.storage` undefined → no warning, no error
-- Manual: verify import still works normally when quota is sufficient
+### Story 3: Pre-Import IDB Quota Check ✅
+- `checkStorageQuota()` helper in `csv-import.ts:437`
+- Called from `CsvImportPreview.tsx:32` via `useEffect`
+- Storage warning banner displayed at `CsvImportPreview.tsx:104-108`
+- Tests: 4 cases in `csv-import.test.ts:127-176`
 
 ---
 

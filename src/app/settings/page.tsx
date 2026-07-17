@@ -7,7 +7,7 @@
 
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -22,6 +22,7 @@ import {
   transactionsToCsv,
   importFromCsv,
   deduplicateTransactions,
+  getAutoBackup,
 } from '@/lib/idb';
 import { formatCurrency } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
@@ -110,8 +111,8 @@ export default function SettingsPage() {
           )}
         </main>
       </div>
-    );
-  }
+  );
+}
 
   // ── Main hub / desktop layout ──
   const content = accountsLoading || categoriesLoading ? (
@@ -1066,6 +1067,24 @@ function ToggleRow({
 function BackupSection() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [autoBackupTs, setAutoBackupTs] = useState<string | null>(null);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAutoBackupTs(getAutoBackup()?.timestamp ?? null);
+  }, []);
+
+  const handleRestoreAutoBackup = async () => {
+    if (!window.confirm('Restore auto-backup? This will replace all current data.')) return;
+    try {
+      const ab = getAutoBackup();
+      if (!ab) { setMsg('No auto-backup found.'); return; }
+      await importAllData(ab.backup);
+      setMsg('Auto-backup restored. Reload to see changes.');
+    } catch {
+      setMsg('Restore failed.');
+    }
+  };
 
   const handleExport = async () => {
     try {
@@ -1128,6 +1147,9 @@ function BackupSection() {
         Export all data as JSON, or import from a previous backup. All data lives
         locally in your browser and syncs to the cloud when connected.
       </p>
+      <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+        Auto-backup: {autoBackupTs ? ('saved ' + timeAgo(new Date(autoBackupTs).getTime())) : 'none yet (saves daily)'}
+      </p>
 
       <div className="flex flex-wrap gap-3">
         <Button variant="secondary" size="sm" onClick={handleExport}>
@@ -1139,6 +1161,11 @@ function BackupSection() {
         <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()}>
           Import from file…
         </Button>
+        {autoBackupTs && (
+          <Button variant="ghost" size="sm" onClick={handleRestoreAutoBackup}>
+            Restore from auto-backup
+          </Button>
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -1467,4 +1494,17 @@ function LoadingSkeleton() {
       </div>
     </div>
   );
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
 }

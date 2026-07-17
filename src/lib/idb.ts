@@ -1394,3 +1394,49 @@ export async function deduplicateTransactions(): Promise<{ deleted: number; reli
 
   return { deleted, relinked, remaining };
 }
+
+// ── Auto-backup ───────────────────────────────────────────────
+
+const AUTO_BACKUP_DATA_KEY = 'auto-backup-data';
+const AUTO_BACKUP_TIME_KEY = 'auto-backup-time';
+const AUTO_BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Export all data and save to localStorage as an auto-backup.
+ * Only runs if the last backup was more than 24 hours ago.
+ * Returns true if a backup was saved, false if skipped.
+ * Silently catches all errors — never throws.
+ */
+export async function saveAutoBackup(): Promise<boolean> {
+  try {
+    const lastTime = localStorage.getItem(AUTO_BACKUP_TIME_KEY);
+    if (lastTime) {
+      const elapsed = Date.now() - new Date(lastTime).getTime();
+      if (elapsed < AUTO_BACKUP_INTERVAL_MS) return false;
+    }
+    const backup = await exportAllData();
+    localStorage.setItem(AUTO_BACKUP_DATA_KEY, JSON.stringify(backup));
+    localStorage.setItem(AUTO_BACKUP_TIME_KEY, backup.exportedAt);
+    return true;
+  } catch {
+    // localStorage full, quota exceeded, or IndexedDB error — never throw
+    return false;
+  }
+}
+
+/**
+ * Read the auto-backup from localStorage.
+ * Returns `{ backup, timestamp }` or `null` if none exists or data is corrupt.
+ */
+export function getAutoBackup(): { backup: BackupData; timestamp: string } | null {
+  try {
+    const data = localStorage.getItem(AUTO_BACKUP_DATA_KEY);
+    const timestamp = localStorage.getItem(AUTO_BACKUP_TIME_KEY);
+    if (!data || !timestamp) return null;
+    const backup = JSON.parse(data) as BackupData;
+    if (!backup.version || !backup.data) return null;
+    return { backup, timestamp };
+  } catch {
+    return null;
+  }
+}
