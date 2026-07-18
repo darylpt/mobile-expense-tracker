@@ -25,7 +25,8 @@ export interface StockPriceResult {
  */
 export async function fetchStockPrice(ticker: string): Promise<{ price: number; currency: string } | null> {
   const symbol = `${ticker.toUpperCase()}.PS`;
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+  // ponytail: query2 allows CORS, query1 blocks browser fetch
+  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
 
   try {
     const res = await fetch(url);

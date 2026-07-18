@@ -70,7 +70,9 @@ export default function StocksPage() {
     try {
       const results = await refreshAllPrices();
       const failed = results.filter(r => r.price === null);
-      if (failed.length === results.length) {
+      if (results.length === 0) {
+        setPriceMsg('No stocks to refresh. Add a stock first.');
+      } else if (failed.length === results.length) {
         setPriceMsg('Could not fetch any prices. Check your connection or try again later.');
       } else if (failed.length > 0) {
         setPriceMsg(`Prices updated, but ${failed.length} ticker(s) failed: ${failed.map(f => f.ticker).join(', ')}`);
