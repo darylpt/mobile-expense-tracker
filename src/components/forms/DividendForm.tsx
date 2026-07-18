@@ -124,7 +124,7 @@ export function DividendForm({ stocks, onSubmit }: DividendFormProps) {
         <Input
           label="Amount"
           type="number"
-          step="0.01"
+          step="any"
           min="0"
           placeholder="0.00"
           value={amount}
