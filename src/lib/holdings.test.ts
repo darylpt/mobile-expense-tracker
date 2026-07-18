@@ -246,4 +246,21 @@ describe('computeHoldings', () => {
     expect(result.totalUnrealizedGainLoss).toBe(1500);
     expect(result.totalUnrealizedGainLossPct).toBeCloseTo(6.67, 1);
   });
+
+  it('excludes unpriced holdings from aggregate unrealized G/L', () => {
+    const stocks = [
+      makeStock({ id: 'bdo', ticker: 'BDO', currentPrice: 150 }),
+      makeStock({ id: 'uitf', ticker: 'UITF', currentPrice: null }),
+    ];
+    const txs = [
+      buy('bdo', '2026-01-15', 100, 140),    // cost 14000, MV 15000
+      buy('uitf', '2026-01-15', 10, 1000),   // cost 10000, no MV
+    ];
+    const result = computeHoldings(stocks, txs, []);
+
+    expect(result.totalCost).toBe(24000);               // 14000 + 10000 (all holdings)
+    expect(result.totalMarketValue).toBe(15000);        // only BDO has a price
+    expect(result.totalUnrealizedGainLoss).toBe(1000);  // 15000 - 14000 (only priced cost)
+    expect(result.totalUnrealizedGainLossPct).toBeCloseTo(7.14, 1); // (1000 / 14000) * 100
+  });
 });

@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.5.0"
+version: "0.5.1"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "complete"
-last_action: "2026-07-18 — Feature: inline edit for stock transactions and dividends"
+last_action: "2026-07-18 — Bugfix: aggregate unrealized G/L skewed by unpriced holdings (funds)"
 story_end: "2026-07-18T00:00:00Z"
 stories:
   - "stock-schema"

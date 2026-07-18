@@ -94,6 +94,7 @@ export function computeHoldings(
   let totalCost = 0;
   let totalMarketValue: number | null = 0;
   let hasAnyPrice = false;
+  let pricedCost = 0;
 
   for (const [stockId, s] of stockMap) {
     const pos = state.get(stockId) ?? { shares: 0, totalCost: 0 };
@@ -124,14 +125,15 @@ export function computeHoldings(
     if (marketValue !== null) {
       hasAnyPrice = true;
       totalMarketValue! += marketValue;
+      pricedCost += pos.totalCost;
     }
   }
 
   if (!hasAnyPrice) totalMarketValue = null;
 
-  const totalUnrealizedGainLoss = totalMarketValue !== null ? totalMarketValue - totalCost : null;
-  const totalUnrealizedGainLossPct = totalUnrealizedGainLoss !== null && totalCost > 0
-    ? (totalUnrealizedGainLoss / totalCost) * 100
+  const totalUnrealizedGainLoss = totalMarketValue !== null ? totalMarketValue - pricedCost : null;
+  const totalUnrealizedGainLossPct = totalUnrealizedGainLoss !== null && pricedCost > 0
+    ? (totalUnrealizedGainLoss / pricedCost) * 100
     : null;
 
   // Sort holdings by ticker
