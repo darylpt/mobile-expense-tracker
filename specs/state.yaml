@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.8.1"
+version: "0.8.2"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "complete"
-last_action: "2026-07-18 — Polish: add 'Stocks (N)' and 'Funds (N)' headings to holdings tables"
+last_action: "2026-07-18 — Polish: split holdings into separate cards (Stocks, Funds, Summary)"
 story_end: "2026-07-18T00:00:00Z"
 stories:
   - "stock-schema"

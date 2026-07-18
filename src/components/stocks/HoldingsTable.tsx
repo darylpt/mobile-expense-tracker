@@ -31,10 +31,10 @@ export function HoldingsTable({ holdings, stocks }: HoldingsTableProps) {
   }
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
-      {/* ── Stocks table ── */}
+    <div className="space-y-6">
+      {/* ── Stocks card ── */}
       {stockRows.length > 0 && (
-        <>
+        <div className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
           <div className="px-4 pt-4 pb-1">
             <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Stocks ({stockRows.length})</h3>
           </div>
@@ -84,13 +84,12 @@ export function HoldingsTable({ holdings, stocks }: HoldingsTableProps) {
               <HoldingCard key={r.stockId} row={r} />
             ))}
           </div>
-        </>
+        </div>
       )}
 
-      {/* ── Funds table ── */}
+      {/* ── Funds card ── */}
       {fundRows.length > 0 && (
-        <>
-          <div className="border-t border-zinc-200 dark:border-zinc-700" />
+        <div className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
           <div className="px-4 pt-4 pb-1">
             <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Funds ({fundRows.length})</h3>
           </div>
@@ -120,30 +119,32 @@ export function HoldingsTable({ holdings, stocks }: HoldingsTableProps) {
               <FundCard key={r.stockId} row={r} />
             ))}
           </div>
-        </>
+        </div>
       )}
 
-      {/* ── Summary footer (mobile + desktop) ── */}
-      <div className="border-t border-zinc-200 px-4 py-4 dark:border-zinc-700">
-        <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
-          <SummaryStat label="Total Cost" value={formatCurrency(totalCost)} />
-          <SummaryStat
-            label="Total Value"
-            value={totalMarketValue !== null ? formatCurrency(totalMarketValue) : '—'}
-          />
-          <SummaryStat
-            label="Unrealized G/L"
-            value={totalUnrealizedGainLoss !== null ? formatCurrency(totalUnrealizedGainLoss) : '—'}
-            className={gainLossClass(totalUnrealizedGainLoss)}
-          />
-          <SummaryStat
-            label="Realized G/L"
-            value={formatCurrency(totalRealizedGainLoss)}
-            className={gainLossClass(totalRealizedGainLoss)}
-          />
-        </div>
-        <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-          Total dividends received: {formatCurrency(totalDividends)}
+      {/* ── Summary card ── */}
+      <div className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+        <div className="px-4 py-4">
+          <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+            <SummaryStat label="Total Cost" value={formatCurrency(totalCost)} />
+            <SummaryStat
+              label="Total Value"
+              value={totalMarketValue !== null ? formatCurrency(totalMarketValue) : '—'}
+            />
+            <SummaryStat
+              label="Unrealized G/L"
+              value={totalUnrealizedGainLoss !== null ? formatCurrency(totalUnrealizedGainLoss) : '—'}
+              className={gainLossClass(totalUnrealizedGainLoss)}
+            />
+            <SummaryStat
+              label="Realized G/L"
+              value={formatCurrency(totalRealizedGainLoss)}
+              className={gainLossClass(totalRealizedGainLoss)}
+            />
+          </div>
+          <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+            Total dividends received: {formatCurrency(totalDividends)}
+          </div>
         </div>
       </div>
     </div>
