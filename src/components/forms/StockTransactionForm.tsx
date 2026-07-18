@@ -27,16 +27,31 @@ export function StockTransactionForm({ stocks, onSubmit }: StockTransactionFormP
   const [fees, setFees] = useState('0');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [byAmount, setByAmount] = useState(false);
+  const [amount, setAmount] = useState('');
 
   const stockOptions = stocks.map((s) => ({ value: s.id, label: `${s.ticker} — ${s.name}` }));
 
+  const computedShares = useMemo(() => {
+    if (!byAmount) return null;
+    const a = parseFloat(amount) || 0;
+    const p = parseFloat(pricePerShare) || 0;
+    if (a <= 0 || p <= 0) return 0;
+    return Math.round((a / p) * 10000) / 10000;
+  }, [byAmount, amount, pricePerShare]);
+
   const computedTotal = useMemo(() => {
+    if (byAmount) {
+      const a = parseFloat(amount) || 0;
+      const f = parseFloat(fees) || 0;
+      return type === 'buy' ? a + f : a - f;
+    }
     const s = parseFloat(shares) || 0;
     const p = parseFloat(pricePerShare) || 0;
     const f = parseFloat(fees) || 0;
     const gross = s * p;
     return type === 'buy' ? gross + f : gross - f;
-  }, [shares, pricePerShare, fees, type]);
+  }, [byAmount, amount, shares, pricePerShare, fees, type]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,14 +60,26 @@ export function StockTransactionForm({ stocks, onSubmit }: StockTransactionFormP
     // Validate
     if (!stockId) { setError('Please select a stock.'); return; }
     if (!date) { setError('Please select a date.'); return; }
-    const s = parseFloat(shares);
-    if (isNaN(s) || s <= 0) { setError('Shares must be a positive number.'); return; }
+    let s: number;
+    let a = 0;
+    if (byAmount) {
+      a = parseFloat(amount);
+      if (isNaN(a) || a <= 0) { setError('Amount must be a positive number.'); return; }
+      if (computedShares === null || computedShares <= 0) { setError('Computed shares must be positive.'); return; }
+      s = computedShares;
+    } else {
+      const rawS = parseFloat(shares);
+      if (isNaN(rawS) || rawS <= 0) { setError('Shares must be a positive number.'); return; }
+      s = rawS;
+    }
     const p = parseFloat(pricePerShare);
     if (isNaN(p) || p <= 0) { setError('Price per share must be a positive number.'); return; }
     const f = parseFloat(fees) || 0;
     if (f < 0) { setError('Fees cannot be negative.'); return; }
 
-    const totalAmount = type === 'buy' ? s * p + f : s * p - f;
+    const totalAmount = byAmount
+      ? (type === 'buy' ? a + f : a - f)
+      : (type === 'buy' ? s * p + f : s * p - f);
 
     setSubmitting(true);
     try {
@@ -127,17 +154,25 @@ export function StockTransactionForm({ stocks, onSubmit }: StockTransactionFormP
           </div>
         </div>
 
-        {/* Shares */}
-        <Input
-          label="Shares"
-          type="number"
-          step="any"
-          min="0"
-          placeholder="e.g. 100"
-          value={shares}
-          onChange={(e) => setShares(e.target.value)}
-          required
-        />
+        {/* Enter by total amount toggle */}
+        <label className="flex items-center gap-2 cursor-pointer col-span-full">
+          <input
+            type="checkbox"
+            checked={byAmount}
+            onChange={(e) => { setByAmount(e.target.checked); setAmount(''); setShares(''); }}
+            className="rounded text-blue-600 focus:ring-blue-500"
+          />
+          <span className="text-sm text-zinc-600 dark:text-zinc-400">Enter by total amount</span>
+        </label>
+
+        {/* Shares / Amount */}
+        {byAmount ? (
+          <Input label="Amount" type="number" step="0.01" min="0" placeholder="0.00" value={amount}
+            onChange={(e) => setAmount(e.target.value)} leading={<span>₱</span>} required />
+        ) : (
+          <Input label="Shares" type="number" step="any" min="0" placeholder="e.g. 100" value={shares}
+            onChange={(e) => setShares(e.target.value)} required />
+        )}
 
         {/* Price per share */}
         <Input
@@ -151,6 +186,12 @@ export function StockTransactionForm({ stocks, onSubmit }: StockTransactionFormP
           leading={<span>₱</span>}
           required
         />
+
+        {byAmount && computedShares !== null && computedShares > 0 && (
+          <div className="col-span-full -mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+            ≈ {computedShares.toFixed(4)} shares
+          </div>
+        )}
 
         {/* Fees */}
         <Input
@@ -169,7 +210,7 @@ export function StockTransactionForm({ stocks, onSubmit }: StockTransactionFormP
       <div className="mt-4 rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-900">
         <div className="flex items-center justify-between text-sm">
           <span className="text-zinc-600 dark:text-zinc-400">
-            Total ({type === 'buy' ? 'shares × price + fees' : 'shares × price − fees'})
+            Total ({byAmount ? 'amount ± fees' : type === 'buy' ? 'shares × price + fees' : 'shares × price − fees'})
           </span>
           <span className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
             {formatCurrency(computedTotal)}

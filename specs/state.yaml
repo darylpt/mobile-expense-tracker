@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.5.1"
+version: "0.6.0"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "complete"
-last_action: "2026-07-18 — Bugfix: aggregate unrealized G/L skewed by unpriced holdings (funds)"
+last_action: "2026-07-18 — Feature: 'enter by amount' toggle on transaction form (for fund NAVPU purchases)"
 story_end: "2026-07-18T00:00:00Z"
 stories:
   - "stock-schema"
