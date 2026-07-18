@@ -13,18 +13,20 @@ import { getAllStockTransactions, addStockTransaction, deleteStockTransaction, u
 import { getAllDividends, addDividend, deleteDividend, updateDividend } from '@/lib/idb';
 import { refreshAllPrices } from '@/lib/stock-prices';
 import { computeHoldings, type HoldingsResult } from '@/lib/holdings';
+import { ManageTickers } from '@/components/stocks/ManageTickers';
 import type { StockTransaction, Dividend } from '@/types';
 
 type Section = 'holdings' | 'transactions' | 'dividends';
 
 export default function StocksPage() {
-  const { stocks, isLoading: stocksLoading, refreshStocks } = useStocks();
+  const { stocks, isLoading: stocksLoading, refreshStocks, addStock, updateStock, deleteStock, moveStockTo } = useStocks();
   const [transactions, setTransactions] = useState<StockTransaction[]>([]);
   const [dividends, setDividends] = useState<Dividend[]>([]);
   const [holdings, setHoldings] = useState<HoldingsResult | null>(null);
   const [activeSection, setActiveSection] = useState<Section>('holdings');
   const [showTxForm, setShowTxForm] = useState(false);
   const [showDivForm, setShowDivForm] = useState(false);
+  const [showManage, setShowManage] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [priceMsg, setPriceMsg] = useState<string | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
@@ -133,14 +135,10 @@ export default function StocksPage() {
         {isLoading ? (
           <div className="py-12 text-center text-sm text-zinc-400">Loading…</div>
         ) : !hasStocks ? (
-          /* Empty state — no tickers configured */
-          <div className="py-12 text-center">
-            <p className="mb-2 text-zinc-500 dark:text-zinc-400">
-              No stocks configured yet.
-            </p>
-            <p className="text-sm text-zinc-400 dark:text-zinc-500">
-              Go to Settings → Stocks to add your tickers.
-            </p>
+          /* Empty state — show manage tickers inline */
+          <div className="space-y-6">
+            <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">No stocks configured yet.</p>
+            <ManageTickers stocks={stocks} onAdd={addStock} onUpdate={updateStock} onDelete={deleteStock} onMoveTo={moveStockTo} />
           </div>
         ) : (
           <div className="space-y-6">
@@ -155,10 +153,23 @@ export default function StocksPage() {
               >
                 {refreshing ? 'Refreshing…' : 'Refresh Prices'}
               </Button>
+              <Button variant="ghost" size="sm" onClick={() => setShowManage(!showManage)}>
+                {showManage ? 'Close' : 'Manage Tickers'}
+              </Button>
               {priceMsg && (
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">{priceMsg}</p>
               )}
             </div>
+
+            {showManage && (
+              <ManageTickers
+                stocks={stocks}
+                onAdd={addStock}
+                onUpdate={updateStock}
+                onDelete={deleteStock}
+                onMoveTo={moveStockTo}
+              />
+            )}
 
             {/* ── Section tabs ── */}
             <div className="flex gap-1 border-b border-zinc-200 dark:border-zinc-700">
