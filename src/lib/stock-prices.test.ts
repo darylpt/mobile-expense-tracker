@@ -1,5 +1,5 @@
 // ============================================================
-// stock-prices.test.ts — Tests for Yahoo Finance price lookup
+// stock-prices.test.ts — Tests for Phisix API price lookup
 // ============================================================
 
 import { fetchStockPrice } from './stock-prices';
@@ -16,27 +16,18 @@ describe('fetchStockPrice', () => {
     mockFetch.mockReset();
   });
 
-  it('parses a valid Yahoo Finance response', async () => {
+  it('parses a valid Phisix response', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: async () => ({
-        chart: {
-          result: [
-            {
-              meta: {
-                regularMarketPrice: 148.5,
-                currency: 'PHP',
-              },
-            },
-          ],
-        },
+        stocks: [{ symbol: 'BDO', price: { currency: 'PHP', amount: 148.5 } }],
       }),
     });
 
     const result = await fetchStockPrice('BDO');
     expect(result).toEqual({ price: 148.5, currency: 'PHP' });
-    expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('BDO.PS'));
+    expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('BDO'));
   });
 
   it('returns null on HTTP 429 (rate limit)', async () => {
@@ -59,11 +50,11 @@ describe('fetchStockPrice', () => {
     expect(result).toBeNull();
   });
 
-  it('returns null when response has no chart data', async () => {
+  it('returns null when response has no stock data', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({ chart: { result: [] } }),
+      json: async () => ({ stocks: [] }),
     });
 
     const result = await fetchStockPrice('BDO');
@@ -75,9 +66,7 @@ describe('fetchStockPrice', () => {
       ok: true,
       status: 200,
       json: async () => ({
-        chart: {
-          result: [{ meta: { currency: 'PHP' } }],
-        },
+        stocks: [{ symbol: 'BDO', price: { currency: 'PHP' } }],
       }),
     });
 
@@ -92,18 +81,16 @@ describe('fetchStockPrice', () => {
     expect(result).toBeNull();
   });
 
-  it('uppercases the ticker and appends .PS', async () => {
+  it('uppercases the ticker', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: async () => ({
-        chart: {
-          result: [{ meta: { regularMarketPrice: 10, currency: 'PHP' } }],
-        },
+        stocks: [{ symbol: 'BDO', price: { currency: 'PHP', amount: 148.5 } }],
       }),
     });
 
     await fetchStockPrice('bdo');
-    expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('BDO.PS'));
+    expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('BDO'));
   });
 });

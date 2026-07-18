@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.3.1"
+version: "0.3.2"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "complete"
-last_action: "2026-07-18 — Bugfix: stock price refresh CORS (query1→query2) + empty stocks edge case"
+last_action: "2026-07-18 — Bugfix: switch stock prices from Yahoo Finance (dead for PH) to Phisix API"
 story_end: "2026-07-18T00:00:00Z"
 stories:
   - "stock-schema"

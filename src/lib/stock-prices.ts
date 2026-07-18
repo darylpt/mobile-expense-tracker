@@ -1,14 +1,15 @@
 // ============================================================
-// stock-prices.ts — Yahoo Finance v8 price lookup for PH stocks
+// stock-prices.ts — Phisix API price lookup for PH stocks
 //
-// PH stocks use .PS suffix (e.g. BDO → BDO.PS).
-// No auto-refresh — explicit user action only.
-// Rate limit / network errors → returns null, caller shows error.
+// Uses phisix-api3.appspot.com (community-maintained, CORS-friendly).
+// No .PS suffix — just bare ticker uppercased.
 // ============================================================
 
 import { getAllStocks, updateStock } from './idb';
 
-/** Single price result from Yahoo Finance */
+const BASE = 'https://phisix-api3.appspot.com';
+
+/** Single price result from Phisix API */
 export interface StockPriceResult {
   ticker: string;
   price: number | null;
@@ -20,13 +21,11 @@ export interface StockPriceResult {
  * Fetch the current price for a single Philippine stock ticker.
  * Returns { price, currency } or null on failure.
  *
- * Uses Yahoo Finance v8 chart API with .PS suffix.
- * Rate limit handling: if HTTP 429, returns null with error message.
+ * Uses Phisix API — bare ticker, no .PS suffix.
  */
 export async function fetchStockPrice(ticker: string): Promise<{ price: number; currency: string } | null> {
-  const symbol = `${ticker.toUpperCase()}.PS`;
-  // ponytail: query2 allows CORS, query1 blocks browser fetch
-  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+  const symbol = ticker.toUpperCase();
+  const url = `${BASE}/stocks/${encodeURIComponent(symbol)}.json`;
 
   try {
     const res = await fetch(url);
@@ -42,15 +41,14 @@ export async function fetchStockPrice(ticker: string): Promise<{ price: number; 
     }
 
     const data = await res.json();
-    const result = data?.chart?.result?.[0];
-    if (!result) {
-      console.warn(`[stock-prices] No chart data for ${symbol}`);
+    const stock = data?.stocks?.[0];
+    if (!stock) {
+      console.warn(`[stock-prices] No stock data for ${symbol}`);
       return null;
     }
 
-    const meta = result.meta;
-    const price = meta?.regularMarketPrice;
-    const currency = meta?.currency ?? 'PHP';
+    const price = stock?.price?.amount;
+    const currency = stock?.price?.currency ?? 'PHP';
 
     if (typeof price !== 'number' || isNaN(price)) {
       console.warn(`[stock-prices] Invalid price for ${symbol}:`, price);
@@ -65,34 +63,66 @@ export async function fetchStockPrice(ticker: string): Promise<{ price: number; 
 }
 
 /**
- * Batch-fetch prices for all stocks and update their currentPrice in IndexedDB.
+ * Batch-fetch prices for all stocks in one API call and update IndexedDB.
  * Returns results for each ticker (success or failure).
  *
- * Fetches one at a time (sequential) to avoid rate-limiting.
- * Failed tickers are returned with error details — caller can show which failed.
+ * Fetches the full PSE board from /stocks.json and matches against the
+ * user's portfolio by uppercase ticker.
  */
 export async function refreshAllPrices(): Promise<StockPriceResult[]> {
   const stocks = await getAllStocks();
+  if (stocks.length === 0) return [];
+
   const results: StockPriceResult[] = [];
 
+  let allStocks: Array<{ symbol: string; price: { currency: string; amount: number } }>;
+  try {
+    const res = await fetch(`${BASE}/stocks.json`);
+    if (!res.ok) {
+      const networkErr = `Phisix returned HTTP ${res.status}`;
+      for (const stock of stocks) {
+        results.push({ ticker: stock.ticker, price: null, currency: null, error: networkErr });
+      }
+      return results;
+    }
+    const data = await res.json();
+    allStocks = data?.stocks ?? [];
+  } catch (err) {
+    console.warn('[stock-prices] Network error fetching all stocks:', err);
+    for (const stock of stocks) {
+      results.push({ ticker: stock.ticker, price: null, currency: null, error: 'Network error' });
+    }
+    return results;
+  }
+
+  // Build lookup by uppercased symbol
+  const lookup = new Map<string, { symbol: string; price: { currency: string; amount: number } }>();
+  for (const s of allStocks) {
+    lookup.set(s.symbol.toUpperCase(), s);
+  }
+
   for (const stock of stocks) {
-    // Small delay between requests to be polite to Yahoo's servers
-    if (results.length > 0) {
-      await new Promise((r) => setTimeout(r, 500));
+    const match = lookup.get(stock.ticker.toUpperCase());
+    if (!match) {
+      results.push({ ticker: stock.ticker, price: null, currency: null, error: 'Not listed on PSE' });
+      continue;
     }
 
-    const data = await fetchStockPrice(stock.ticker);
+    const price = match.price?.amount;
+    const currency = match.price?.currency ?? 'PHP';
 
-    if (data) {
-      await updateStock({
-        id: stock.id,
-        currentPrice: data.price,
-        priceUpdatedAt: Date.now(),
-      });
-      results.push({ ticker: stock.ticker, price: data.price, currency: data.currency });
-    } else {
-      results.push({ ticker: stock.ticker, price: null, currency: null, error: 'Failed to fetch' });
+    if (typeof price !== 'number' || isNaN(price)) {
+      results.push({ ticker: stock.ticker, price: null, currency: null, error: 'Invalid price' });
+      continue;
     }
+
+    await updateStock({
+      id: stock.id,
+      currentPrice: price,
+      priceUpdatedAt: Date.now(),
+    });
+
+    results.push({ ticker: stock.ticker, price, currency });
   }
 
   return results;
