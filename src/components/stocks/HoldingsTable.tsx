@@ -35,6 +35,9 @@ export function HoldingsTable({ holdings, stocks }: HoldingsTableProps) {
       {/* ── Stocks table ── */}
       {stockRows.length > 0 && (
         <>
+          <div className="px-4 pt-4 pb-1">
+            <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Stocks ({stockRows.length})</h3>
+          </div>
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -89,7 +92,7 @@ export function HoldingsTable({ holdings, stocks }: HoldingsTableProps) {
         <>
           <div className="border-t border-zinc-200 dark:border-zinc-700" />
           <div className="px-4 pt-4 pb-1">
-            <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Funds</h3>
+            <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Funds ({fundRows.length})</h3>
           </div>
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
