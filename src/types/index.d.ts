@@ -146,6 +146,7 @@ export interface MonthYear {
 export interface Stock {
   id: string;              // uuid
   ticker: string;          // bare ticker, e.g. "BDO", "SM" (no .PS)
+  type?: 'stock' | 'fund'; // 'stock' = PSE-listed (price-tracked), 'fund' = UITF/mutual fund (manual NAVPU)
   name: string;            // full company name
   currentPrice: number | null;  // from API or manual entry
   priceUpdatedAt: number | null; // Date.now() when price was last set

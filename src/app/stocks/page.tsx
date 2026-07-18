@@ -179,7 +179,7 @@ export default function StocksPage() {
 
             {/* ── Section content ── */}
             {activeSection === 'holdings' && holdings && (
-              <HoldingsTable holdings={holdings} />
+              <HoldingsTable holdings={holdings} stocks={stocks} />
             )}
 
             {activeSection === 'transactions' && (

@@ -673,7 +673,7 @@ function StocksSection({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: StocksSe
 
   const startEdit = (stock: Stock) => {
     setEditingId(stock.id);
-    setEditValues({ ticker: stock.ticker, name: stock.name });
+    setEditValues({ ticker: stock.ticker, name: stock.name, stockType: stock.type || 'stock' });
     setAddMode(false);
     setDeleteWarning(null);
   };
@@ -681,7 +681,7 @@ function StocksSection({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: StocksSe
   const startAdd = () => {
     setAddMode(true);
     setEditingId(null);
-    setEditValues({ ticker: '', name: '' });
+    setEditValues({ ticker: '', name: '', stockType: 'stock' });
     setDeleteWarning(null);
   };
 
@@ -699,13 +699,16 @@ function StocksSection({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: StocksSe
     if (!editingId) return;
     const ticker = editValues.ticker?.trim().toUpperCase();
     const name = editValues.name?.trim();
+    const stockType = editValues.stockType || 'stock';
     if (!ticker || !name) return;
-    if (!/^[A-Z0-9]{2,8}$/.test(ticker)) {
-      setDeleteWarning('Ticker must be 2-8 uppercase letters/numbers (e.g. BDO, SM, JFC).');
+    if (stockType === 'fund' ? !/^[A-Z0-9-]{2,20}$/.test(ticker) : !/^[A-Z0-9]{2,8}$/.test(ticker)) {
+      setDeleteWarning(stockType === 'fund'
+        ? 'Fund ticker must be 2-20 uppercase letters/numbers/dashes (e.g. BPI-EQUITY).'
+        : 'Ticker must be 2-8 uppercase letters/numbers (e.g. BDO, SM, JFC).');
       return;
     }
     try {
-      await onUpdate({ id: editingId, ticker, name });
+      await onUpdate({ id: editingId, ticker, name, type: stockType as 'stock' | 'fund' });
       setEditingId(null);
       setEditValues({});
       setDeleteWarning(null);
@@ -717,9 +720,12 @@ function StocksSection({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: StocksSe
   const handleSaveAdd = async () => {
     const ticker = editValues.ticker?.trim().toUpperCase();
     const name = editValues.name?.trim();
+    const stockType = editValues.stockType || 'stock';
     if (!ticker || !name) return;
-    if (!/^[A-Z0-9]{2,8}$/.test(ticker)) {
-      setDeleteWarning('Ticker must be 2-8 uppercase letters/numbers (e.g. BDO, SM, JFC).');
+    if (stockType === 'fund' ? !/^[A-Z0-9-]{2,20}$/.test(ticker) : !/^[A-Z0-9]{2,8}$/.test(ticker)) {
+      setDeleteWarning(stockType === 'fund'
+        ? 'Fund ticker must be 2-20 uppercase letters/numbers/dashes (e.g. BPI-EQUITY).'
+        : 'Ticker must be 2-8 uppercase letters/numbers (e.g. BDO, SM, JFC).');
       return;
     }
     const duplicate = stocks.find(s => s.ticker === ticker);
@@ -728,7 +734,7 @@ function StocksSection({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: StocksSe
       return;
     }
     try {
-      await onAdd({ ticker, name, currentPrice: null, priceUpdatedAt: null, sortOrder: 0 });
+      await onAdd({ ticker, name, currentPrice: null, priceUpdatedAt: null, sortOrder: 0, type: stockType as 'stock' | 'fund' });
       setAddMode(false);
       setEditValues({});
       setDeleteWarning(null);
@@ -794,47 +800,86 @@ function StocksSection({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: StocksSe
       {/* Add form */}
       {addMode && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/50 dark:bg-blue-950/30">
+          <div className="mb-3">
+            <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
+            <div className="mt-1 flex gap-4">
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  name="stock-type-add"
+                  value="stock"
+                  checked={editValues.stockType === 'stock' || !editValues.stockType}
+                  onChange={() => setEditValues({ ...editValues, stockType: 'stock' })}
+                  className="text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-zinc-800 dark:text-zinc-200">Stock</span>
+              </label>
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  name="stock-type-add"
+                  value="fund"
+                  checked={editValues.stockType === 'fund'}
+                  onChange={() => setEditValues({ ...editValues, stockType: 'fund' })}
+                  className="text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-zinc-800 dark:text-zinc-200">Fund</span>
+              </label>
+            </div>
+          </div>
           <div className="flex flex-wrap gap-3">
             <div className="relative">
-              <Input
-                value={editValues.ticker ?? ''}
-                onChange={(e) => setEditValues({ ...editValues, ticker: e.target.value.toUpperCase() })}
-                onFocus={() => setShowTickerDropdown(true)}
-                onBlur={() => setShowTickerDropdown(false)}
-                placeholder="Ticker (e.g. BDO)"
-                className="w-28"
-                maxLength={8}
-              />
-              {showTickerDropdown && (editValues.ticker ?? '').length >= 1 && !editValues.name && (
-                <div className="absolute left-0 top-full z-10 mt-1 w-72 rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-600 dark:bg-zinc-800">
-                  {filteredPseStocks.length === 0 ? (
-                    <div className="px-3 py-2 text-sm text-zinc-400">No ticker found</div>
-                  ) : (
-                    <div className="max-h-64 divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-700">
-                      {filteredPseStocks.map(s => (
-                        <button
-                          key={s.symbol}
-                          type="button"
-                          className="flex min-h-[40px] w-full items-center px-3 py-2 text-left text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                          onMouseDown={e => e.preventDefault()}
-                          onClick={() => {
-                            setEditValues({ ...editValues, ticker: s.symbol, name: s.name });
-                            setShowTickerDropdown(false);
-                          }}
-                        >
-                          <span className="font-semibold text-zinc-900 dark:text-zinc-100">{s.symbol}</span>
-                          <span className="ml-1 text-zinc-500 dark:text-zinc-400">— {s.name}</span>
-                        </button>
-                      ))}
+              {editValues.stockType === 'fund' ? (
+                <Input
+                  value={editValues.ticker ?? ''}
+                  onChange={(e) => setEditValues({ ...editValues, ticker: e.target.value.toUpperCase() })}
+                  placeholder="Ticker (e.g. BPI-EQUITY)"
+                  className="w-36"
+                  maxLength={20}
+                />
+              ) : (
+                <>
+                  <Input
+                    value={editValues.ticker ?? ''}
+                    onChange={(e) => setEditValues({ ...editValues, ticker: e.target.value.toUpperCase() })}
+                    onFocus={() => setShowTickerDropdown(true)}
+                    onBlur={() => setShowTickerDropdown(false)}
+                    placeholder="Ticker (e.g. BDO)"
+                    className="w-28"
+                    maxLength={8}
+                  />
+                  {showTickerDropdown && (editValues.ticker ?? '').length >= 1 && !editValues.name && (
+                    <div className="absolute left-0 top-full z-10 mt-1 w-72 rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-600 dark:bg-zinc-800">
+                      {filteredPseStocks.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-zinc-400">No ticker found</div>
+                      ) : (
+                        <div className="max-h-64 divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-700">
+                          {filteredPseStocks.map(s => (
+                            <button
+                              key={s.symbol}
+                              type="button"
+                              className="flex min-h-[40px] w-full items-center px-3 py-2 text-left text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                              onMouseDown={e => e.preventDefault()}
+                              onClick={() => {
+                                setEditValues({ ...editValues, ticker: s.symbol, name: s.name });
+                                setShowTickerDropdown(false);
+                              }}
+                            >
+                              <span className="font-semibold text-zinc-900 dark:text-zinc-100">{s.symbol}</span>
+                              <span className="ml-1 text-zinc-500 dark:text-zinc-400">— {s.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
+                </>
               )}
             </div>
             <Input
               value={editValues.name ?? ''}
               onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}
-              placeholder="Company name"
+              placeholder="Company or fund name"
               className="flex-1"
             />
             <Button variant="primary" size="sm" onClick={handleSaveAdd}>Save</Button>
@@ -866,11 +911,35 @@ function StocksSection({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: StocksSe
 
                 {editingId === stock.id ? (
                   <>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1 text-xs cursor-pointer">
+                        <input
+                          type="radio"
+                          name="stock-type-edit"
+                          value="stock"
+                          checked={editValues.stockType === 'stock' || !editValues.stockType}
+                          onChange={() => setEditValues({ ...editValues, stockType: 'stock' })}
+                          className="text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-zinc-600 dark:text-zinc-400">Stock</span>
+                      </label>
+                      <label className="flex items-center gap-1 text-xs cursor-pointer">
+                        <input
+                          type="radio"
+                          name="stock-type-edit"
+                          value="fund"
+                          checked={editValues.stockType === 'fund'}
+                          onChange={() => setEditValues({ ...editValues, stockType: 'fund' })}
+                          className="text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-zinc-600 dark:text-zinc-400">Fund</span>
+                      </label>
+                    </div>
                     <Input
                       value={editValues.ticker ?? stock.ticker}
                       onChange={(e) => setEditValues({ ...editValues, ticker: e.target.value.toUpperCase() })}
                       className="w-24"
-                      maxLength={8}
+                      maxLength={editValues.stockType === 'fund' ? 20 : 8}
                     />
                     <Input
                       value={editValues.name ?? stock.name}
@@ -884,6 +953,13 @@ function StocksSection({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: StocksSe
                   <>
                     <span className="w-20 shrink-0 rounded bg-zinc-100 px-2 py-0.5 text-center font-mono text-sm font-semibold text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300">
                       {stock.ticker}
+                    </span>
+                    <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+                      (stock.type ?? 'stock') === 'fund'
+                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                        : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                    }`}>
+                      {stock.type ?? 'stock'}
                     </span>
                     <span className="flex-1 text-sm text-zinc-900 dark:text-zinc-100">{stock.name}</span>
                     {stock.currentPrice !== null && (

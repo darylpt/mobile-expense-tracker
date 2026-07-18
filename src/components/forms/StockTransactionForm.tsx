@@ -31,6 +31,19 @@ export function StockTransactionForm({ stocks, onSubmit }: StockTransactionFormP
   const [amount, setAmount] = useState('');
 
   const stockOptions = stocks.map((s) => ({ value: s.id, label: `${s.ticker} — ${s.name}` }));
+  const selectedStock = stocks.find(s => s.id === stockId);
+
+  // ponytail: funds always use by-amount entry (manual NAVPU, no PSE price)
+  const handleStockChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newId = e.target.value;
+    setStockId(newId);
+    const stock = stocks.find(s => s.id === newId);
+    if (stock?.type === 'fund') {
+      setByAmount(true);
+      setAmount('');
+      setShares('');
+    }
+  };
 
   const computedShares = useMemo(() => {
     if (!byAmount) return null;
@@ -112,7 +125,7 @@ export function StockTransactionForm({ stocks, onSubmit }: StockTransactionFormP
           options={stockOptions}
           placeholder="Select a stock"
           value={stockId}
-          onChange={(e) => setStockId(e.target.value)}
+          onChange={handleStockChange}
           required
         />
 
@@ -155,14 +168,17 @@ export function StockTransactionForm({ stocks, onSubmit }: StockTransactionFormP
         </div>
 
         {/* Enter by total amount toggle */}
-        <label className="flex items-center gap-2 cursor-pointer col-span-full">
+        <label className={`flex items-center gap-2 cursor-pointer col-span-full ${selectedStock?.type === 'fund' ? 'opacity-60' : ''}`}>
           <input
             type="checkbox"
             checked={byAmount}
+            disabled={selectedStock?.type === 'fund'}
             onChange={(e) => { setByAmount(e.target.checked); setAmount(''); setShares(''); }}
-            className="rounded text-blue-600 focus:ring-blue-500"
+            className="rounded text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
           />
-          <span className="text-sm text-zinc-600 dark:text-zinc-400">Enter by total amount</span>
+          <span className="text-sm text-zinc-600 dark:text-zinc-400">
+            {selectedStock?.type === 'fund' ? 'Enter by total amount (funds only)' : 'Enter by total amount'}
+          </span>
         </label>
 
         {/* Shares / Amount */}

@@ -8,13 +8,19 @@
 import React from 'react';
 import { formatCurrency } from '@/lib/utils';
 import type { HoldingsResult, HoldingRow } from '@/lib/holdings';
+import type { Stock } from '@/types';
 
 interface HoldingsTableProps {
   holdings: HoldingsResult;
+  stocks: Stock[];
 }
 
-export function HoldingsTable({ holdings }: HoldingsTableProps) {
+export function HoldingsTable({ holdings, stocks }: HoldingsTableProps) {
   const { holdings: rows, totalCost, totalMarketValue, totalUnrealizedGainLoss, totalUnrealizedGainLossPct, totalRealizedGainLoss, totalDividends } = holdings;
+
+  const stockMap = new Map(stocks.map(s => [s.id, s]));
+  const stockRows = rows.filter(r => stockMap.get(r.stockId)?.type !== 'fund');
+  const fundRows = rows.filter(r => stockMap.get(r.stockId)?.type === 'fund');
 
   if (rows.length === 0) {
     return (
@@ -26,53 +32,93 @@ export function HoldingsTable({ holdings }: HoldingsTableProps) {
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
-      {/* ── Desktop table ── */}
-      <div className="hidden md:block overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-zinc-200 text-left text-xs font-medium uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-              <th scope="col" className="px-4 pb-3 pt-3">Ticker</th>
-              <th scope="col" className="px-4 pb-3 pt-3 text-right">Shares</th>
-              <th scope="col" className="px-4 pb-3 pt-3 text-right">Avg Cost</th>
-              <th scope="col" className="px-4 pb-3 pt-3 text-right">Current Price</th>
-              <th scope="col" className="px-4 pb-3 pt-3 text-right">Market Value</th>
-              <th scope="col" className="px-4 pb-3 pt-3 text-right">Gain/Loss</th>
-              <th scope="col" className="px-4 pb-3 pt-3 text-right">Return</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <HoldingRowDesktop key={r.stockId} row={r} />
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t border-zinc-200 font-semibold text-zinc-900 dark:border-zinc-700 dark:text-zinc-100">
-              <td className="px-4 pb-3 pt-3 text-xs uppercase">Total</td>
-              <td className="px-4 pb-3 pt-3 text-right tabular-nums">
-                {rows.reduce((s, r) => s + r.shares, 0).toFixed(4)}
-              </td>
-              <td className="px-4 pb-3 pt-3 text-right" />
-              <td className="px-4 pb-3 pt-3 text-right" />
-              <td className="px-4 pb-3 pt-3 text-right tabular-nums">
-                {totalMarketValue !== null ? formatCurrency(totalMarketValue) : '—'}
-              </td>
-              <td className={`px-4 pb-3 pt-3 text-right tabular-nums ${gainLossClass(totalUnrealizedGainLoss)}`}>
-                {totalUnrealizedGainLoss !== null ? formatCurrency(totalUnrealizedGainLoss) : '—'}
-              </td>
-              <td className={`px-4 pb-3 pt-3 text-right tabular-nums ${gainLossClass(totalUnrealizedGainLoss)}`}>
-                {totalUnrealizedGainLossPct !== null ? `${totalUnrealizedGainLossPct >= 0 ? '+' : ''}${totalUnrealizedGainLossPct.toFixed(2)}%` : '—'}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      {/* ── Stocks table ── */}
+      {stockRows.length > 0 && (
+        <>
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 text-left text-xs font-medium uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                  <th scope="col" className="px-4 pb-3 pt-3">Ticker</th>
+                  <th scope="col" className="px-4 pb-3 pt-3 text-right">Shares</th>
+                  <th scope="col" className="px-4 pb-3 pt-3 text-right">Avg Cost</th>
+                  <th scope="col" className="px-4 pb-3 pt-3 text-right">Current Price</th>
+                  <th scope="col" className="px-4 pb-3 pt-3 text-right">Market Value</th>
+                  <th scope="col" className="px-4 pb-3 pt-3 text-right">Gain/Loss</th>
+                  <th scope="col" className="px-4 pb-3 pt-3 text-right">Return</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stockRows.map((r) => (
+                  <HoldingRowDesktop key={r.stockId} row={r} />
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-zinc-200 font-semibold text-zinc-900 dark:border-zinc-700 dark:text-zinc-100">
+                  <td className="px-4 pb-3 pt-3 text-xs uppercase">Total</td>
+                  <td className="px-4 pb-3 pt-3 text-right tabular-nums">
+                    {rows.reduce((s, r) => s + r.shares, 0).toFixed(4)}
+                  </td>
+                  <td className="px-4 pb-3 pt-3 text-right" />
+                  <td className="px-4 pb-3 pt-3 text-right" />
+                  <td className="px-4 pb-3 pt-3 text-right tabular-nums">
+                    {totalMarketValue !== null ? formatCurrency(totalMarketValue) : '—'}
+                  </td>
+                  <td className={`px-4 pb-3 pt-3 text-right tabular-nums ${gainLossClass(totalUnrealizedGainLoss)}`}>
+                    {totalUnrealizedGainLoss !== null ? formatCurrency(totalUnrealizedGainLoss) : '—'}
+                  </td>
+                  <td className={`px-4 pb-3 pt-3 text-right tabular-nums ${gainLossClass(totalUnrealizedGainLoss)}`}>
+                    {totalUnrealizedGainLossPct !== null ? `${totalUnrealizedGainLossPct >= 0 ? '+' : ''}${totalUnrealizedGainLossPct.toFixed(2)}%` : '—'}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
 
-      {/* ── Mobile cards ── */}
-      <div className="divide-y divide-zinc-100 dark:divide-zinc-700 md:hidden">
-        {rows.map((r) => (
-          <HoldingCard key={r.stockId} row={r} />
-        ))}
-      </div>
+          {/* ── Mobile cards (stock rows) ── */}
+          <div className="divide-y divide-zinc-100 dark:divide-zinc-700 md:hidden">
+            {stockRows.map((r) => (
+              <HoldingCard key={r.stockId} row={r} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ── Funds table ── */}
+      {fundRows.length > 0 && (
+        <>
+          <div className="border-t border-zinc-200 dark:border-zinc-700" />
+          <div className="px-4 pt-4 pb-1">
+            <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Funds</h3>
+          </div>
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 text-left text-xs font-medium uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                  <th scope="col" className="px-4 pb-3 pt-3">Ticker</th>
+                  <th scope="col" className="px-4 pb-3 pt-3 text-right">Shares</th>
+                  <th scope="col" className="px-4 pb-3 pt-3 text-right">Avg Cost</th>
+                  <th scope="col" className="px-4 pb-3 pt-3 text-right">Current Price</th>
+                  <th scope="col" className="px-4 pb-3 pt-3 text-right">Market Value</th>
+                  <th scope="col" className="px-4 pb-3 pt-3 text-right">Total Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fundRows.map((r) => (
+                  <FundRowDesktop key={r.stockId} row={r} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── Mobile cards (fund rows) ── */}
+          <div className="divide-y divide-zinc-100 dark:divide-zinc-700 md:hidden">
+            {fundRows.map((r) => (
+              <FundCard key={r.stockId} row={r} />
+            ))}
+          </div>
+        </>
+      )}
 
       {/* ── Summary footer (mobile + desktop) ── */}
       <div className="border-t border-zinc-200 px-4 py-4 dark:border-zinc-700">
@@ -95,6 +141,75 @@ export function HoldingsTable({ holdings }: HoldingsTableProps) {
         </div>
         <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
           Total dividends received: {formatCurrency(totalDividends)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Fund desktop row (no G/L columns) ──
+
+function FundRowDesktop({ row }: { row: HoldingRow }) {
+  return (
+    <tr className="border-b border-zinc-100 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/30">
+      <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
+        {row.ticker}
+        <span className="ml-1.5 text-xs font-normal text-zinc-400 dark:text-zinc-500">{row.name}</span>
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+        {row.shares.toFixed(4)}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+        {formatCurrency(row.avgCostPerShare)}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+        {row.currentPrice !== null ? formatCurrency(row.currentPrice) : '—'}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+        {row.marketValue !== null ? formatCurrency(row.marketValue) : '—'}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+        {formatCurrency(row.totalCost)}
+      </td>
+    </tr>
+  );
+}
+
+// ── Fund mobile card (no G/L lines) ──
+
+function FundCard({ row }: { row: HoldingRow }) {
+  return (
+    <div className="px-4 py-3">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="font-medium text-zinc-900 dark:text-zinc-100">{row.ticker}</span>
+        <span className="text-xs text-zinc-400 dark:text-zinc-500">{row.name}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div>
+          <span className="text-zinc-400 dark:text-zinc-500">Shares </span>
+          <span className="tabular-nums text-zinc-700 dark:text-zinc-300">{row.shares.toFixed(4)}</span>
+        </div>
+        <div>
+          <span className="text-zinc-400 dark:text-zinc-500">Avg </span>
+          <span className="tabular-nums text-zinc-700 dark:text-zinc-300">{formatCurrency(row.avgCostPerShare)}</span>
+        </div>
+        <div>
+          <span className="text-zinc-400 dark:text-zinc-500">Price </span>
+          <span className="tabular-nums text-zinc-700 dark:text-zinc-300">
+            {row.currentPrice !== null ? formatCurrency(row.currentPrice) : '—'}
+          </span>
+        </div>
+      </div>
+      <div className="mt-1 grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <span className="text-zinc-400 dark:text-zinc-500">Value </span>
+          <span className="tabular-nums text-zinc-700 dark:text-zinc-300">
+            {row.marketValue !== null ? formatCurrency(row.marketValue) : '—'}
+          </span>
+        </div>
+        <div>
+          <span className="text-zinc-400 dark:text-zinc-500">Cost </span>
+          <span className="tabular-nums text-zinc-700 dark:text-zinc-300">{formatCurrency(row.totalCost)}</span>
         </div>
       </div>
     </div>
