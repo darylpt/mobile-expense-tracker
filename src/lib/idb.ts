@@ -1131,6 +1131,22 @@ export async function deleteDividend(id: string): Promise<void> {
   await db.delete(STORES.DIVIDENDS, id);
 }
 
+export async function updateStockTransaction(id: string, updates: Partial<StockTransaction>): Promise<void> {
+  const db = await getDB();
+  const existing = await db.get(STORES.STOCK_TRANSACTIONS, id);
+  if (!existing) throw new Error(`Stock transaction ${id} not found`);
+  const record: StockTransaction = { ...existing, ...updates, id, updatedAt: Date.now() };
+  await db.put(STORES.STOCK_TRANSACTIONS, record);
+}
+
+export async function updateDividend(id: string, updates: Partial<Dividend>): Promise<void> {
+  const db = await getDB();
+  const existing = await db.get(STORES.DIVIDENDS, id);
+  if (!existing) throw new Error(`Dividend ${id} not found`);
+  const record: Dividend = { ...existing, ...updates, id, updatedAt: Date.now() };
+  await db.put(STORES.DIVIDENDS, record);
+}
+
 // ============================================================
 // Export / Import
 // ============================================================

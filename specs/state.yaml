@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.4.1"
+version: "0.5.0"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "complete"
-last_action: "2026-07-18 — Bugfix: dividend amount step=0.01 blocked 3-decimal values like 20.016"
+last_action: "2026-07-18 — Feature: inline edit for stock transactions and dividends"
 story_end: "2026-07-18T00:00:00Z"
 stories:
   - "stock-schema"

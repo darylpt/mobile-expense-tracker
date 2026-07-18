@@ -9,8 +9,8 @@ import { DividendLog } from '@/components/stocks/DividendLog';
 import { StockTransactionForm } from '@/components/forms/StockTransactionForm';
 import { DividendForm } from '@/components/forms/DividendForm';
 import { useStocks } from '@/hooks/useStocks';
-import { getAllStockTransactions, addStockTransaction, deleteStockTransaction } from '@/lib/idb';
-import { getAllDividends, addDividend, deleteDividend } from '@/lib/idb';
+import { getAllStockTransactions, addStockTransaction, deleteStockTransaction, updateStockTransaction } from '@/lib/idb';
+import { getAllDividends, addDividend, deleteDividend, updateDividend } from '@/lib/idb';
 import { refreshAllPrices } from '@/lib/stock-prices';
 import { computeHoldings, type HoldingsResult } from '@/lib/holdings';
 import type { StockTransaction, Dividend } from '@/types';
@@ -112,6 +112,16 @@ export default function StocksPage() {
     await reloadData();
   };
 
+  const handleUpdateTx = async (id: string, updates: Partial<StockTransaction>) => {
+    await updateStockTransaction(id, updates);
+    await reloadData();
+  };
+
+  const handleUpdateDiv = async (id: string, updates: Partial<Dividend>) => {
+    await updateDividend(id, updates);
+    await reloadData();
+  };
+
   const isLoading = stocksLoading || dataLoading;
   const hasStocks = stocks.length > 0;
 
@@ -189,6 +199,7 @@ export default function StocksPage() {
                   transactions={transactions}
                   stocks={stocks}
                   onDelete={handleDeleteTx}
+                  onUpdate={handleUpdateTx}
                 />
               </div>
             )}
@@ -210,6 +221,7 @@ export default function StocksPage() {
                   dividends={dividends}
                   stocks={stocks}
                   onDelete={handleDeleteDiv}
+                  onUpdate={handleUpdateDiv}
                 />
               </div>
             )}
