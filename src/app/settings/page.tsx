@@ -638,6 +638,38 @@ function StocksSection({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: StocksSe
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [deleteWarning, setDeleteWarning] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [pseStocks, setPseStocks] = useState<Array<{ symbol: string; name: string }>>(() => {
+    try {
+      const cached = localStorage.getItem('pse_stocks_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Date.now() - parsed.ts < 3_600_000) return parsed.data;
+      }
+    } catch { /* corrupt cache */ }
+    return [];
+  });
+  const [showTickerDropdown, setShowTickerDropdown] = useState(false);
+
+  useEffect(() => {
+    let stale = true;
+    try {
+      const cached = localStorage.getItem('pse_stocks_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Date.now() - parsed.ts < 3_600_000) stale = false;
+      }
+    } catch { /* corrupt cache */ }
+    if (!stale) return;
+
+    fetch('https://phisix-api3.appspot.com/stocks.json')
+      .then(r => r.json())
+      .then((data: { stock: Array<{ symbol: string; name: string }> }) => {
+        const mapped = data.stock.map(s => ({ symbol: s.symbol, name: s.name }));
+        setPseStocks(mapped);
+        localStorage.setItem('pse_stocks_cache', JSON.stringify({ data: mapped, ts: Date.now() }));
+      })
+      .catch(() => { /* fetch failed — dropdown won't appear */ });
+  }, []);
 
   const startEdit = (stock: Stock) => {
     setEditingId(stock.id);
@@ -736,6 +768,8 @@ function StocksSection({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: StocksSe
   };
 
   const sorted = [...stocks].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const tickerQuery = (editValues.ticker ?? '').toLowerCase();
+  const filteredPseStocks = pseStocks.filter(s => s.symbol.toLowerCase().startsWith(tickerQuery)).slice(0, 8);
 
   return (
     <section className="space-y-4">
@@ -761,13 +795,42 @@ function StocksSection({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: StocksSe
       {addMode && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/50 dark:bg-blue-950/30">
           <div className="flex flex-wrap gap-3">
-            <Input
-              value={editValues.ticker ?? ''}
-              onChange={(e) => setEditValues({ ...editValues, ticker: e.target.value.toUpperCase() })}
-              placeholder="Ticker (e.g. BDO)"
-              className="w-28"
-              maxLength={8}
-            />
+            <div className="relative">
+              <Input
+                value={editValues.ticker ?? ''}
+                onChange={(e) => setEditValues({ ...editValues, ticker: e.target.value.toUpperCase() })}
+                onFocus={() => setShowTickerDropdown(true)}
+                onBlur={() => setShowTickerDropdown(false)}
+                placeholder="Ticker (e.g. BDO)"
+                className="w-28"
+                maxLength={8}
+              />
+              {showTickerDropdown && (editValues.ticker ?? '').length >= 1 && !editValues.name && (
+                <div className="absolute left-0 top-full z-10 mt-1 w-72 rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-600 dark:bg-zinc-800">
+                  {filteredPseStocks.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-zinc-400">No ticker found</div>
+                  ) : (
+                    <div className="max-h-64 divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-700">
+                      {filteredPseStocks.map(s => (
+                        <button
+                          key={s.symbol}
+                          type="button"
+                          className="flex min-h-[40px] w-full items-center px-3 py-2 text-left text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => {
+                            setEditValues({ ...editValues, ticker: s.symbol, name: s.name });
+                            setShowTickerDropdown(false);
+                          }}
+                        >
+                          <span className="font-semibold text-zinc-900 dark:text-zinc-100">{s.symbol}</span>
+                          <span className="ml-1 text-zinc-500 dark:text-zinc-400">— {s.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <Input
               value={editValues.name ?? ''}
               onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}

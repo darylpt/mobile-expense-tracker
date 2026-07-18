@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.3.2"
+version: "0.4.0"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "complete"
-last_action: "2026-07-18 — Bugfix: switch stock prices from Yahoo Finance (dead for PH) to Phisix API"
+last_action: "2026-07-18 — Feature: PSE ticker search dropdown when adding stocks (Phisix-backed)"
 story_end: "2026-07-18T00:00:00Z"
 stories:
   - "stock-schema"
