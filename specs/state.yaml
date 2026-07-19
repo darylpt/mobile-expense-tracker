@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.11.0"
+version: "0.11.1"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
-current_story: "transactions-page-add"
-last_action: "2026-07-19 — Added Add Transaction button to Transactions page via reused EditTransactionModal"
+current_story: "balance-persistence"
+last_action: "2026-07-19 — Fixed Current balance values lost on tab switch; added last-updated date display per account"
 story_end: "2026-07-19T00:00:00Z"
 stories:
   - "stock-schema"

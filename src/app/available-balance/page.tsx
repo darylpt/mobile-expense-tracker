@@ -10,7 +10,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useTransactionContext } from '@/context/TransactionContext';
 import { calculateExpectedBalances, type ExpectedBalanceRow } from '@/lib/reconciliation';
@@ -23,8 +23,27 @@ const CASH_ACCOUNT_ID = 'cash';
 
 export default function AvailableBalancePage() {
   const { transactions, accounts, isLoading } = useTransactionContext();
-  // ponytail: ephemeral state, resets on page reload for non-Cash accounts
-  const [currentBalances, setCurrentBalances] = useState<Record<string, number>>({});
+  // Persisted to localStorage so values survive tab switches
+  const [currentBalances, setCurrentBalances] = useState<Record<string, { value: number; updatedAt: number }>>(() => {
+    try {
+      const saved = localStorage.getItem('current_balances');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed === 'object' && parsed !== null) return parsed;
+      }
+    } catch {
+      // corrupt data, start fresh
+    }
+    return {};
+  });
+  // Sync to localStorage on every change
+  useEffect(() => {
+    try {
+      localStorage.setItem('current_balances', JSON.stringify(currentBalances));
+    } catch {
+      // storage full, silently fail
+    }
+  }, [currentBalances]);
   const [cashUseDenominations, setCashUseDenominations] = useState(true);
   // ponytail: toggling plain→denomination mode abandons the plain-number value
   // (denomination grid re-mounts from IDB). Fix: write plain value back to IDB on toggle,
@@ -40,14 +59,14 @@ export default function AvailableBalancePage() {
     const num = parseFloat(value);
     setCurrentBalances((prev) => ({
       ...prev,
-      [accountId]: isNaN(num) ? 0 : num,
+      [accountId]: { value: isNaN(num) ? 0 : num, updatedAt: Date.now() },
     }));
   }, []);
 
   const handleCashTotalChange = useCallback((total: number) => {
     setCurrentBalances((prev) => ({
       ...prev,
-      [CASH_ACCOUNT_ID]: total,
+      [CASH_ACCOUNT_ID]: { value: total, updatedAt: Date.now() },
     }));
   }, []);
 
@@ -105,8 +124,9 @@ export default function AvailableBalancePage() {
                 </thead>
                 <tbody>
                   {expectedRows.map((row) => {
-                    const current = currentBalances[row.accountId] ?? 0;
+                    const current = currentBalances[row.accountId]?.value ?? 0;
                     const difference = row.expected - current;
+                    const updatedAt = currentBalances[row.accountId]?.updatedAt;
 
                     return (
                       <tr
@@ -138,6 +158,11 @@ export default function AvailableBalancePage() {
                                   className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-right text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
                                 />
                               )}
+                              {updatedAt && (
+                                <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                                  Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                </span>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => setCashUseDenominations((v) => !v)}
@@ -147,15 +172,22 @@ export default function AvailableBalancePage() {
                               </button>
                             </div>
                           ) : (
-                            <input
-                              type="number"
-                              step="any"
-                              value={current || ''}
-                              placeholder="0"
-                              onChange={(e) => handleCurrentChange(row.accountId, e.target.value)}
-                              aria-label={`Current balance for ${row.accountName}`}
-                              className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-right text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
-                            />
+                            <div className="flex flex-col items-end gap-0.5">
+                              <input
+                                type="number"
+                                step="any"
+                                value={current || ''}
+                                placeholder="0"
+                                onChange={(e) => handleCurrentChange(row.accountId, e.target.value)}
+                                aria-label={`Current balance for ${row.accountName}`}
+                                className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-right text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
+                              />
+                              {updatedAt && (
+                                <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                                  Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td
@@ -185,8 +217,9 @@ export default function AvailableBalancePage() {
         {/* Reconciliation cards — mobile */}
         <div className="space-y-3 lg:hidden">
           {expectedRows.map((row) => {
-            const current = currentBalances[row.accountId] ?? 0;
+            const current = currentBalances[row.accountId]?.value ?? 0;
             const difference = row.expected - current;
+            const updatedAt = currentBalances[row.accountId]?.updatedAt;
 
             return (
               <div
@@ -215,6 +248,11 @@ export default function AvailableBalancePage() {
                         date={getToday()}
                         onTotalChange={handleCashTotalChange}
                       />
+                      {updatedAt && (
+                        <span className="block text-right text-[10px] text-zinc-400 dark:text-zinc-500">
+                          Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      )}
                       <button
                         type="button"
                         onClick={() => setCashUseDenominations((v) => !v)}
@@ -224,29 +262,36 @@ export default function AvailableBalancePage() {
                       </button>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="shrink-0 text-zinc-500 dark:text-zinc-400">Current</span>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          step="any"
-                          value={row.accountId === CASH_ACCOUNT_ID ? current.toString() : current || ''}
-                          placeholder="0"
-                          onChange={(e) => handleCurrentChange(row.accountId, e.target.value)}
-                          aria-label={`Current balance for ${row.accountName}`}
-                          className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-right text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
-                        />
-                        {row.accountId === CASH_ACCOUNT_ID && (
-                          <button
-                            type="button"
-                            onClick={() => setCashUseDenominations((v) => !v)}
-                            className="whitespace-nowrap text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                          >
-                            Use denominations
-                          </button>
-                        )}
+                    <>
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="shrink-0 text-zinc-500 dark:text-zinc-400">Current</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            step="any"
+                            value={row.accountId === CASH_ACCOUNT_ID ? current.toString() : current || ''}
+                            placeholder="0"
+                            onChange={(e) => handleCurrentChange(row.accountId, e.target.value)}
+                            aria-label={`Current balance for ${row.accountName}`}
+                            className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-right text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
+                          />
+                          {row.accountId === CASH_ACCOUNT_ID && (
+                            <button
+                              type="button"
+                              onClick={() => setCashUseDenominations((v) => !v)}
+                              className="whitespace-nowrap text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                            >
+                              Use denominations
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                      {updatedAt && (
+                        <div className="text-right text-[10px] text-zinc-400 dark:text-zinc-500">
+                          Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {/* Divider */}
