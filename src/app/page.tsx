@@ -23,6 +23,11 @@ export default function Home() {
           <QuickAddForm />
         </section>
 
+        {/* Portfolio summary — shown when stocks exist */}
+        <section>
+          <PortfolioSummaryCard />
+        </section>
+
         {/* Summary / Dashboard — now includes accounts & breakdown tables */}
         <section>
           <MonthlySummaryCard />
@@ -31,11 +36,6 @@ export default function Home() {
         {/* Category breakdown — mobile only (desktop uses tables in MonthlySummaryCard) */}
         <section className="md:hidden">
           <CategoryBreakdown />
-        </section>
-
-        {/* Portfolio summary — shown when stocks exist */}
-        <section>
-          <PortfolioSummaryCard />
         </section>
 
       </main>
