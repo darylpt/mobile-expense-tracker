@@ -16,7 +16,7 @@ interface HoldingsTableProps {
 }
 
 export function HoldingsTable({ holdings, stocks }: HoldingsTableProps) {
-  const { holdings: rows, totalCost, totalMarketValue, totalUnrealizedGainLoss, totalUnrealizedGainLossPct, totalRealizedGainLoss, totalDividends } = holdings;
+  const { holdings: rows } = holdings;
 
   const stockMap = new Map(stocks.map(s => [s.id, s]));
   const stockRows = rows.filter(r => stockMap.get(r.stockId)?.type !== 'fund');
@@ -55,27 +55,8 @@ export function HoldingsTable({ holdings, stocks }: HoldingsTableProps) {
                 {stockRows.map((r) => (
                   <HoldingRowDesktop key={r.stockId} row={r} />
                 ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-zinc-200 font-semibold text-zinc-900 dark:border-zinc-700 dark:text-zinc-100">
-                  <td className="px-4 pb-3 pt-3 text-xs uppercase">Total</td>
-                  <td className="px-4 pb-3 pt-3 text-right tabular-nums">
-                    {rows.reduce((s, r) => s + r.shares, 0).toFixed(4)}
-                  </td>
-                  <td className="px-4 pb-3 pt-3 text-right" />
-                  <td className="px-4 pb-3 pt-3 text-right" />
-                  <td className="px-4 pb-3 pt-3 text-right tabular-nums">
-                    {totalMarketValue !== null ? formatCurrency(totalMarketValue) : '—'}
-                  </td>
-                  <td className={`px-4 pb-3 pt-3 text-right tabular-nums ${gainLossClass(totalUnrealizedGainLoss)}`}>
-                    {totalUnrealizedGainLoss !== null ? formatCurrency(totalUnrealizedGainLoss) : '—'}
-                  </td>
-                  <td className={`px-4 pb-3 pt-3 text-right tabular-nums ${gainLossClass(totalUnrealizedGainLoss)}`}>
-                    {totalUnrealizedGainLossPct !== null ? `${totalUnrealizedGainLossPct >= 0 ? '+' : ''}${totalUnrealizedGainLossPct.toFixed(2)}%` : '—'}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+               </tbody>
+             </table>
           </div>
 
           {/* ── Mobile cards (stock rows) ── */}
@@ -121,32 +102,6 @@ export function HoldingsTable({ holdings, stocks }: HoldingsTableProps) {
           </div>
         </div>
       )}
-
-      {/* ── Summary card ── */}
-      <div className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
-        <div className="px-4 py-4">
-          <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
-            <SummaryStat label="Total Cost" value={formatCurrency(totalCost)} />
-            <SummaryStat
-              label="Total Value"
-              value={totalMarketValue !== null ? formatCurrency(totalMarketValue) : '—'}
-            />
-            <SummaryStat
-              label="Unrealized G/L"
-              value={totalUnrealizedGainLoss !== null ? formatCurrency(totalUnrealizedGainLoss) : '—'}
-              className={gainLossClass(totalUnrealizedGainLoss)}
-            />
-            <SummaryStat
-              label="Realized G/L"
-              value={formatCurrency(totalRealizedGainLoss)}
-              className={gainLossClass(totalRealizedGainLoss)}
-            />
-          </div>
-          <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-            Total dividends received: {formatCurrency(totalDividends)}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -300,19 +255,6 @@ function HoldingCard({ row }: { row: HoldingRow }) {
           </span>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ── Summary stat chip ──
-
-function SummaryStat({ label, value, className }: { label: string; value: string; className?: string }) {
-  return (
-    <div>
-      <p className="text-xs text-zinc-400 dark:text-zinc-500">{label}</p>
-      <p className={`mt-0.5 text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100 ${className ?? ''}`}>
-        {value}
-      </p>
     </div>
   );
 }

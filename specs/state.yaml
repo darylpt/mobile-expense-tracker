@@ -1,5 +1,5 @@
 project: "mobile-expense-tracker"
-version: "0.12.5"
+version: "0.12.6"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "create-and-new"

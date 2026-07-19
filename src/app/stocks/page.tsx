@@ -143,9 +143,6 @@ export default function StocksPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* ── Portfolio summary card ── */}
-            <PortfolioSummaryCard />
-
             {/* ── Price refresh bar ── */}
             <div className="flex flex-wrap items-center gap-3">
               <Button
@@ -174,6 +171,9 @@ export default function StocksPage() {
                 onMoveTo={moveStockTo}
               />
             )}
+
+            {/* ── Portfolio summary card ── */}
+            <PortfolioSummaryCard />
 
             {/* ── Section tabs ── */}
             <div className="flex gap-1 border-b border-zinc-200 dark:border-zinc-700">
