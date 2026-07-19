@@ -321,25 +321,24 @@ export default function AvailableBalancePage() {
 }
 
 // ============================================================
-// CurrencyInput — editable field with formatted display
-// Shows ₱X,XXX.XX when blurred, raw number when focused.
+// CurrencyInput — number input with ₱ prefix (matches Add Transaction modal)
 // ============================================================
 
 function CurrencyInput({ value, onChange, ariaLabel }: { value: number; onChange: (v: string) => void; ariaLabel: string }) {
-  const [focused, setFocused] = useState(false);
-  const display = focused ? (isNaN(value) ? '' : value.toString()) : formatCurrency(value);
-
   return (
-    <input
-      type="text"
-      inputMode="decimal"
-      value={display}
-      onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ''))}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
-      aria-label={ariaLabel}
-      className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-right text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
-    />
+    <div className="flex items-center rounded-lg border border-zinc-300 bg-white transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:focus-within:border-blue-400 dark:focus-within:ring-blue-400/20">
+      <span className="pl-3 text-sm text-zinc-400 dark:text-zinc-500">₱</span>
+      <input
+        type="number"
+        step="any"
+        min="0"
+        placeholder="0.00"
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={ariaLabel}
+        className="w-24 bg-transparent px-2 py-1.5 text-right text-sm text-zinc-900 outline-none dark:text-zinc-100"
+      />
+    </div>
   );
 }
 
