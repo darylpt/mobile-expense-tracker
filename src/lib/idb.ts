@@ -1101,13 +1101,21 @@ export async function addStockTransaction(tx: Omit<StockTransaction, 'id' | 'cre
   const now = Date.now();
   const id = crypto.randomUUID();
   const record: StockTransaction = { ...tx, id, createdAt: now, updatedAt: now };
-  await db.add(STORES.STOCK_TRANSACTIONS, record);
+  const idbTx = db.transaction([STORES.STOCK_TRANSACTIONS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.STOCK_TRANSACTIONS).add(record);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.STOCK_TRANSACTIONS, id, 'create', record);
+  await idbTx.done;
+  requestSync();
   return id;
 }
 
 export async function deleteStockTransaction(id: string): Promise<void> {
   const db = await getDB();
-  await db.delete(STORES.STOCK_TRANSACTIONS, id);
+  const idbTx = db.transaction([STORES.STOCK_TRANSACTIONS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.STOCK_TRANSACTIONS).delete(id);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.STOCK_TRANSACTIONS, id, 'delete', null);
+  await idbTx.done;
+  requestSync();
 }
 
 // ── Dividend CRUD ───────────────────────────────────────────
@@ -1122,13 +1130,21 @@ export async function addDividend(d: Omit<Dividend, 'id' | 'createdAt' | 'update
   const now = Date.now();
   const id = crypto.randomUUID();
   const record: Dividend = { ...d, id, createdAt: now, updatedAt: now };
-  await db.add(STORES.DIVIDENDS, record);
+  const idbTx = db.transaction([STORES.DIVIDENDS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.DIVIDENDS).add(record);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.DIVIDENDS, id, 'create', record);
+  await idbTx.done;
+  requestSync();
   return id;
 }
 
 export async function deleteDividend(id: string): Promise<void> {
   const db = await getDB();
-  await db.delete(STORES.DIVIDENDS, id);
+  const idbTx = db.transaction([STORES.DIVIDENDS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.DIVIDENDS).delete(id);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.DIVIDENDS, id, 'delete', null);
+  await idbTx.done;
+  requestSync();
 }
 
 export async function updateStockTransaction(id: string, updates: Partial<StockTransaction>): Promise<void> {
@@ -1136,7 +1152,11 @@ export async function updateStockTransaction(id: string, updates: Partial<StockT
   const existing = await db.get(STORES.STOCK_TRANSACTIONS, id);
   if (!existing) throw new Error(`Stock transaction ${id} not found`);
   const record: StockTransaction = { ...existing, ...updates, id, updatedAt: Date.now() };
-  await db.put(STORES.STOCK_TRANSACTIONS, record);
+  const idbTx = db.transaction([STORES.STOCK_TRANSACTIONS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.STOCK_TRANSACTIONS).put(record);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.STOCK_TRANSACTIONS, id, 'update', record);
+  await idbTx.done;
+  requestSync();
 }
 
 export async function updateDividend(id: string, updates: Partial<Dividend>): Promise<void> {
@@ -1144,7 +1164,11 @@ export async function updateDividend(id: string, updates: Partial<Dividend>): Pr
   const existing = await db.get(STORES.DIVIDENDS, id);
   if (!existing) throw new Error(`Dividend ${id} not found`);
   const record: Dividend = { ...existing, ...updates, id, updatedAt: Date.now() };
-  await db.put(STORES.DIVIDENDS, record);
+  const idbTx = db.transaction([STORES.DIVIDENDS, STORES.SYNC_QUEUE], 'readwrite');
+  await idbTx.objectStore(STORES.DIVIDENDS).put(record);
+  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.DIVIDENDS, id, 'update', record);
+  await idbTx.done;
+  requestSync();
 }
 
 // ============================================================
