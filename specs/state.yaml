@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.12.0"
+version: "0.12.1"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "create-and-new"
-last_action: "2026-07-19 — Added Create & New button to Add Transaction modal (saves + resets form for next entry)"
+last_action: "2026-07-19 — Made Add Transaction modal buttons visually distinct (Cancel: ghost, Create & New: secondary, Add: primary)"
 story_end: "2026-07-19T00:00:00Z"
 stories:
   - "stock-schema"

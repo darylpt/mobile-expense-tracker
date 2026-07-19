@@ -265,7 +265,7 @@ export function EditTransactionModal({ transaction, onClose, mode = 'edit' }: Ed
 
         {/* Action buttons */}
         <div className="mt-4 flex items-center justify-end gap-3">
-          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </Button>
           {mode === 'create' && (
