@@ -43,7 +43,8 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
     >
       <head>
-        {/* Apple-specific PWA meta tags */}
+        {/* PWA full-screen meta tags */}
+        <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta
           name="apple-mobile-web-app-status-bar-style"
