@@ -384,6 +384,8 @@ Yahoo Finance v8 (unofficial API). PH stocks → `.PS` suffix. Fetch on button p
 
 6 tabs: Summary \| Transactions \| Balance \| Payout \| **Stocks** \| Settings
 
+Stocks is an **optional tab** — toggleable in Settings → Tab Visibility alongside Balances and Payout.
+
 ## 14. What's Left
 
 - **Dividend → expense tracker integration** — auto-create income transactions from dividend records (deferred — separate tracking layer for now)

@@ -125,7 +125,7 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
 
   // ponytail: localStorage for tab preferences — simple, no schema, no IndexedDB migration
   // Listens for `storage` event so same-page toggles in Settings take effect immediately
-  const [tabPrefs, setTabPrefs] = useState({ showBalances: true, showPayout: true, showStocks: true });
+  const [tabPrefs, setTabPrefs] = useState({ showBalances: false, showPayout: false, showStocks: false });
   useEffect(() => {
     const read = () => {
       try {

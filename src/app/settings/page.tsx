@@ -1026,9 +1026,9 @@ function TabVisibilitySection() {
   const [prefs, setPrefs] = useState(() => {
     try {
       const stored = localStorage.getItem('tab_prefs');
-      if (stored) return { showBalances: true, showPayout: true, ...JSON.parse(stored) };
+      if (stored) return { showBalances: false, showPayout: false, showStocks: false, ...JSON.parse(stored) };
     } catch { /* ignore */ }
-    return { showBalances: true, showPayout: true };
+    return { showBalances: false, showPayout: false, showStocks: false };
   });
 
   const toggle = (key: string) => {
@@ -1056,6 +1056,11 @@ function TabVisibilitySection() {
           label="Payout"
           checked={prefs.showPayout}
           onChange={() => toggle('showPayout')}
+        />
+        <ToggleRow
+          label="Stocks"
+          checked={prefs.showStocks}
+          onChange={() => toggle('showStocks')}
         />
       </div>
     </section>

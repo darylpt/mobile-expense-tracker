@@ -138,7 +138,7 @@ does **not** create ledger transactions.
 **Accounts:** inline add/edit/delete with delete-blocked-if-in-use checks,
 drag-and-drop reordering. **Categories:** grouped by type (Income/Expense/Transfer),
 same CRUD + reorder. Same-name categories allowed across types.
-**Tab Visibility:** toggle Balances/Payout tabs on/off. **Cloud Sync:** sync
+**Tab Visibility:** toggle Balances/Payout/Stocks tabs on/off. **Cloud Sync:** sync
 status, last sync time, Sync Now, Re-sync All buttons. **Sign out** (visible
 when authenticated). **Backup & Restore:** export all data as JSON, export
 transactions as CSV, import from JSON or CSV (Google Sheets format).
