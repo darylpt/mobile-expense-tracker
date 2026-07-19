@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.11.3"
+version: "0.12.0"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
-current_story: "balance-sort-order"
-last_action: "2026-07-19 — Fixed Balances table to respect account sortOrder from Settings (was sorting alphabetically)"
+current_story: "create-and-new"
+last_action: "2026-07-19 — Added Create & New button to Add Transaction modal (saves + resets form for next entry)"
 story_end: "2026-07-19T00:00:00Z"
 stories:
   - "stock-schema"

@@ -29,6 +29,8 @@ interface EditTransactionModalProps {
 // EditTransactionModal Component
 // ============================================================
 
+const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 export function EditTransactionModal({ transaction, onClose, mode = 'edit' }: EditTransactionModalProps) {
   const { updateTransaction, addTransaction } = useTransactions();
   const { categories } = useCategories();
@@ -66,9 +68,7 @@ export function EditTransactionModal({ transaction, onClose, mode = 'edit' }: Ed
     if (!modal) return;
 
     // Focus the first focusable element inside the modal
-    const focusableSelector =
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-    const firstFocusable = modal.querySelector<HTMLElement>(focusableSelector);
+    const firstFocusable = modal.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
     firstFocusable?.focus();
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -78,7 +78,7 @@ export function EditTransactionModal({ transaction, onClose, mode = 'edit' }: Ed
       }
 
       if (e.key === 'Tab') {
-        const focusables = modal.querySelectorAll<HTMLElement>(focusableSelector);
+        const focusables = modal.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
         if (focusables.length === 0) return;
 
         const first = focusables[0];
@@ -172,6 +172,46 @@ export function EditTransactionModal({ transaction, onClose, mode = 'edit' }: Ed
     }
   };
 
+  // Save current entry and reset form for another (create mode only)
+  const handleCreateAndNew = async () => {
+    if (mode !== 'create') return;
+    setError(null);
+
+    const validationError = validateTransactionForm(form);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    const amountNum = parseFloat(form.amount);
+    setIsSubmitting(true);
+    try {
+      await addTransaction({
+        amount: amountNum,
+        date: form.date,
+        type: form.type,
+        category: form.category,
+        fromAccount: form.fromAccount || null,
+        toAccount: form.toAccount || null,
+        description: form.description.trim() || undefined,
+      });
+      setForm({ amount: '', date: '', type: 'expense' as const, category: '', fromAccount: '', toAccount: '', description: '' });
+      setError(null);
+      // Focus the first input after reset
+      requestAnimationFrame(() => {
+        const modal = modalRef.current;
+        if (!modal) return;
+        const firstFocusable = modal.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+        firstFocusable?.focus();
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save transaction';
+      setError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Close on backdrop click (not on modal body click)
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
@@ -225,9 +265,14 @@ export function EditTransactionModal({ transaction, onClose, mode = 'edit' }: Ed
 
         {/* Action buttons */}
         <div className="mt-4 flex items-center justify-end gap-3">
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </Button>
+          {mode === 'create' && (
+            <Button variant="secondary" isLoading={isSubmitting} onClick={handleCreateAndNew}>
+              Create &amp; New
+            </Button>
+          )}
           <Button variant="primary" isLoading={isSubmitting} onClick={handleSave}>
             {mode === 'create' ? 'Add Transaction' : 'Save Changes'}
           </Button>
