@@ -22,14 +22,15 @@ import type { Transaction } from '@/types';
 interface EditTransactionModalProps {
   transaction: Transaction | null;
   onClose: () => void;
+  mode?: 'edit' | 'create';
 }
 
 // ============================================================
 // EditTransactionModal Component
 // ============================================================
 
-export function EditTransactionModal({ transaction, onClose }: EditTransactionModalProps) {
-  const { updateTransaction } = useTransactions();
+export function EditTransactionModal({ transaction, onClose, mode = 'edit' }: EditTransactionModalProps) {
+  const { updateTransaction, addTransaction } = useTransactions();
   const { categories } = useCategories();
   const { accounts } = useAccounts();
 
@@ -59,7 +60,7 @@ export function EditTransactionModal({ transaction, onClose }: EditTransactionMo
 
   // Focus trap + Escape key handler
   useEffect(() => {
-    if (!transaction) return;
+    if (!transaction && mode !== 'create') return;
 
     const modal = modalRef.current;
     if (!modal) return;
@@ -126,7 +127,7 @@ export function EditTransactionModal({ transaction, onClose }: EditTransactionMo
 
   // Validate and save
   const handleSave = async () => {
-    if (!transaction) return;
+    if (!transaction && mode !== 'create') return;
     setError(null);
 
     const validationError = validateTransactionForm(form);
@@ -138,20 +139,33 @@ export function EditTransactionModal({ transaction, onClose }: EditTransactionMo
     const amountNum = parseFloat(form.amount);
     setIsSubmitting(true);
     try {
-      await updateTransaction({
-        ...transaction,
-        amount: amountNum,
-        date: form.date,
-        type: form.type,
-        category: form.category,
-        fromAccount: form.fromAccount || null,
-        toAccount: form.toAccount || null,
-        description: form.description.trim() || undefined,
-        updatedAt: Date.now(),
-      });
+      if (mode === 'create') {
+        await addTransaction({
+          amount: amountNum,
+          date: form.date,
+          type: form.type,
+          category: form.category,
+          fromAccount: form.fromAccount || null,
+          toAccount: form.toAccount || null,
+          description: form.description.trim() || undefined,
+        });
+      } else {
+        if (!transaction) return; // TS safety — guarded above for edit mode
+        await updateTransaction({
+          ...transaction,
+          amount: amountNum,
+          date: form.date,
+          type: form.type,
+          category: form.category,
+          fromAccount: form.fromAccount || null,
+          toAccount: form.toAccount || null,
+          description: form.description.trim() || undefined,
+          updatedAt: Date.now(),
+        });
+      }
       onClose();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to update transaction';
+      const message = err instanceof Error ? err.message : 'Failed to save transaction';
       setError(message);
     } finally {
       setIsSubmitting(false);
@@ -165,11 +179,11 @@ export function EditTransactionModal({ transaction, onClose }: EditTransactionMo
     }
   };
 
-  if (!transaction) return null;
+  if (!transaction && mode !== 'create') return null;
 
   return createPortal(
     <div
-      key={transaction.id}
+      key={transaction?.id ?? 'create-transaction-modal'}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={handleBackdropClick}
     >
@@ -197,7 +211,7 @@ export function EditTransactionModal({ transaction, onClose }: EditTransactionMo
           id="edit-transaction-heading"
           className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-100"
         >
-          Edit Transaction
+          {mode === 'create' ? 'Add Transaction' : 'Edit Transaction'}
         </h2>
 
         {/* Form fields */}
@@ -215,7 +229,7 @@ export function EditTransactionModal({ transaction, onClose }: EditTransactionMo
             Cancel
           </Button>
           <Button variant="primary" isLoading={isSubmitting} onClick={handleSave}>
-            Save Changes
+            {mode === 'create' ? 'Add Transaction' : 'Save Changes'}
           </Button>
         </div>
       </div>

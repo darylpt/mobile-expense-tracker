@@ -25,6 +25,7 @@ export function TransactionList() {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   // ==================================================================
   // URL search param helpers
@@ -316,9 +317,14 @@ export function TransactionList() {
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
-      <h2 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100 lg:hidden">
-        Transactions
-      </h2>
+      <div className="mb-4 flex items-center justify-between lg:hidden">
+        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+          Transactions
+        </h2>
+        <Button variant="primary" size="sm" onClick={() => setShowAddModal(true)}>
+          + Add
+        </Button>
+      </div>
 
       {ctx.error && (
         <div className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400">
@@ -344,6 +350,9 @@ export function TransactionList() {
           </span>
         </h2>
         <div className="flex items-center gap-2">
+          <Button variant="primary" size="sm" onClick={() => setShowAddModal(true)} className="whitespace-nowrap">
+            + Add
+          </Button>
           <button onClick={goToPrevMonth} className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200" aria-label="Previous month">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
@@ -932,7 +941,17 @@ export function TransactionList() {
       <EditTransactionModal
         transaction={editingTx}
         onClose={() => setEditingTx(null)}
+        mode="edit"
       />
+
+      {/* Add transaction modal */}
+      {showAddModal && (
+        <EditTransactionModal
+          transaction={null}
+          mode="create"
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
     </div>
   );
 }
