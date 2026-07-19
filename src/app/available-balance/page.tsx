@@ -148,14 +148,10 @@ export default function AvailableBalancePage() {
                                   onTotalChange={handleCashTotalChange}
                                 />
                               ) : (
-                                <input
-                                  type="number"
-                                  step="any"
-                                  value={current.toString()}
-                                  placeholder="0"
-                                  onChange={(e) => handleCurrentChange(row.accountId, e.target.value)}
-                                  aria-label="Current balance for Cash"
-                                  className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-right text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
+                                <CurrencyInput
+                                  value={current}
+                                  onChange={(v) => handleCurrentChange(row.accountId, v)}
+                                  ariaLabel="Current balance for Cash"
                                 />
                               )}
                               {updatedAt && (
@@ -173,14 +169,10 @@ export default function AvailableBalancePage() {
                             </div>
                           ) : (
                             <div className="flex flex-col items-end gap-0.5">
-                              <input
-                                type="number"
-                                step="any"
-                                value={current || ''}
-                                placeholder="0"
-                                onChange={(e) => handleCurrentChange(row.accountId, e.target.value)}
-                                aria-label={`Current balance for ${row.accountName}`}
-                                className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-right text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
+                              <CurrencyInput
+                                value={current}
+                                onChange={(v) => handleCurrentChange(row.accountId, v)}
+                                ariaLabel={`Current balance for ${row.accountName}`}
                               />
                               {updatedAt && (
                                 <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
@@ -266,14 +258,10 @@ export default function AvailableBalancePage() {
                       <div className="flex items-center justify-between gap-3 text-sm">
                         <span className="shrink-0 text-zinc-500 dark:text-zinc-400">Current</span>
                         <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            step="any"
-                            value={row.accountId === CASH_ACCOUNT_ID ? current.toString() : current || ''}
-                            placeholder="0"
-                            onChange={(e) => handleCurrentChange(row.accountId, e.target.value)}
-                            aria-label={`Current balance for ${row.accountName}`}
-                            className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-right text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
+                          <CurrencyInput
+                            value={current}
+                            onChange={(v) => handleCurrentChange(row.accountId, v)}
+                            ariaLabel={`Current balance for ${row.accountName}`}
                           />
                           {row.accountId === CASH_ACCOUNT_ID && (
                             <button
@@ -329,6 +317,29 @@ export default function AvailableBalancePage() {
         </p>
       </main>
     </div>
+  );
+}
+
+// ============================================================
+// CurrencyInput — editable field with formatted display
+// Shows ₱X,XXX.XX when blurred, raw number when focused.
+// ============================================================
+
+function CurrencyInput({ value, onChange, ariaLabel }: { value: number; onChange: (v: string) => void; ariaLabel: string }) {
+  const [focused, setFocused] = useState(false);
+  const display = focused ? (isNaN(value) ? '' : value.toString()) : formatCurrency(value);
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={display}
+      onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ''))}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      aria-label={ariaLabel}
+      className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-right text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
+    />
   );
 }
 

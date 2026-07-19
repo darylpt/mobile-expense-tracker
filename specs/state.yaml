@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.11.1"
+version: "0.11.2"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
-current_story: "balance-persistence"
-last_action: "2026-07-19 — Fixed Current balance values lost on tab switch; added last-updated date display per account"
+current_story: "balance-currency-format"
+last_action: "2026-07-19 — Formatted Current balance inputs with ₱ prefix and thousand separators (matching Expected column)"
 story_end: "2026-07-19T00:00:00Z"
 stories:
   - "stock-schema"
