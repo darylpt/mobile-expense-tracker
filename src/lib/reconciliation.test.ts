@@ -144,11 +144,15 @@ describe('calculateExpectedBalances', () => {
     expect(result.find((r) => r.accountId === 'gotyme')!.expected).toBe(10000);
   });
 
-  it('returns rows sorted by account name', () => {
-    const result = calculateExpectedBalances([], ACCOUNTS, '2026-06-28');
-    const names = result.map((r) => r.accountName);
-    const sorted = [...names].sort((a, b) => a.localeCompare(b));
-    expect(names).toEqual(sorted);
+  it('returns rows sorted by sortOrder', () => {
+    const accounts: Account[] = [
+      { id: 'b', name: 'Zulu', startingBalance: 0, sortOrder: 2, createdAt: 0, updatedAt: 0 },
+      { id: 'a', name: 'Alpha', startingBalance: 0, sortOrder: 1, createdAt: 0, updatedAt: 0 },
+      { id: 'c', name: 'Beta', startingBalance: 0, sortOrder: 3, createdAt: 0, updatedAt: 0 },
+    ];
+    const result = calculateExpectedBalances([], accounts, '2026-06-28');
+    // Should be Alpha (sortOrder 1), Zulu (2), Beta (3) — not alphabetical
+    expect(result.map((r) => r.accountId)).toEqual(['a', 'b', 'c']);
   });
 
   it('includes ALL accounts even if they have zero expected balance', () => {

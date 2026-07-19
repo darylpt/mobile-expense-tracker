@@ -24,7 +24,7 @@ export interface ExpectedBalanceRow {
  *   - Transfer: `fromAccount` gets −amount, `toAccount` gets +amount
  *
  * Every account is included (even zero-balance) so the user can reconcile.
- * Results sorted by account name.
+ * Results sorted by account sortOrder (same order as Settings).
  */
 export function calculateExpectedBalances(
   allTransactions: Transaction[],
@@ -61,12 +61,15 @@ export function calculateExpectedBalances(
     }
   }
 
+  // Build sort map from accounts (respect Settings reorder)
+  const sortMap = new Map(accounts.map((a) => [a.id, a.sortOrder]));
+
   const rows: ExpectedBalanceRow[] = accounts.map((acct) => ({
     accountId: acct.id,
     accountName: acct.name,
     expected: acct.startingBalance + (netFlow.get(acct.id) ?? 0),
   }));
 
-  rows.sort((a, b) => a.accountName.localeCompare(b.accountName));
+  rows.sort((a, b) => (sortMap.get(a.accountId) ?? 0) - (sortMap.get(b.accountId) ?? 0));
   return rows;
 }

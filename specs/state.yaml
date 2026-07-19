@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.11.2"
+version: "0.11.3"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
-current_story: "balance-currency-format"
-last_action: "2026-07-19 — Formatted Current balance inputs with ₱ prefix and thousand separators (matching Expected column)"
+current_story: "balance-sort-order"
+last_action: "2026-07-19 — Fixed Balances table to respect account sortOrder from Settings (was sorting alphabetically)"
 story_end: "2026-07-19T00:00:00Z"
 stories:
   - "stock-schema"
