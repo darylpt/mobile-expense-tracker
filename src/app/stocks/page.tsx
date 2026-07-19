@@ -8,6 +8,7 @@ import { TransactionLog } from '@/components/stocks/TransactionLog';
 import { DividendLog } from '@/components/stocks/DividendLog';
 import { StockTransactionForm } from '@/components/forms/StockTransactionForm';
 import { DividendForm } from '@/components/forms/DividendForm';
+import { PortfolioSummaryCard } from '@/components/summary/PortfolioSummaryCard';
 import { useStocks } from '@/hooks/useStocks';
 import { getAllStockTransactions, addStockTransaction, deleteStockTransaction, updateStockTransaction } from '@/lib/idb';
 import { getAllDividends, addDividend, deleteDividend, updateDividend } from '@/lib/idb';
@@ -142,6 +143,9 @@ export default function StocksPage() {
           </div>
         ) : (
           <div className="space-y-6">
+            {/* ── Portfolio summary card ── */}
+            <PortfolioSummaryCard />
+
             {/* ── Price refresh bar ── */}
             <div className="flex flex-wrap items-center gap-3">
               <Button
