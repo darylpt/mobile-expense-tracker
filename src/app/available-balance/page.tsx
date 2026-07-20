@@ -24,7 +24,7 @@ const CASH_ACCOUNT_ID = 'cash';
 export default function AvailableBalancePage() {
   const { transactions, accounts, isLoading } = useTransactionContext();
   // Persisted to localStorage so values survive tab switches
-  const [currentBalances, setCurrentBalances] = useState<Record<string, { value: number; updatedAt: number }>>(() => {
+  const [currentBalances, setCurrentBalances] = useState<Record<string, { value: number; updatedAt: number; useSubSplit?: boolean; subSplits?: { id: string; label: string; amount: number }[] }>>(() => {
     try {
       const saved = localStorage.getItem('current_balances');
       if (saved) {
@@ -68,6 +68,81 @@ export default function AvailableBalancePage() {
       ...prev,
       [CASH_ACCOUNT_ID]: { value: total, updatedAt: Date.now() },
     }));
+  }, []);
+
+  // ponytail: sub-split handlers — stable via useCallback, functional updater avoids closure deps
+  const handleSubSplitToggle = useCallback((accountId: string) => {
+    setCurrentBalances((prev) => {
+      const entry = prev[accountId];
+      if (entry?.useSubSplit) {
+        // Toggle OFF: keep last computed value, strip sub-split data
+        const { useSubSplit, subSplits, ...rest } = entry;
+        return { ...prev, [accountId]: rest };
+      }
+      // Toggle ON: initialize with 3 empty rows, value will be recomputed
+      return {
+        ...prev,
+        [accountId]: {
+          ...(entry ?? { value: 0, updatedAt: Date.now() }),
+          value: 0,
+          updatedAt: Date.now(),
+          useSubSplit: true,
+          subSplits: [
+            { id: crypto.randomUUID(), label: '', amount: 0 },
+            { id: crypto.randomUUID(), label: '', amount: 0 },
+            { id: crypto.randomUUID(), label: '', amount: 0 },
+          ],
+        },
+      };
+    });
+  }, []);
+
+  const handleSubSplitChange = useCallback(
+    (accountId: string, subId: string, field: 'label' | 'amount', value: string) => {
+      setCurrentBalances((prev) => {
+        const entry = prev[accountId];
+        if (!entry?.useSubSplit || !entry.subSplits) return prev;
+        const newSubSplits = entry.subSplits.map((s) =>
+          s.id === subId
+            ? { ...s, [field]: field === 'amount' ? parseFloat(value) || 0 : value }
+            : s
+        );
+        const sum = newSubSplits.reduce((a, s) => a + s.amount, 0);
+        return {
+          ...prev,
+          [accountId]: { ...entry, subSplits: newSubSplits, value: sum, updatedAt: Date.now() },
+        };
+      });
+    },
+    []
+  );
+
+  const handleAddSubSplit = useCallback((accountId: string) => {
+    setCurrentBalances((prev) => {
+      const entry = prev[accountId];
+      if (!entry?.useSubSplit) return prev;
+      return {
+        ...prev,
+        [accountId]: {
+          ...entry,
+          subSplits: [...(entry.subSplits ?? []), { id: crypto.randomUUID(), label: '', amount: 0 }],
+          updatedAt: Date.now(),
+        },
+      };
+    });
+  }, []);
+
+  const handleRemoveSubSplit = useCallback((accountId: string, subId: string) => {
+    setCurrentBalances((prev) => {
+      const entry = prev[accountId];
+      if (!entry?.useSubSplit || !entry.subSplits) return prev;
+      const newSubSplits = entry.subSplits.filter((s) => s.id !== subId);
+      const sum = newSubSplits.reduce((a, s) => a + s.amount, 0);
+      return {
+        ...prev,
+        [accountId]: { ...entry, subSplits: newSubSplits, value: sum, updatedAt: Date.now() },
+      };
+    });
   }, []);
 
   if (isLoading) {
@@ -147,40 +222,118 @@ export default function AvailableBalancePage() {
                                   date={getToday()}
                                   onTotalChange={handleCashTotalChange}
                                 />
-                              ) : (
-                                <CurrencyInput
-                                  value={current}
-                                  onChange={(v) => handleCurrentChange(row.accountId, v)}
-                                  ariaLabel="Current balance for Cash"
-                                />
-                              )}
-                              {updatedAt && (
-                                <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
-                                  Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                </span>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => setCashUseDenominations((v) => !v)}
-                                className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                              >
-                                {cashUseDenominations ? 'Enter total instead' : 'Use denominations'}
-                              </button>
+                              ) : (() => {
+                                const cashEntry = currentBalances[row.accountId];
+                                const cashIsSubSplit = cashEntry?.useSubSplit;
+                                return (
+                                  <>
+                                    <div className="flex items-center gap-2">
+                                      {cashIsSubSplit ? (
+                                        <span className="tabular-nums font-medium text-zinc-900 dark:text-zinc-100">
+                                          {formatCurrency(cashEntry!.value)}
+                                        </span>
+                                      ) : (
+                                        <CurrencyInput
+                                          value={current}
+                                          onChange={(v) => handleCurrentChange(row.accountId, v)}
+                                          ariaLabel="Current balance for Cash"
+                                        />
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSubSplitToggle(row.accountId)}
+                                        className={`flex h-9 w-9 items-center justify-center rounded-md transition-colors ${
+                                          cashIsSubSplit
+                                            ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                                            : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-300'
+                                        }`}
+                                        aria-label={cashIsSubSplit ? 'Disable sub-split' : 'Enable sub-split'}
+                                      >
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                                          <path d="M3.196 12.87l-.825.483a.75.75 0 000 1.294l7.25 4.25a.75.75 0 00.758 0l7.25-4.25a.75.75 0 000-1.294l-.825-.484-5.666 3.322a2.25 2.25 0 01-2.276 0L3.196 12.87z" />
+                                          <path d="M3.196 8.87l-.825.483a.75.75 0 000 1.294l7.25 4.25a.75.75 0 00.758 0l7.25-4.25a.75.75 0 000-1.294l-.825-.484-5.666 3.322a2.25 2.25 0 01-2.276 0L3.196 8.87z" />
+                                          <path d="M10.38 1.103a.75.75 0 00-.76 0l-7.25 4.25a.75.75 0 000 1.294l7.25 4.25a.75.75 0 00.76 0l7.25-4.25a.75.75 0 000-1.294l-7.25-4.25z" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                    {cashIsSubSplit && (
+                                      <SubSplitEditor
+                                        subSplits={cashEntry!.subSplits!}
+                                        onSubSplitChange={(subId, field, val) =>
+                                          handleSubSplitChange(row.accountId, subId, field, val)
+                                        }
+                                        onAddSubSplit={() => handleAddSubSplit(row.accountId)}
+                                        onRemoveSubSplit={(subId) => handleRemoveSubSplit(row.accountId, subId)}
+                                      />
+                                    )}
+                                    {updatedAt && (
+                                      <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                                        Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => setCashUseDenominations((v) => !v)}
+                                      className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                                    >
+                                      {cashUseDenominations ? 'Enter total instead' : 'Use denominations'}
+                                    </button>
+                                  </>
+                                );
+                              })()}
                             </div>
-                          ) : (
-                            <div className="flex flex-col items-end gap-0.5">
-                              <CurrencyInput
-                                value={current}
-                                onChange={(v) => handleCurrentChange(row.accountId, v)}
-                                ariaLabel={`Current balance for ${row.accountName}`}
-                              />
-                              {updatedAt && (
-                                <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
-                                  Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          ) : (() => {
+                            const ncEntry = currentBalances[row.accountId];
+                            const ncIsSubSplit = ncEntry?.useSubSplit;
+                            return (
+                              <div className="flex flex-col items-end gap-0.5">
+                                <div className="flex items-center gap-2">
+                                  {ncIsSubSplit ? (
+                                    <span className="tabular-nums font-medium text-zinc-900 dark:text-zinc-100">
+                                      {formatCurrency(ncEntry!.value)}
+                                    </span>
+                                  ) : (
+                                    <CurrencyInput
+                                      value={current}
+                                      onChange={(v) => handleCurrentChange(row.accountId, v)}
+                                      ariaLabel={`Current balance for ${row.accountName}`}
+                                    />
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSubSplitToggle(row.accountId)}
+                                    className={`flex h-9 w-9 items-center justify-center rounded-md transition-colors ${
+                                      ncIsSubSplit
+                                        ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                                        : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-300'
+                                    }`}
+                                    aria-label={ncIsSubSplit ? 'Disable sub-split' : 'Enable sub-split'}
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                                      <path d="M3.196 12.87l-.825.483a.75.75 0 000 1.294l7.25 4.25a.75.75 0 00.758 0l7.25-4.25a.75.75 0 000-1.294l-.825-.484-5.666 3.322a2.25 2.25 0 01-2.276 0L3.196 12.87z" />
+                                      <path d="M3.196 8.87l-.825.483a.75.75 0 000 1.294l7.25 4.25a.75.75 0 00.758 0l7.25-4.25a.75.75 0 000-1.294l-.825-.484-5.666 3.322a2.25 2.25 0 01-2.276 0L3.196 8.87z" />
+                                      <path d="M10.38 1.103a.75.75 0 00-.76 0l-7.25 4.25a.75.75 0 000 1.294l7.25 4.25a.75.75 0 00.76 0l7.25-4.25a.75.75 0 000-1.294l-7.25-4.25z" />
+                                    </svg>
+                                  </button>
+                                </div>
+                                {ncIsSubSplit && (
+                                  <SubSplitEditor
+                                    subSplits={ncEntry!.subSplits!}
+                                    onSubSplitChange={(subId, field, val) =>
+                                      handleSubSplitChange(row.accountId, subId, field, val)
+                                    }
+                                    onAddSubSplit={() => handleAddSubSplit(row.accountId)}
+                                    onRemoveSubSplit={(subId) => handleRemoveSubSplit(row.accountId, subId)}
+                                  />
+                                )}
+                                {updatedAt && (
+                                  <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                                    Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td
                           className={`py-3 pr-4 pl-2 text-right tabular-nums font-medium sm:pr-6 ${
@@ -258,11 +411,39 @@ export default function AvailableBalancePage() {
                       <div className="flex items-center justify-between gap-3 text-sm">
                         <span className="shrink-0 text-zinc-500 dark:text-zinc-400">Current</span>
                         <div className="flex items-center gap-2">
-                          <CurrencyInput
-                            value={current}
-                            onChange={(v) => handleCurrentChange(row.accountId, v)}
-                            ariaLabel={`Current balance for ${row.accountName}`}
-                          />
+                          {(() => {
+                            const mEntry = currentBalances[row.accountId];
+                            const mIsSubSplit = mEntry?.useSubSplit;
+                            return mIsSubSplit ? (
+                              <span className="tabular-nums font-medium text-zinc-900 dark:text-zinc-100">
+                                {formatCurrency(mEntry!.value)}
+                              </span>
+                            ) : (
+                              <CurrencyInput
+                                value={current}
+                                onChange={(v) => handleCurrentChange(row.accountId, v)}
+                                ariaLabel={`Current balance for ${row.accountName}`}
+                              />
+                            );
+                          })()}
+                          <button
+                            type="button"
+                            onClick={() => handleSubSplitToggle(row.accountId)}
+                            className={`flex h-9 w-9 items-center justify-center rounded-md transition-colors ${
+                              currentBalances[row.accountId]?.useSubSplit
+                                ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                                : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-300'
+                            }`}
+                            aria-label={
+                              currentBalances[row.accountId]?.useSubSplit ? 'Disable sub-split' : 'Enable sub-split'
+                            }
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                              <path d="M3.196 12.87l-.825.483a.75.75 0 000 1.294l7.25 4.25a.75.75 0 00.758 0l7.25-4.25a.75.75 0 000-1.294l-.825-.484-5.666 3.322a2.25 2.25 0 01-2.276 0L3.196 12.87z" />
+                              <path d="M3.196 8.87l-.825.483a.75.75 0 000 1.294l7.25 4.25a.75.75 0 00.758 0l7.25-4.25a.75.75 0 000-1.294l-.825-.484-5.666 3.322a2.25 2.25 0 01-2.276 0L3.196 8.87z" />
+                              <path d="M10.38 1.103a.75.75 0 00-.76 0l-7.25 4.25a.75.75 0 000 1.294l7.25 4.25a.75.75 0 00.76 0l7.25-4.25a.75.75 0 000-1.294l-7.25-4.25z" />
+                            </svg>
+                          </button>
                           {row.accountId === CASH_ACCOUNT_ID && (
                             <button
                               type="button"
@@ -274,6 +455,18 @@ export default function AvailableBalancePage() {
                           )}
                         </div>
                       </div>
+                      {currentBalances[row.accountId]?.useSubSplit && (
+                        <div className="mt-1.5">
+                          <SubSplitEditor
+                            subSplits={currentBalances[row.accountId]!.subSplits!}
+                            onSubSplitChange={(subId, field, val) =>
+                              handleSubSplitChange(row.accountId, subId, field, val)
+                            }
+                            onAddSubSplit={() => handleAddSubSplit(row.accountId)}
+                            onRemoveSubSplit={(subId) => handleRemoveSubSplit(row.accountId, subId)}
+                          />
+                        </div>
+                      )}
                       {updatedAt && (
                         <div className="text-right text-[10px] text-zinc-400 dark:text-zinc-500">
                           Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -359,6 +552,69 @@ function LoadingSkeleton() {
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SubSplitEditor — inline editor for sub-split rows
+// ============================================================
+
+function SubSplitEditor({
+  subSplits,
+  onSubSplitChange,
+  onAddSubSplit,
+  onRemoveSubSplit,
+}: {
+  subSplits: { id: string; label: string; amount: number }[];
+  onSubSplitChange: (subId: string, field: 'label' | 'amount', value: string) => void;
+  onAddSubSplit: () => void;
+  onRemoveSubSplit: (subId: string) => void;
+}) {
+  return (
+    <div className="mt-2 w-full space-y-1.5">
+      {subSplits.map((ss) => (
+        <div key={ss.id} className="flex items-center gap-1.5">
+          <input
+            type="text"
+            placeholder="Label"
+            aria-label="Sub-split label"
+            value={ss.label}
+            onChange={(e) => onSubSplitChange(ss.id, 'label', e.target.value)}
+            className="w-20 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400"
+          />
+          <div className="flex items-center rounded-lg border border-zinc-300 bg-white transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:focus-within:border-blue-400 dark:focus-within:ring-blue-400/20">
+            <span className="pl-2 text-xs text-zinc-400 dark:text-zinc-500">₱</span>
+            <input
+              type="number"
+              step="any"
+              min="0"
+              placeholder="0.00"
+              aria-label="Sub-split amount"
+              value={ss.amount || ''}
+              onChange={(e) => onSubSplitChange(ss.id, 'amount', e.target.value)}
+              className="w-16 bg-transparent px-1.5 py-1 text-right text-xs text-zinc-900 outline-none dark:text-zinc-100"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => onRemoveSubSplit(ss.id)}
+            className="flex h-5 w-5 items-center justify-center rounded text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+            aria-label="Remove sub-split"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+            </svg>
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={onAddSubSplit}
+        className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+      >
+        + Add sub-split
+      </button>
     </div>
   );
 }

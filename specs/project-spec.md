@@ -196,7 +196,7 @@ Invite-only model — no sign-up form. Users invited via Supabase dashboard.
 | `/login` | Magic-link sign-in | Invite-only, disabled when Supabase not configured |
 | `/` | Summary / Dashboard | Month nav, 4 metric cards, Accounts table, Income/Expenses breakdowns with budget targets, Category/Account breakdown charts. Mobile: grouped CategoryBreakdown with progress bars, collapsed Quick Add |
 | `/transactions` | Transaction List | URL search-param filtering (type, month, account, category, text), date grouping toggle, pagination (50/page), edit modal, inline delete. Mobile: card layout. Desktop: table layout |
-| `/available-balance` | Cash Reconciliation | Per-account expected balance to user-selected date. Cash: denomination breakdown grid (₱1000→₱1). Difference column. Read-only |
+| `/available-balance` | Cash Reconciliation | Per-account expected balance to user-selected date. **Current** field computable from sub-split amounts (toggle via layers icon). Cash: denomination breakdown grid (₱1000→₱1). Difference column. Read-only |
 | `/payout` | Payout Calculator | Standalone calc (no ledger writes). Percentage/flat-amount mode. Savings sub-split. Saves to IDB |
 | `/settings` | Settings | Accounts CRUD + reorder, Categories CRUD + reorder, Tab Visibility toggle, Cloud Sync controls, Sign-out, Backup & Restore (JSON export/import, CSV export, CSV import from Google Sheets) |
 
