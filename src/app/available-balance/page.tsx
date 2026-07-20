@@ -613,7 +613,7 @@ function SubSplitEditor({
 }) {
   return (
     <div className="mt-2 space-y-1.5">
-      {subSplits.map((ss, i) => (
+      {subSplits.map((ss) => (
         <div key={ss.id} className="flex items-center justify-end gap-1.5">
           <input
             type="text"
@@ -646,20 +646,17 @@ function SubSplitEditor({
               <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
             </svg>
           </button>
-          {i === subSplits.length - 1 && (
-            <button
-              type="button"
-              onClick={onAddSubSplit}
-              className="flex h-5 w-5 items-center justify-center rounded text-blue-500 hover:bg-blue-50 hover:text-blue-700 dark:text-blue-400 dark:hover:bg-blue-900/20 dark:hover:text-blue-300"
-              aria-label="Add sub-split"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-              </svg>
-            </button>
-          )}
         </div>
       ))}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={onAddSubSplit}
+          className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+        >
+          + Add sub-split
+        </button>
+      </div>
     </div>
   );
 }
