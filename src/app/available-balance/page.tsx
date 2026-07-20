@@ -572,9 +572,9 @@ function SubSplitEditor({
   onRemoveSubSplit: (subId: string) => void;
 }) {
   return (
-    <div className="mt-2 w-full space-y-1.5">
+    <div className="mt-2 space-y-1.5">
       {subSplits.map((ss) => (
-        <div key={ss.id} className="flex items-center gap-1.5">
+        <div key={ss.id} className="flex items-center justify-end gap-1.5">
           <input
             type="text"
             placeholder="Label"
