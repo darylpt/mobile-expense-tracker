@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.14.0"
+version: "0.14.1"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "balance-subsplit"
-last_action: "2026-07-20 — Moved Available Balance Current field from localStorage to IndexedDB (new balanceSnapshots store, DB v12), enabling cross-device sync via Supabase outbox. Added migration to IDB + pull from allStores."
+last_action: "2026-07-21 — Pushed migration 005 to Supabase (balance_snapshots table). Made Add Sub-split button inline with subsplit fields in Available Balance screen (icon button in last row)."
 story_end: "2026-07-20T00:00:00Z"
 stories:
   - "stock-schema"
