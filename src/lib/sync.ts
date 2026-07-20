@@ -301,6 +301,9 @@ export async function backgroundSync(): Promise<void> {
 
     // Record successful sync time for UI display
     localStorage.setItem('last_sync_time', Date.now().toString());
+
+    // Notify pages that fresh remote data is available in IDB
+    window.dispatchEvent(new CustomEvent('sync-complete'));
   } catch (err) {
     console.error('[Sync] background sync failed:', err);
     // ponytail: silent failure. User's UI is intact from IDB cache.

@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.14.1"
+version: "0.14.2"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "balance-subsplit"
-last_action: "2026-07-21 — Pushed migration 005 to Supabase (balance_snapshots table). Made Add Sub-split button inline with subsplit fields in Available Balance screen (icon button in last row)."
+last_action: "2026-07-21 — Added sync-complete custom event dispatched after backgroundSync pull. Stocks page now listens and auto-refreshes holdings/transactions/dividends from IDB after remote sync."
 story_end: "2026-07-20T00:00:00Z"
 stories:
   - "stock-schema"

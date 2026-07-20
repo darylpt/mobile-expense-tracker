@@ -67,6 +67,16 @@ export default function StocksPage() {
     setHoldings(result);
   }, [stocks]);
 
+  // Reload from IDB after a background sync pulls fresh remote data
+  useEffect(() => {
+    const handler = () => {
+      refreshStocks();
+      reloadData();
+    };
+    window.addEventListener('sync-complete', handler);
+    return () => window.removeEventListener('sync-complete', handler);
+  }, [refreshStocks, reloadData]);
+
   const handleRefreshPrices = async () => {
     setRefreshing(true);
     setPriceMsg(null);
