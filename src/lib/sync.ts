@@ -45,6 +45,9 @@ const FIELD_MAP: Record<string, string> = {
   stockId: 'stock_id',
   pricePerShare: 'price_per_share',
   sharesReceived: 'shares_received',
+  accountId: 'account_id',
+  useSubSplit: 'use_sub_split',
+  subSplits: 'sub_splits',
 };
 
 /** Reverse map: snake_case → camelCase */
@@ -285,6 +288,7 @@ export async function backgroundSync(): Promise<void> {
       STORES.CASH_DENOMINATIONS,
       STORES.PAYOUTS,
       STORES.BUDGET_TARGETS,
+      STORES.BALANCE_SNAPSHOTS,
       STORES.STOCKS,
       STORES.STOCK_TRANSACTIONS,
       STORES.DIVIDENDS,
@@ -325,6 +329,7 @@ function storeNameToTable(storeName: string): string {
     stocks: 'stocks',
     stockTransactions: 'stock_transactions',
     dividends: 'dividends',
+    balanceSnapshots: 'balance_snapshots',
   };
   return map[storeName] ?? storeName;
 }

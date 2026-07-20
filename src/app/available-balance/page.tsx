@@ -11,6 +11,7 @@
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { getBalanceSnapshots, upsertBalanceSnapshot } from '@/lib/idb';
 import Link from 'next/link';
 import { useTransactionContext } from '@/context/TransactionContext';
 import { calculateExpectedBalances, type ExpectedBalanceRow } from '@/lib/reconciliation';
@@ -23,27 +24,66 @@ const CASH_ACCOUNT_ID = 'cash';
 
 export default function AvailableBalancePage() {
   const { transactions, accounts, isLoading } = useTransactionContext();
-  // Persisted to localStorage so values survive tab switches
+  // Persisted to IndexedDB so values sync across devices via Supabase
   const [currentBalances, setCurrentBalances] = useState<Record<string, { value: number; updatedAt: number; useSubSplit?: boolean; subSplits?: { id: string; label: string; amount: number }[] }>>(() => {
-    try {
-      const saved = localStorage.getItem('current_balances');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (typeof parsed === 'object' && parsed !== null) return parsed;
-      }
-    } catch {
-      // corrupt data, start fresh
-    }
+    // Will be populated in useEffect below
     return {};
   });
-  // Sync to localStorage on every change
+  const [loaded, setLoaded] = useState(false);
+
+  // One-time migration from localStorage + load from IDB
   useEffect(() => {
-    try {
-      localStorage.setItem('current_balances', JSON.stringify(currentBalances));
-    } catch {
-      // storage full, silently fail
+    let cancelled = false;
+    (async () => {
+      // First, migrate any old localStorage data into IDB
+      try {
+        const saved = localStorage.getItem('current_balances');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (typeof parsed === 'object' && parsed !== null) {
+            for (const [accountId, entry] of Object.entries(parsed) as [string, { value: number; updatedAt: number; useSubSplit?: boolean; subSplits?: { id: string; label: string; amount: number }[] }][]) {
+              if (entry && typeof entry.value === 'number') {
+                await upsertBalanceSnapshot(accountId, {
+                  value: entry.value,
+                  useSubSplit: entry.useSubSplit,
+                  subSplits: entry.subSplits,
+                });
+              }
+            }
+          }
+          // Clear localStorage after successful migration
+          localStorage.removeItem('current_balances');
+        }
+      } catch {
+        // migration failed, will try again next mount
+      }
+
+      // Load from IDB
+      try {
+        const loaded = await getBalanceSnapshots();
+        if (!cancelled) {
+          setCurrentBalances(loaded);
+          setLoaded(true);
+        }
+      } catch {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Persist to IDB on every change (for sync across devices)
+  useEffect(() => {
+    if (!loaded) return; // don't write during initial load
+    // ponytail: upsert all — the overhead is tiny for < 10 accounts
+    for (const [accountId, entry] of Object.entries(currentBalances)) {
+      upsertBalanceSnapshot(accountId, {
+        value: entry.value,
+        useSubSplit: entry.useSubSplit,
+        subSplits: entry.subSplits,
+      }).catch(() => {}); // fire-and-forget, best-effort persistence
     }
-  }, [currentBalances]);
+  }, [currentBalances, loaded]);
   const [cashUseDenominations, setCashUseDenominations] = useState(true);
   // ponytail: toggling plain→denomination mode abandons the plain-number value
   // (denomination grid re-mounts from IDB). Fix: write plain value back to IDB on toggle,

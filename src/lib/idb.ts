@@ -5,7 +5,7 @@
 // ============================================================
 
 import { openDB, type IDBPDatabase, type IDBPObjectStore } from 'idb';
-import type { Transaction, Account, Category, CashDenomination, Payout, BudgetTarget, Stock, StockTransaction, Dividend } from '@/types';
+import type { Transaction, Account, Category, CashDenomination, Payout, BudgetTarget, Stock, StockTransaction, Dividend, BalanceSnapshot } from '@/types';
 import { DB_NAME, DB_VERSION, STORES } from './constants';
 import { generateId } from './utils';
 import { parseCsv, type ParsedCsv } from './csv-import';
@@ -104,6 +104,13 @@ export interface ExpenseTrackerDB {
     value: Dividend;
     indexes: { stockId: string; date: string; type: string; };
   };
+  [STORES.BALANCE_SNAPSHOTS]: {
+    key: string;
+    value: BalanceSnapshot;
+    indexes: {
+      accountId: string;
+    };
+  };
 }
 
 /** Singleton database instance */
@@ -188,6 +195,12 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
         dStore.createIndex('stockId', 'stockId', { unique: false });
         dStore.createIndex('date', 'date', { unique: false });
         dStore.createIndex('type', 'type', { unique: false });
+      }
+
+      // ── New store added in v12 (balance snapshots for sync) ──
+      if (!db.objectStoreNames.contains(STORES.BALANCE_SNAPSHOTS)) {
+        const bsStore = db.createObjectStore(STORES.BALANCE_SNAPSHOTS, { keyPath: 'id' });
+        bsStore.createIndex('accountId', 'accountId', { unique: false });
       }
 
       // ── Migration: v5 → v6 (category + account sortOrder) ──
@@ -805,6 +818,55 @@ export async function deleteCashDenominationsByDate(date: string): Promise<void>
     await cursor.delete();
     cursor = await cursor.continue();
   }
+  await tx.done;
+  requestSync();
+}
+
+// ============================================================
+// Balance Snapshot CRUD
+// ============================================================
+
+/**
+ * Get all balance snapshots from IDB.
+ * Returns a map of accountId → snapshot data for easy lookup.
+ */
+export async function getBalanceSnapshots(): Promise<Record<string, { value: number; updatedAt: number; useSubSplit?: boolean; subSplits?: { id: string; label: string; amount: number }[] }>> {
+  const db = await getDB();
+  const all = await db.getAll(STORES.BALANCE_SNAPSHOTS);
+  const result: Record<string, { value: number; updatedAt: number; useSubSplit?: boolean; subSplits?: { id: string; label: string; amount: number }[] }> = {};
+  for (const snap of all) {
+    result[snap.accountId] = {
+      value: snap.value,
+      updatedAt: snap.updatedAt,
+      useSubSplit: snap.useSubSplit,
+      subSplits: snap.subSplits,
+    };
+  }
+  return result;
+}
+
+/**
+ * Upsert a balance snapshot for an account.
+ * Uses accountId as the record id (one snapshot per account).
+ * Enqueues sync entry for cross-device sync.
+ */
+export async function upsertBalanceSnapshot(accountId: string, data: { value: number; useSubSplit?: boolean; subSplits?: { id: string; label: string; amount: number }[] }): Promise<void> {
+  const db = await getDB();
+  const now = Date.now();
+  const existing = await db.get(STORES.BALANCE_SNAPSHOTS, accountId);
+  const snapshot: BalanceSnapshot = {
+    id: accountId,
+    accountId,
+    value: data.value,
+    updatedAt: now,
+    useSubSplit: data.useSubSplit ?? false,
+    subSplits: data.subSplits ?? [],
+    createdAt: existing?.createdAt ?? now,
+  };
+  const operation: SyncOperation = existing ? 'update' : 'create';
+  const tx = db.transaction([STORES.BALANCE_SNAPSHOTS, STORES.SYNC_QUEUE], 'readwrite');
+  await tx.objectStore(STORES.BALANCE_SNAPSHOTS).put(snapshot);
+  enqueueSyncEntryInTx(tx.objectStore(STORES.SYNC_QUEUE), STORES.BALANCE_SNAPSHOTS, accountId, operation, snapshot);
   await tx.done;
   requestSync();
 }

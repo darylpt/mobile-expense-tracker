@@ -135,6 +135,18 @@ export interface BudgetTarget {
   updatedAt: number;
 }
 
+/** A per-account current balance snapshot (syncable via Supabase) */
+export interface BalanceSnapshot {
+  id: string;           // = accountId (one snapshot per account)
+  accountId: string;    // redundant with id but kept for query consistency
+  value: number;
+  updatedAt: number;
+  useSubSplit?: boolean;
+  subSplits?: { id: string; label: string; amount: number }[];
+  userId?: string;      // for sync
+  createdAt: number;
+}
+
 /** The current month/year selection for the summary view */
 export interface MonthYear {
   /** 0-indexed month (0 = January, 11 = December) */
