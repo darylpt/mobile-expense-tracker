@@ -1,10 +1,10 @@
 project: "mobile-expense-tracker"
-version: "0.14.2"
+version: "0.15.0"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
-current_story: "balance-subsplit"
-last_action: "2026-07-21 — Added sync-complete custom event dispatched after backgroundSync pull. Stocks page now listens and auto-refreshes holdings/transactions/dividends from IDB after remote sync."
-story_end: "2026-07-20T00:00:00Z"
+current_story: "dividend-expansion"
+last_action: "2026-07-25 — Expanded Dividend model with per-share fields (exDate, payDate, qty, rate, fee, dividendYield). Added IDB v13 migration to preserve legacy data. Updated DividendForm, DividendLog, holdings compute to use qty×rate−fee net calculation."
+story_end: "2026-07-25T00:00:00Z"
 stories:
   - "stock-schema"
   - "stock-crud"
@@ -13,10 +13,11 @@ stories:
   - "stock-dashboard"
   - "stock-tests"
   - "stock-supabase-sync"
+  - "dividend-expansion"
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
-  tests_passing: 91
+  tests_passing: 109
   eslint_errors: 0
   eslint_warnings: 5
   ts_errors: 0

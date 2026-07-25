@@ -20,9 +20,13 @@ interface DividendFormProps {
 
 export function DividendForm({ stocks, onSubmit }: DividendFormProps) {
   const [stockId, setStockId] = useState('');
-  const [date, setDate] = useState(getToday());
+  const [qty, setQty] = useState('');
+  const [rate, setRate] = useState('');
+  const [exDate, setExDate] = useState(getToday());
+  const [payDate, setPayDate] = useState(getToday());
+  const [fee, setFee] = useState('');
+  const [dividendYield, setDividendYield] = useState('');
   const [type, setType] = useState<'cash' | 'stock'>('cash');
-  const [amount, setAmount] = useState('');
   const [sharesReceived, setSharesReceived] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -35,9 +39,18 @@ export function DividendForm({ stocks, onSubmit }: DividendFormProps) {
     setError(null);
 
     if (!stockId) { setError('Please select a stock.'); return; }
-    if (!date) { setError('Please select a date.'); return; }
-    const amt = parseFloat(amount);
-    if (isNaN(amt) || amt <= 0) { setError('Amount must be a positive number.'); return; }
+
+    const qtyNum = parseFloat(qty);
+    if (isNaN(qtyNum) || qtyNum <= 0) { setError('Qty must be a positive number.'); return; }
+
+    const rateNum = parseFloat(rate);
+    if (isNaN(rateNum) || rateNum <= 0) { setError('Rate per share must be a positive number.'); return; }
+
+    if (!exDate) { setError('Please select an ex-dividend date.'); return; }
+    if (!payDate) { setError('Please select a payment date.'); return; }
+
+    const feeNum = parseFloat(fee) || 0;
+    const yieldNum = dividendYield ? parseFloat(dividendYield) : null;
 
     let shares: number | null = null;
     if (type === 'stock') {
@@ -53,9 +66,14 @@ export function DividendForm({ stocks, onSubmit }: DividendFormProps) {
     try {
       await onSubmit({
         stockId,
-        date,
+        exDate,
+        payDate,
         type,
-        amount: amt,
+        qty: qtyNum,
+        rate: rateNum,
+        amount: qtyNum * rateNum,
+        fee: feeNum,
+        dividendYield: yieldNum,
         sharesReceived: shares,
         notes: notes.trim() || null,
       });
@@ -82,13 +100,70 @@ export function DividendForm({ stocks, onSubmit }: DividendFormProps) {
           required
         />
 
-        {/* Date */}
+        {/* Qty */}
         <Input
-          label="Date"
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
+          label="Qty (Shares)"
+          type="number"
+          step="any"
+          min="0"
+          placeholder="e.g. 1000"
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
           required
+        />
+
+        {/* Rate */}
+        <Input
+          label="Rate per Share"
+          type="number"
+          step="any"
+          min="0"
+          placeholder="0.00"
+          value={rate}
+          onChange={(e) => setRate(e.target.value)}
+          leading={<span>₱</span>}
+          required
+        />
+
+        {/* Ex-Date */}
+        <Input
+          label="Ex-Date"
+          type="date"
+          value={exDate}
+          onChange={(e) => setExDate(e.target.value)}
+          required
+        />
+
+        {/* Pay Date */}
+        <Input
+          label="Payment Date"
+          type="date"
+          value={payDate}
+          onChange={(e) => setPayDate(e.target.value)}
+          required
+        />
+
+        {/* Fee */}
+        <Input
+          label="Fee (Tax)"
+          type="number"
+          step="any"
+          min="0"
+          placeholder="0.00"
+          value={fee}
+          onChange={(e) => setFee(e.target.value)}
+          leading={<span>₱</span>}
+        />
+
+        {/* Yield */}
+        <Input
+          label="Yield % (optional)"
+          type="number"
+          step="any"
+          min="0"
+          placeholder="e.g. 5.2"
+          value={dividendYield}
+          onChange={(e) => setDividendYield(e.target.value)}
         />
 
         {/* Type — radio toggle */}
@@ -119,19 +194,6 @@ export function DividendForm({ stocks, onSubmit }: DividendFormProps) {
             </label>
           </div>
         </div>
-
-        {/* Amount */}
-        <Input
-          label="Amount"
-          type="number"
-          step="any"
-          min="0"
-          placeholder="0.00"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          leading={<span>₱</span>}
-          required
-        />
 
         {/* Shares Received — only for stock dividends */}
         {type === 'stock' && (

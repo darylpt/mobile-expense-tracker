@@ -184,12 +184,17 @@ export interface StockTransaction {
 
 /** A dividend record for a stock */
 export interface Dividend {
-  id: string;              // uuid
-  stockId: string;         // -> Stock.id
-  date: string;            // ISO date "YYYY-MM-DD"
+  id: string;                     // uuid
+  stockId: string;                // -> Stock.id
+  exDate: string;                 // ex-dividend date "YYYY-MM-DD"
+  payDate: string;                // payment date "YYYY-MM-DD"
   type: 'cash' | 'stock';
-  amount: number;          // cash amount received, or value of stock dividend
-  sharesReceived?: number | null;  // only for stock dividends
+  qty: number;                    // shares held at dividend time
+  rate: number;                   // per-share dividend rate (PHP)
+  amount: number;                 // gross amount (= qty × rate for new records; kept for legacy backward compat)
+  fee: number;                    // withholding tax / deductions (PHP)
+  dividendYield?: number | null;  // optional user-entered yield percentage
+  sharesReceived?: number | null; // only for stock dividends
   notes?: string | null;
   createdAt: number;
   updatedAt: number;

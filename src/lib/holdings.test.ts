@@ -67,16 +67,24 @@ function sell(
 
 function div(
   stockId: string,
-  date: string,
+  exDate: string,
   amount: number,
   type: 'cash' | 'stock' = 'cash',
+  opts?: { qty?: number; rate?: number; payDate?: string; fee?: number; dividendYield?: number },
 ): Dividend {
+  const qty = opts?.qty ?? 0;
+  const rate = opts?.rate ?? 0;
   return {
     id: crypto.randomUUID(),
     stockId,
-    date,
+    exDate,
+    payDate: opts?.payDate ?? exDate,
     type,
-    amount,
+    qty,
+    rate,
+    amount: qty > 0 ? qty * rate : amount,
+    fee: opts?.fee ?? 0,
+    dividendYield: opts?.dividendYield ?? null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -184,16 +192,27 @@ describe('computeHoldings', () => {
     expect(result.holdings).toHaveLength(0);
   });
 
-  it('sums total dividends', () => {
+  it('sums total dividends (net of fees) with legacy and qty×rate paths', () => {
     const stocks = [makeStock()];
     const txs: StockTransaction[] = [];
     const dividends = [
-      div('stock-1', '2026-03-15', 500),
-      div('stock-1', '2026-06-15', 750),
+      div('stock-1', '2026-03-15', 500),                                   // legacy: qty=0, uses amount directly
+      div('stock-1', '2026-06-15', 750, 'cash', { qty: 150, rate: 5 }),   // qty×rate = 750
     ];
     const result = computeHoldings(stocks, txs, dividends);
 
     expect(result.totalDividends).toBe(1250);
+  });
+
+  it('handles dividend fees', () => {
+    const stocks = [makeStock()];
+    const txs: StockTransaction[] = [];
+    const dividends = [
+      div('stock-1', '2026-03-15', 500, 'cash', { qty: 100, rate: 5, fee: 50 }),  // gross=500, net=450
+    ];
+    const result = computeHoldings(stocks, txs, dividends);
+
+    expect(result.totalDividends).toBe(450);
   });
 
   it('handles multiple stocks independently', () => {

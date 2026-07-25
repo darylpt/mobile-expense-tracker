@@ -83,10 +83,11 @@ export function computeHoldings(
     }
   }
 
-  // Total dividends
+  // Total dividends (net: qty × rate − fee, with legacy fallback to flat amount)
   let totalDividends = 0;
   for (const d of dividends) {
-    totalDividends += d.amount;
+    const gross = d.qty > 0 ? d.qty * d.rate : d.amount;
+    totalDividends += gross - d.fee;
   }
 
   // Build holding rows

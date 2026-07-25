@@ -102,7 +102,7 @@ export interface ExpenseTrackerDB {
   [STORES.DIVIDENDS]: {
     key: string;
     value: Dividend;
-    indexes: { stockId: string; date: string; type: string; };
+    indexes: { stockId: string; exDate: string; payDate: string; type: string; };
   };
   [STORES.BALANCE_SNAPSHOTS]: {
     key: string;
@@ -193,7 +193,8 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
       if (!db.objectStoreNames.contains(STORES.DIVIDENDS)) {
         const dStore = db.createObjectStore(STORES.DIVIDENDS, { keyPath: 'id' });
         dStore.createIndex('stockId', 'stockId', { unique: false });
-        dStore.createIndex('date', 'date', { unique: false });
+        dStore.createIndex('exDate', 'exDate', { unique: false });
+        dStore.createIndex('payDate', 'payDate', { unique: false });
         dStore.createIndex('type', 'type', { unique: false });
       }
 
@@ -322,6 +323,44 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
           // Keep the old `account` field for backward compat
           cursor.update({ ...record, ...updates });
           cursor = await cursor.continue();
+        }
+      }
+
+      // ── Migration: v12 → v13 (dividend schema expansion) ──
+      if (oldVersion < 13 && db.objectStoreNames.contains(STORES.DIVIDENDS)) {
+        const oldStore = transaction.objectStore(STORES.DIVIDENDS);
+        const oldRecords: Record<string, unknown>[] = [];
+        let cursor = await oldStore.openCursor();
+        while (cursor) {
+          oldRecords.push(cursor.value as Record<string, unknown>);
+          cursor = await cursor.continue();
+        }
+
+        db.deleteObjectStore(STORES.DIVIDENDS);
+        const dStore = db.createObjectStore(STORES.DIVIDENDS, { keyPath: 'id' });
+        dStore.createIndex('stockId', 'stockId', { unique: false });
+        dStore.createIndex('exDate', 'exDate', { unique: false });
+        dStore.createIndex('payDate', 'payDate', { unique: false });
+        dStore.createIndex('type', 'type', { unique: false });
+
+        for (const old of oldRecords) {
+          const oldDiv = old as Record<string, unknown>;
+          await dStore.put({
+            id: oldDiv.id as string,
+            stockId: oldDiv.stockId as string,
+            exDate: (oldDiv.date as string) ?? '',
+            payDate: (oldDiv.date as string) ?? '',
+            type: (oldDiv.type as 'cash' | 'stock') ?? 'cash',
+            qty: 0,
+            rate: 0,
+            amount: (oldDiv.amount as number) ?? 0,
+            fee: 0,
+            dividendYield: null,
+            sharesReceived: (oldDiv.sharesReceived as number | null) ?? null,
+            notes: (oldDiv.notes as string | null) ?? null,
+            createdAt: (oldDiv.createdAt as number) ?? Date.now(),
+            updatedAt: (oldDiv.updatedAt as number) ?? Date.now(),
+          });
         }
       }
 
