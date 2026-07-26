@@ -1,7 +1,7 @@
 # Unified Project Spec — mobile-expense-tracker v2.0
 
 > Merged from 12 individual spec files. Single source of truth.
-> Compiled: 2026-07-13. Status: all Phase 1 features done. Phase 2 deferred.
+> Compiled: 2026-07-26. Status: all Phase 1 and Phase 2 features done.
 
 ---
 
@@ -31,7 +31,7 @@ A **local-first personal finance PWA** that replaces a Google Sheets budget trac
 
 ## 3. Data Model
 
-### 3.1 IndexedDB Stores (7 total)
+### 3.1 IndexedDB Stores (10 total)
 
 | Store | Key | Purpose |
 |---|---|---|
@@ -41,9 +41,13 @@ A **local-first personal finance PWA** that replaces a Google Sheets budget trac
 | `cashDenominations` | UUID | Per-date snapshots of cash on hand by denomination |
 | `payouts` | UUID | Saved payout calculations |
 | `budgetTargets` | UUID | Per-category planned amounts (global default or per-month override) |
+| `balanceSnapshots` | accountId | Per-account current balance snapshot (synced across devices) |
+| `stocks` | UUID | Stock tickers tracked in portfolio |
+| `stockTransactions` | UUID | Buy/sell transaction log |
+| `dividends` | UUID | Dividend records (cash and stock) |
 | `syncQueue` | auto-increment | Pending outbound sync entries (FIFO by monotonic counter) |
 
-**DB version:** 10 (current). Migrations v2→v10 handled in `idb.ts` upgrade callback.
+**DB version:** 13 (current). Migrations v2→v13 handled in `idb.ts` upgrade callback.
 
 ### 3.2 Transaction Record
 
@@ -274,7 +278,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence |
 
-**42/42 unit tests passing. 0 ESLint errors, 0 TS errors.**
+**109/109 unit tests passing. 0 ESLint errors, 0 TS errors.**
 
 ---
 
@@ -306,9 +310,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 
 ### Deferred
 
-| Spec | Status |
-|---|---|
-| Phase 2 — Stock Portfolio Tracker | ✅ 6 stories, 19 tests, 90 total |
+*None currently.*
 
 ---
 
@@ -328,7 +330,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 
 ## 13. Stock Portfolio Tracker (✅ Phase 2 Complete)
 
-### 13.1 Data Model (3 new IDB stores — v11)
+### 13.1 Data Model (4 new IDB stores — v11→v13)
 
 **`stocks`** — tickers tracked:
 
@@ -336,6 +338,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 |---|---|---|
 | id | uuid | |
 | ticker | string | Bare ticker, no `.PS` (e.g. `"BDO"`, `"SM"`) |
+| type | `'stock'` \| `'fund'` \| null | `stock` = PSE-listed/price-tracked, `fund` = UITF/manual NAVPU |
 | name | string | Full company name |
 | currentPrice | number \| null | From API or manual entry |
 | priceUpdatedAt | number \| null | |
@@ -355,29 +358,40 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | fees | number (default 0) |
 | totalAmount | number |
 | notes | string \| null |
+| createdAt, updatedAt | number | |
 
-**`dividends`** — dividend log:
+**`dividends`** — dividend log (v13 expanded):
 
-| Field | Type |
-|---|---|
-| id | uuid |
-| stockId | uuid |
-| date | ISO date |
-| type | `'cash'` \| `'stock'` |
-| amount | number |
-| sharesReceived | number \| null |
-| notes | string \| null |
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid | |
+| stockId | uuid | → Stock.id |
+| exDate | string | Ex-dividend date "YYYY-MM-DD" |
+| payDate | string | Payment date "YYYY-MM-DD" |
+| type | `'cash'` \| `'stock'` | |
+| qty | number | Shares held at dividend time |
+| rate | number | Per-share dividend rate (PHP) |
+| amount | number | Net amount (= qty × rate − fee for new records; gross for legacy) |
+| fee | number | Withholding tax / deductions (PHP) |
+| dividendYield | number \| null | User-entered yield % |
+| sharesReceived | number \| null | Stock dividends only |
+| notes | string \| null | |
+| createdAt, updatedAt | number | |
 
 ### 13.2 Price Source
 
-Yahoo Finance v8 (unofficial API). PH stocks → `.PS` suffix. Fetch on button press only (no polling). Falls back to manual entry on rate limit.
+**Phisix API** (`phisix-api3.appspot.com`) — community-maintained PSE data, CORS-friendly. Previously Yahoo Finance v8 (`b024f74` → Yahoo CORS issues), switched to Phisix (`703a35c`).
+- Bare ticker, no `.PS` suffix
+- Batch fetch from `/stocks.json`, matched against user's portfolio
+- Fetch on button press only (no polling)
+- Manual price override for funds (type = `'fund'`)
 
 ### 13.3 Screens
 
 | Route | Content |
 |---|---|
-| `/stocks` | Holdings table → Transaction log → Dividend log → Add forms |
-| Settings → Stocks | Ticker CRUD + reorder |
+| `/stocks` | Holdings table → 3-section tabs (Holdings, Transactions, Dividends) |
+| Settings → Manage Tickers | Stock/Fund CRUD + reorder + type selection |
 | Dashboard | Portfolio summary card (total value, invested, dividends, gain/loss) |
 
 ### 13.4 Bottom Tab Bar
@@ -385,6 +399,10 @@ Yahoo Finance v8 (unofficial API). PH stocks → `.PS` suffix. Fetch on button p
 6 tabs: Summary \| Transactions \| Balance \| Payout \| **Stocks** \| Settings
 
 Stocks is an **optional tab** — toggleable in Settings → Tab Visibility alongside Balances and Payout.
+
+### 13.5 Portfolio API Server
+
+Local Express API (`server/index.ts`) for AI assistant integration. See [`server/README.md`](../server/README.md).
 
 ## 14. What's Left
 

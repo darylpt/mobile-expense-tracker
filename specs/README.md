@@ -16,7 +16,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | Summary card layout restructure | ✅ Done | Month nav pulled out to full-width above cards. Stats converted from 3-column grid to vertical list. Total count in pill badge. |
 | Budget targets seed data | ✅ Done | Removed with seed data cleanup. Budget targets are set manually or imported via CSV import. |
 | Transactions tab | ✅ Done | `/transactions` route created, tab added to Header nav, removed from dashboard. |
-| SonarQube code quality fixes | ✅ Done | 0 ESLint errors, 0 TS errors, 42/42 tests passing. |
+| SonarQube code quality fixes | ✅ Done | 0 ESLint errors, 0 TS errors, 109/109 tests passing. |
 | [`backup-restore.md`](./backup-restore.md) | ✅ Done | JSON export/import of all 6 stores + CSV transaction export. Settings UI. |
 | [`csv-import.md`](./csv-import.md) | ✅ Done | CSV import from Google Sheets. Parse, validate, preview, bulk-insert accounts/categories/transactions. Removed hardcoded seed data. Empty-state onboarding on all pages. |
 | Empty state / onboarding flow | ✅ Done | All pages show "No data yet → Go to Settings → Import" when no transactions exist. Payout (standalone) excluded. |
@@ -40,8 +40,12 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | Category breakdown grouped by type | ✅ Done | Items grouped under Income/Expenses/Transfers section headers with colored dots/bars. Transfer section included. |
 | Category compound-key dedup fix | ✅ Done | `enrichedCategoryBreakdown` used `Set<string>` keyed by name only — same-name categories with different types silently dropped. Fixed by using compound key `"name|type"`. |
 | Settings mobile card layout | ✅ Done | Accounts & Categories tables on <768px replaced with vertical card stack (flex cards with drag handle, name, icon buttons). Desktop table unchanged. Inline edit/add forms render as stacked cards. Eliminates horizontal scrolling on mobile. |
-| Quick Add sticky defaults | ✅ Done | Three options reviewed: (1) "Copy Last" link — one extra tap, only one entry; (2) Recent chips — most visual, takes space on mobile, more code; (3) Sticky defaults — zero UI, ~3 lines changed, covers 90% of use case (daily coffee). **Chose Option 3:** type/category/account/description persist after submit, only amount clears. User types amount and hits enter for repetitive entries. Chips can be added on top later if needed. |
+| [`quick-add-sticky-defaults.md`](./quick-add-sticky-defaults.md) | ✅ Done | Three options reviewed: (1) "Copy Last" link, (2) Recent chips, (3) Sticky defaults. **Chose Option 3:** type/category/account/description persist after submit, only amount clears. |
 | [`phase-2-investments.md`](./phase-2-investments.md) | ✅ Done | Stock Portfolio Tracker, Dividend Log. All 7 stories implemented. |
+| [`available-balance.md`](./available-balance.md) | ✅ Done | Expected vs. current balance reconciliation. Denomination grid for Cash. Sub-split support. |
+| [`payout-calculator.md`](./payout-calculator.md) | ✅ Done | Standalone split calculator (percentage/amount modes, savings sub-split, no ledger writes). |
+| [`balance-sub-splits.md`](./balance-sub-splits.md) | ✅ Done | Per-account Current balance broken into labeled sub-amounts. Toggle on Available Balance page. DB v13. |
+| [`auto-backup.md`](./auto-backup.md) | ✅ Done | Daily localStorage snapshot triggered on app load. Settings → Restore from auto-backup. |
 | [`codebase-audit-backlog.md`](./codebase-audit-backlog.md) | ✅ Done | Comprehensive 2026-07-10 audit. All P1 fixed 2026-07-10. All P2 resolved 2026-07-11. Full-codebase critic review: 18 fixes (sync correctness, React performance, a11y, CSV validation, a11y), 3 won't-fix. All 21 items resolved. |
 
 **Legend:** ✅ Done · 🟡 Ready to hand off · ⚪ Not yet scoped · 🔵 Deferred
