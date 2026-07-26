@@ -200,7 +200,56 @@ Import CSV) or restore a JSON backup.
 | `npm run lint` | ESLint |
 | `npm test` | Unit tests (Jest) |
 | `npm run test:e2e` | E2E tests (Playwright) |
-| `npm run version:bump` | Auto-increment patch version, stage `src/lib/version.ts` |
+| `npm run server` | Portfolio API Server (port 4000, requires Supabase service_role key) |
+
+---
+
+## Portfolio API Server
+
+The `server/` directory contains a local Express API that reads your portfolio
+data from Supabase and serves it as JSON. This lets AI assistants (like Hermes
+Agent) fetch your latest holdings without needing access to your browser.
+
+### Setup
+
+1. Get your Supabase **service_role key**:
+   Dashboard → Settings → API → Project API keys → `service_role` key
+2. Get your **auth user UUID**:
+   Dashboard → Authentication → Users → find your email → copy the UUID
+3. Add both to `.env.local`:
+   ```
+   SUPABASE_SERVICE_KEY=sbp_yourservice_role_key_here
+   PORTFOLIO_USER_ID=your-auth-uuid-here
+   ```
+
+### Run
+
+```bash
+npm run server
+# → http://localhost:4000
+```
+
+### Endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/holdings` | Computed portfolio — per-ticker breakdown + summary |
+| `GET /api/transactions` | Raw buy/sell log, newest first |
+| `GET /api/dividends` | Dividend records, newest first |
+| `GET /api/portfolio` | Everything bundled (holdings + raw data) |
+| `GET /` | Serves the static PWA (`out/`) |
+
+### From Hermes Agent (Docker)
+
+```bash
+curl http://host.docker.internal:4000/api/holdings
+```
+
+### Clipboard Export (no server needed)
+
+On the Stocks tab in the app, click **📋 Copy Summary** to copy a formatted
+portfolio text block to your clipboard — paste it directly into your handoff
+doc.
 
 ---
 

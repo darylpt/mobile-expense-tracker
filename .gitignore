@@ -42,6 +42,10 @@ next-env.d.ts
 
 # agent working files
 .opencode-local/
+.opencode/
+
+# supabase temp
+supabase/.temp/
 
 # playwright report
 /playwright-report/

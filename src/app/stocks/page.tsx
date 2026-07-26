@@ -15,6 +15,7 @@ import { getAllDividends, addDividend, deleteDividend, updateDividend } from '@/
 import { refreshAllPrices } from '@/lib/stock-prices';
 import { computeHoldings, type HoldingsResult } from '@/lib/holdings';
 import { ManageTickers } from '@/components/stocks/ManageTickers';
+import { formatCurrency } from '@/lib/utils';
 import type { StockTransaction, Dividend } from '@/types';
 
 type Section = 'holdings' | 'transactions' | 'dividends';
@@ -167,6 +168,40 @@ export default function StocksPage() {
               <Button variant="ghost" size="sm" onClick={() => setShowManage(!showManage)}>
                 {showManage ? 'Close' : 'Manage Tickers'}
               </Button>
+              <button
+                onClick={() => {
+                  if (!holdings) return;
+                  const lines: string[] = [
+                    `My Portfolio (as of ${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })})`,
+                    '',
+                    ...holdings.holdings.map(h => {
+                      const gl = h.unrealizedGainLoss;
+                      const glPct = h.unrealizedGainLossPct;
+                      const glStr = gl !== null
+                        ? `${gl >= 0 ? '+' : ''}${formatCurrency(gl)} (${glPct >= 0 ? '+' : ''}${glPct!.toFixed(2)}%)`
+                        : '—';
+                      const val = h.marketValue !== null ? formatCurrency(h.marketValue) : '—';
+                      const typeLabel = h.type === 'fund' ? ' [Fund]' : '';
+                      return `${h.ticker}${typeLabel}  ${h.shares.toFixed(2)} shs  @ ${formatCurrency(h.avgCostPerShare)}  = ${val}  ${glStr}`;
+                    }),
+                    '',
+                    `Total Invested:      ${formatCurrency(holdings.summary.totalInvested)}`,
+                    `Total Market Value:  ${holdings.summary.totalMarketValue !== null ? formatCurrency(holdings.summary.totalMarketValue) : '—'}`,
+                    `Total Unrealized G/L: ${holdings.summary.totalUnrealizedGL !== null ? formatCurrency(holdings.summary.totalUnrealizedGL) : '—'}`,
+                    `Total Dividends:     ${formatCurrency(holdings.summary.totalDividends)}`,
+                    `Total Realized G/L:  ${formatCurrency(holdings.summary.totalRealizedGL)}`,
+                  ];
+                  navigator.clipboard.writeText(lines.join('\n')).then(() => {
+                    setPriceMsg('Portfolio summary copied!');
+                  }).catch(() => {
+                    setPriceMsg('Failed to copy');
+                  });
+                }}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                title="Copy portfolio summary as text for your AI assistant"
+              >
+                📋 Copy Summary
+              </button>
               {priceMsg && (
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">{priceMsg}</p>
               )}
