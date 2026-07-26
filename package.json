@@ -1,11 +1,12 @@
 {
   "name": "temp-expense-tracker",
-  "version": "0.15.0",
+  "version": "0.16.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "server": "tsx server/index.ts",
     "lint": "eslint",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -24,17 +25,22 @@
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/react": "^16.3.2",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.25",
     "@types/jest": "^30.0.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cors": "^2.8.6",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
+    "express": "^5.2.1",
     "fake-indexeddb": "^6.2.5",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "tailwindcss": "^4",
     "ts-jest": "^29.4.11",
+    "tsx": "^4.23.1",
     "typescript": "^5"
   }
 }
