@@ -181,15 +181,16 @@ export default function StocksPage() {
                         ? `${gl >= 0 ? '+' : ''}${formatCurrency(gl)}${glPct !== null ? ` (${glPct >= 0 ? '+' : ''}${glPct.toFixed(2)}%)` : ''}`
                         : '—';
                       const val = h.marketValue !== null ? formatCurrency(h.marketValue) : '—';
-                      const typeLabel = h.type === 'fund' ? ' [Fund]' : '';
+                      const hStock = stocks.find(s => s.id === h.stockId);
+                      const typeLabel = hStock?.type === 'fund' ? ' [Fund]' : '';
                       return `${h.ticker}${typeLabel}  ${h.shares.toFixed(2)} shs  @ ${formatCurrency(h.avgCostPerShare)}  = ${val}  ${glStr}`;
                     }),
                     '',
-                    `Total Invested:      ${formatCurrency(holdings.summary.totalInvested)}`,
-                    `Total Market Value:  ${holdings.summary.totalMarketValue !== null ? formatCurrency(holdings.summary.totalMarketValue) : '—'}`,
-                    `Total Unrealized G/L: ${holdings.summary.totalUnrealizedGL !== null ? formatCurrency(holdings.summary.totalUnrealizedGL) : '—'}`,
-                    `Total Dividends:     ${formatCurrency(holdings.summary.totalDividends)}`,
-                    `Total Realized G/L:  ${formatCurrency(holdings.summary.totalRealizedGL)}`,
+                    `Total Invested:      ${formatCurrency(holdings.totalCost)}`,
+                    `Total Market Value:  ${holdings.totalMarketValue !== null ? formatCurrency(holdings.totalMarketValue) : '—'}`,
+                    `Total Unrealized G/L: ${holdings.totalUnrealizedGainLoss !== null ? formatCurrency(holdings.totalUnrealizedGainLoss) : '—'}`,
+                    `Total Dividends:     ${formatCurrency(holdings.totalDividends)}`,
+                    `Total Realized G/L:  ${formatCurrency(holdings.totalRealizedGainLoss)}`,
                   ];
                   navigator.clipboard.writeText(lines.join('\n')).then(() => {
                     setPriceMsg('Portfolio summary copied!');
