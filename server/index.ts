@@ -242,17 +242,16 @@ function computeHoldings(stocks: StockRow[], txs: TxRow[], divs: DivRow[]): Hold
 }
 
 // ── Query helpers ─────────────────────────────────────────
-function queryAll<T>(table: string): Promise<T[]> {
-  return supabase
+async function queryAll<T>(table: string): Promise<T[]> {
+  const { data, error } = await supabase
     .from(table)
     .select('*')
     .eq('user_id', USER_ID)
     .is('deleted_at', null)
-    .order('created_at', { ascending: false })
-    .then(({ data, error }) => {
-      if (error) throw error;
-      return (data ?? []) as T[];
-    });
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []) as T[];
 }
 
 // ── Endpoints ─────────────────────────────────────────────
