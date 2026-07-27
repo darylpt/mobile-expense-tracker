@@ -178,7 +178,7 @@ export default function StocksPage() {
                       const gl = h.unrealizedGainLoss;
                       const glPct = h.unrealizedGainLossPct;
                       const glStr = gl !== null
-                        ? `${gl >= 0 ? '+' : ''}${formatCurrency(gl)} (${glPct >= 0 ? '+' : ''}${glPct!.toFixed(2)}%)`
+                        ? `${gl >= 0 ? '+' : ''}${formatCurrency(gl)}${glPct !== null ? ` (${glPct >= 0 ? '+' : ''}${glPct.toFixed(2)}%)` : ''}`
                         : '—';
                       const val = h.marketValue !== null ? formatCurrency(h.marketValue) : '—';
                       const typeLabel = h.type === 'fund' ? ' [Fund]' : '';
