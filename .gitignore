@@ -65,3 +65,10 @@ supabase/.temp/
 
 # token optimizer artifacts
 /token-optimizer/
+
+# windows device name (reserved, can't be deleted)
+nul
+
+# junk screenshot artifacts
+WorkPersonalmobile-expense-tracker.opencode-local*.png
+_project_context_map.md

@@ -328,6 +328,65 @@ app.get('/api/portfolio', async (_req, res) => {
   }
 });
 
+/** POST /api/refresh-prices — Fetch current Phisix prices and write to Supabase */
+app.post('/api/refresh-prices', async (_req, res) => {
+  try {
+    // 1. Fetch Phisix board
+    const phisixRes = await fetch('https://phisix-api3.appspot.com/stocks.json');
+    if (!phisixRes.ok) {
+      return res.status(502).json({ error: 'Phisix API returned ' + phisixRes.status });
+    }
+    const phisixData = await phisixRes.json();
+    const board = new Map<string, { symbol: string; price: { currency: string; amount: number } }>();
+    for (const s of phisixData.stocks ?? []) {
+      board.set(s.symbol.toUpperCase(), s);
+    }
+
+    // 2. Get user's stocks
+    const stocks = await queryAll<StockRow>('stocks');
+
+    // 3. Match and update
+    const results: { ticker: string; price: number | null; status: string }[] = [];
+    for (const stock of stocks) {
+      const match = board.get(stock.ticker.toUpperCase());
+      if (!match) {
+        results.push({ ticker: stock.ticker, price: null, status: 'not_found' });
+        continue;
+      }
+      const price = match.price?.amount;
+      if (typeof price !== 'number' || isNaN(price)) {
+        results.push({ ticker: stock.ticker, price: null, status: 'invalid_price' });
+        continue;
+      }
+
+      const now = new Date().toISOString();
+      const { error: updErr } = await supabase
+        .from('stocks')
+        .update({ current_price: price, price_updated_at: now, updated_at: now })
+        .eq('id', stock.id);
+
+      if (updErr) {
+        results.push({ ticker: stock.ticker, price, status: 'update_error: ' + updErr.message });
+      } else {
+        results.push({ ticker: stock.ticker, price, status: 'ok' });
+      }
+    }
+
+    res.json({
+      asOf: new Date().toISOString(),
+      results,
+      summary: {
+        total: results.length,
+        updated: results.filter(r => r.status === 'ok').length,
+        failed: results.filter(r => r.status !== 'ok').length,
+      },
+    });
+  } catch (err) {
+    console.error('[refresh-prices]', err);
+    res.status(500).json({ error: 'Price refresh failed', detail: String(err) });
+  }
+});
+
 /** GET / — Serve the static PWA export if available */
 app.use(express.static(STATIC_DIR));
 
@@ -350,11 +409,13 @@ app.listen(PORT, () => {
 │    http://localhost:${PORT}/api/transactions              │
 │    http://localhost:${PORT}/api/dividends                 │
 │    http://localhost:${PORT}/api/portfolio                 │
+│    http://localhost:${PORT}/api/refresh-prices (POST)    │
 │                                                      │
 │  PWA served at: http://localhost:${PORT}/               │
 │                                                      │
 │  Hermes Agent:                                       │
 │    curl http://host.docker.internal:${PORT}/api/holdings │
+│    curl -X POST http://host.docker.internal:${PORT}/api/refresh-prices │
 └──────────────────────────────────────────────────────┘
   `);
 });
