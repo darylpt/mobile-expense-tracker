@@ -48,7 +48,7 @@ Separate tracking layer — no integration with expense ledger.
 
 - `holdings.test.ts` — buy/sell → correct shares, avg cost, realized P&L; partial sells; empty state
 - `stock-prices.test.ts` — valid response, error handling
-- 109 tests passing total
+- 111 tests passing total
 
 ### 7. Dividend Expansion (`dividend-expansion`) ✅
 
@@ -58,6 +58,12 @@ Separate tracking layer — no integration with expense ledger.
 - Updated `DividendForm`, `DividendLog`, holdings compute
 
 ---
+
+### 7.1 Dividend sync compatibility fix
+
+- Added Supabase migration `006_dividend_schema_compatibility.sql` for the expanded dividend fields while preserving legacy `date` and `amount` columns.
+- Normalized legacy remote records during sync so the Dividends subtab can render migrated and legacy data safely.
+- Included focused tests for legacy pull normalization and expanded outbound payload compatibility.
 
 ## Key Decisions
 

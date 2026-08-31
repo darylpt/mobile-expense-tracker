@@ -31,7 +31,7 @@ A **local-first personal finance PWA** that replaces a Google Sheets budget trac
 
 ## 3. Data Model
 
-### 3.1 IndexedDB Stores (10 total)
+### 3.1 IndexedDB Stores (11 total)
 
 | Store | Key | Purpose |
 |---|---|---|
@@ -127,12 +127,14 @@ A **local-first personal finance PWA** that replaces a Google Sheets budget trac
 
 ## 4. Supabase Schema
 
-All 6 data stores map 1:1 to Supabase Postgres tables. Each has:
+The 10 application data stores map 1:1 to Supabase Postgres tables; `syncQueue` is local-only. Each remote table has:
 - `user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE`
 - `created_at TIMESTAMPTZ`
 - `updated_at TIMESTAMPTZ` (with LWW trigger)
 - `deleted_at TIMESTAMPTZ` (soft-delete)
 - Per-user RLS policies (SELECT/INSERT/UPDATE/DELETE gated on `auth.uid() = user_id`)
+
+Dividend sync retains the legacy `date` and `amount` columns while also storing the expanded `ex_date`, `pay_date`, `qty`, `rate`, `fee`, and `dividend_yield` fields. Legacy rows are normalized to the v13 local shape during pull.
 
 ### LWW Trigger (all tables with updated_at)
 
@@ -146,12 +148,12 @@ END;
 $$;
 ```
 
-### Migrations (run sequentially on Supabase)
-
 1. `001_schema.sql` — tables, LWW trigger, initial RLS
 2. `002_user_isolation.sql` — TRUNCATE, user_id column, per-user RLS
 3. `003_add_sort_order.sql` — sort_order on accounts + categories
-
+4. `004_stock_sync.sql` — stocks, stock transactions, and legacy dividends tables
+5. `005_balance_snapshots.sql` — balance snapshots table
+6. `006_dividend_expansion.sql` — expanded dividend columns and legacy backfill
 ---
 
 ## 5. Sync Architecture (Outbox Pattern)
@@ -268,6 +270,8 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `src/lib/csv-import.test.ts` | CSV parsing, date detection, amount parsing, carry-over logic |
 | `src/lib/reconciliation.test.ts` | Expected balance computation |
 | `src/hooks/useTransactions.test.ts` | Derived view hooks |
+| `src/lib/dividends.test.ts` | Legacy/expanded dividend sync compatibility |
+| `src/components/stocks/DividendLog.test.tsx` | Dividend log rendering, calculations, and editing |
 
 ### E2E Tests (Playwright)
 
@@ -278,7 +282,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence |
 
-**109/109 unit tests passing. 0 ESLint errors, 0 TS errors.**
+**111/111 unit tests passing. 0 ESLint errors, 0 TS errors.**
 
 ---
 

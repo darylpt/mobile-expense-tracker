@@ -8,6 +8,7 @@
 
 import React, { useState } from 'react';
 import { formatCurrency } from '@/lib/utils';
+import { normalizeDividendRecord } from '@/lib/dividends';
 import { Input } from '@/components/common/Input';
 import { Button } from '@/components/common/Button';
 import type { Dividend, Stock } from '@/types';
@@ -33,7 +34,9 @@ interface EditForm {
 
 export function DividendLog({ dividends, stocks, onDelete, onUpdate }: DividendLogProps) {
   const stockMap = new Map(stocks.map((s) => [s.id, s]));
-  const sorted = [...dividends].sort((a, b) => b.exDate.localeCompare(a.exDate));
+  const sorted = dividends
+    .map((dividend) => normalizeDividendRecord(dividend as unknown as Record<string, unknown>) as unknown as Dividend)
+    .sort((a, b) => b.exDate.localeCompare(a.exDate));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<EditForm>({
     exDate: '', payDate: '', type: 'cash',

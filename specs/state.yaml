@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.16.5"
+version: "0.16.6"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "dividend-expansion"
-last_action: "2026-07-25 — Expanded Dividend model with per-share fields (exDate, payDate, qty, rate, fee, dividendYield). Added IDB v13 migration to preserve legacy data. Updated DividendForm, DividendLog, holdings compute to use qty×rate−fee net calculation."
+last_action: "2026-08-31 — Fixed dividends subtab compatibility with legacy Supabase dividend records and expanded sync schema."
 story_end: "2026-07-25T00:00:00Z"
 stories:
   - "stock-schema"
@@ -17,7 +17,7 @@ stories:
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
-  tests_passing: 109
+  tests_passing: 111
   eslint_errors: 0
   eslint_warnings: 5
   ts_errors: 0

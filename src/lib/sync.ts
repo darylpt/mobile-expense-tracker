@@ -21,6 +21,7 @@
 import { supabase } from './supabase';
 import { getDB, ensureUuids } from './idb';
 import { STORES } from './constants';
+import { normalizeDividendRecord } from './dividends';
 // SyncQueueEntry and SyncOperation types live in idb.ts (data layer)
 
 // ============================================================
@@ -48,7 +49,14 @@ const FIELD_MAP: Record<string, string> = {
   accountId: 'account_id',
   useSubSplit: 'use_sub_split',
   subSplits: 'sub_splits',
+  exDate: 'ex_date',
+  payDate: 'pay_date',
+  dividendYield: 'dividend_yield',
+  qty: 'qty',
+  rate: 'rate',
+  fee: 'fee',
 };
+
 
 /** Reverse map: snake_case → camelCase */
 const REVERSE_FIELD_MAP: Record<string, string> = {};
@@ -226,9 +234,9 @@ export async function pullStore(storeName: string, userId: string): Promise<void
       const localUpdated = (local as Record<string, unknown>).updatedAt as number;
       const remoteUpdated = new Date(remote.updated_at as string).getTime();
       if (remoteUpdated > localUpdated) {
-        toWrite.push(snakeToCamel(remote));
+        toWrite.push(remoteToLocalRecord(storeName, remote));
       } else {
-        // Local is same or newer — keep
+        // Local is same or newer — keep local
         toWrite.push(local as unknown as Record<string, unknown>);
       }
     }
@@ -238,7 +246,7 @@ export async function pullStore(storeName: string, userId: string): Promise<void
   // Remaining in remoteMap are new remote-only records (skip deleted)
   for (const [, remote] of remoteMap.entries()) {
     if (!remote.deleted_at) {
-      toWrite.push(snakeToCamel(remote));
+      toWrite.push(remoteToLocalRecord(storeName, remote));
     }
   }
 
@@ -337,16 +345,35 @@ function storeNameToTable(storeName: string): string {
   return map[storeName] ?? storeName;
 }
 
+function remoteToLocalRecord(storeName: string, record: Record<string, unknown>): Record<string, unknown> {
+  return storeName === STORES.DIVIDENDS ? normalizeDividendRecord(record) : snakeToCamel(record);
+}
+
+
 /**
  * Convert a local payload (camelCase, ms timestamps) to
  * Supabase format (snake_case, ISO timestamps, no deleted_at).
  */
-function preparePayloadForRemote(
+export function preparePayloadForRemote(
   payload: Record<string, unknown> | null
 ): Record<string, unknown> {
   if (!payload) return {};
 
-  const converted = camelToSnake(payload);
+  const isDividend = payload.stockId != null && (
+    'exDate' in payload ||
+    'payDate' in payload ||
+    'qty' in payload ||
+    'rate' in payload ||
+    'dividendYield' in payload
+  );
+  const compatiblePayload = isDividend
+    ? { ...payload, ...normalizeDividendRecord(payload) }
+    : payload;
+  const converted = camelToSnake(compatiblePayload);
+
+  if (isDividend && (converted.date == null || converted.date === '')) {
+    converted.date = converted.ex_date;
+  }
 
   // Convert ms timestamps to ISO strings for Postgres
   for (const key of ['created_at', 'updated_at']) {
