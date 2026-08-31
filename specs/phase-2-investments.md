@@ -64,6 +64,7 @@ Separate tracking layer — no integration with expense ledger.
 - Added Supabase migration `006_dividend_schema_compatibility.sql` for the expanded dividend fields while preserving legacy `date` and `amount` columns.
 - Normalized legacy remote records during sync so the Dividends subtab can render migrated and legacy data safely.
 - Included focused tests for legacy pull normalization and expanded outbound payload compatibility.
+- Portfolio summary aggregation treats missing or non-finite legacy dividend fields safely, preserving finite totals.
 
 ## Key Decisions
 

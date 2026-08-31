@@ -86,8 +86,18 @@ export function computeHoldings(
   // Total dividends (net: qty × rate − fee, with legacy fallback to flat amount)
   let totalDividends = 0;
   for (const d of dividends) {
-    const gross = d.qty > 0 ? d.qty * d.rate : d.amount;
-    totalDividends += gross - d.fee;
+    const hasExpandedValue = Number.isFinite(d.qty) && d.qty > 0 && Number.isFinite(d.rate);
+    const expandedGross = hasExpandedValue ? d.qty * d.rate : Number.NaN;
+    const gross = hasExpandedValue && Number.isFinite(expandedGross)
+      ? expandedGross
+      : Number.isFinite(d.amount)
+        ? d.amount
+        : 0;
+    const fee = Number.isFinite(d.fee) ? d.fee : 0;
+    const net = gross - fee;
+    if (Number.isFinite(net) && Number.isFinite(totalDividends + net)) {
+      totalDividends += net;
+    }
   }
 
   // Build holding rows

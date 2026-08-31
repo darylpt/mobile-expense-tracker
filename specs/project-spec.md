@@ -380,7 +380,8 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | dividendYield | number \| null | User-entered yield % |
 | sharesReceived | number \| null | Stock dividends only |
 | notes | string \| null | |
-| createdAt, updatedAt | number | |
+
+Portfolio dividend totals retain the expanded `qty × rate − fee` calculation and legacy `amount` fallback; missing or non-finite legacy numeric fields are treated safely so the summary cannot display `NaN`.
 
 ### 13.2 Price Source
 

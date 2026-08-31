@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.16.6"
+version: "0.16.7"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "dividend-expansion"
-last_action: "2026-08-31 — Fixed dividends subtab compatibility with legacy Supabase dividend records and expanded sync schema."
+last_action: "2026-08-31 — Hardened portfolio dividend aggregation so legacy records cannot produce NaN in the summary."
 story_end: "2026-07-25T00:00:00Z"
 stories:
   - "stock-schema"

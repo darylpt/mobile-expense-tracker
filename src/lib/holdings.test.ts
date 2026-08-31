@@ -204,6 +204,22 @@ describe('computeHoldings', () => {
     expect(result.totalDividends).toBe(1250);
   });
 
+  it('falls back to a legacy dividend amount when numeric fields are missing', () => {
+    const stocks = [makeStock()];
+    const legacyDividend = {
+      ...div('stock-1', '2026-03-15', 500),
+      qty: undefined,
+      rate: undefined,
+      fee: undefined,
+    } as unknown as Dividend;
+
+    const result = computeHoldings(stocks, [], [legacyDividend]);
+
+    expect(result.totalDividends).toBe(500);
+    expect(Number.isFinite(result.totalDividends)).toBe(true);
+  });
+
+
   it('handles dividend fees', () => {
     const stocks = [makeStock()];
     const txs: StockTransaction[] = [];
