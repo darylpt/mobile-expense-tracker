@@ -48,7 +48,7 @@ Separate tracking layer — no integration with expense ledger.
 
 - `holdings.test.ts` — buy/sell → correct shares, avg cost, realized P&L; partial sells; empty state
 - `stock-prices.test.ts` — valid response, error handling
-- 111 tests passing total
+- 114 tests passing total
 
 ### 7. Dividend Expansion (`dividend-expansion`) ✅
 
@@ -64,7 +64,7 @@ Separate tracking layer — no integration with expense ledger.
 - Added Supabase migration `006_dividend_schema_compatibility.sql` for the expanded dividend fields while preserving legacy `date` and `amount` columns.
 - Normalized legacy remote records during sync so the Dividends subtab can render migrated and legacy data safely.
 - Included focused tests for legacy pull normalization and expanded outbound payload compatibility.
-- Portfolio summary aggregation treats missing or non-finite legacy dividend fields safely, preserving finite totals.
+- PortfolioSummaryCard now consumes the current StocksPage holdings state, so dividend totals refresh after dividend CRUD.
 
 ## Key Decisions
 

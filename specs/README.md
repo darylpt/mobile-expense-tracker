@@ -41,7 +41,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | Category compound-key dedup fix | ✅ Done | `enrichedCategoryBreakdown` used `Set<string>` keyed by name only — same-name categories with different types silently dropped. Fixed by using compound key `"name|type"`. |
 | Settings mobile card layout | ✅ Done | Accounts & Categories tables on <768px replaced with vertical card stack (flex cards with drag handle, name, icon buttons). Desktop table unchanged. Inline edit/add forms render as stacked cards. Eliminates horizontal scrolling on mobile. |
 | [`quick-add-sticky-defaults.md`](./quick-add-sticky-defaults.md) | ✅ Done | Three options reviewed: (1) "Copy Last" link, (2) Recent chips, (3) Sticky defaults. **Chose Option 3:** type/category/account/description persist after submit, only amount clears. |
-| [`phase-2-investments.md`](./phase-2-investments.md) | ✅ Done | Stock Portfolio Tracker, Dividend Log, legacy Supabase dividend sync compatibility, and NaN-safe portfolio totals. |
+| [`phase-2-investments.md`](./phase-2-investments.md) | ✅ Done | Stock Portfolio Tracker, live dividend summary refresh, legacy Supabase dividend sync compatibility, and NaN-safe portfolio totals. |
 | [`available-balance.md`](./available-balance.md) | ✅ Done | Expected vs. current balance reconciliation. Denomination grid for Cash. Sub-split support. |
 | [`payout-calculator.md`](./payout-calculator.md) | ✅ Done | Standalone split calculator (percentage/amount modes, savings sub-split, no ledger writes). |
 | [`balance-sub-splits.md`](./balance-sub-splits.md) | ✅ Done | Per-account Current balance broken into labeled sub-amounts. Toggle on Available Balance page. DB v13. |

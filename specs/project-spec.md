@@ -271,7 +271,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `src/lib/reconciliation.test.ts` | Expected balance computation |
 | `src/hooks/useTransactions.test.ts` | Derived view hooks |
 | `src/lib/dividends.test.ts` | Legacy/expanded dividend sync compatibility |
-| `src/components/stocks/DividendLog.test.tsx` | Dividend log rendering, calculations, and editing |
+| `src/components/summary/PortfolioSummaryCard.test.tsx` | Portfolio summary rerender behavior and empty-state handling |
 
 ### E2E Tests (Playwright)
 
@@ -282,7 +282,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence |
 
-**111/111 unit tests passing. 0 ESLint errors, 0 TS errors.**
+**114/114 unit tests passing. 0 ESLint errors, 0 TS errors.**
 
 ---
 
@@ -381,7 +381,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | sharesReceived | number \| null | Stock dividends only |
 | notes | string \| null | |
 
-Portfolio dividend totals retain the expanded `qty × rate − fee` calculation and legacy `amount` fallback; missing or non-finite legacy numeric fields are treated safely so the summary cannot display `NaN`.
+Portfolio dividend totals retain the expanded `qty × rate − fee` calculation and legacy `amount` fallback; missing or non-finite legacy numeric fields are treated safely so the summary cannot display `NaN`. PortfolioSummaryCard consumes the current StocksPage `HoldingsResult`, so dividend totals refresh after dividend create, edit, delete, and sync reloads.
 
 ### 13.2 Price Source
 

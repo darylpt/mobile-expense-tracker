@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.16.7"
+version: "0.16.8"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "dividend-expansion"
-last_action: "2026-08-31 — Hardened portfolio dividend aggregation so legacy records cannot produce NaN in the summary."
+last_action: "2026-08-31 — Wired PortfolioSummaryCard to StocksPage holdings state so dividend totals update after CRUD."
 story_end: "2026-07-25T00:00:00Z"
 stories:
   - "stock-schema"
@@ -17,7 +17,7 @@ stories:
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
-  tests_passing: 111
+  tests_passing: 114
   eslint_errors: 0
   eslint_warnings: 5
   ts_errors: 0

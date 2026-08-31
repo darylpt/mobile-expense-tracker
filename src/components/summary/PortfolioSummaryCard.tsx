@@ -1,34 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { getAllStocks, getAllStockTransactions, getAllDividends } from '@/lib/idb';
-import { computeHoldings, type HoldingsResult } from '@/lib/holdings';
+import React from 'react';
+import type { HoldingsResult } from '@/lib/holdings';
 
-export function PortfolioSummaryCard() {
-  const [holdings, setHoldings] = useState<HoldingsResult | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let mounted = true;
-    async function load() {
-      try {
-        const stocks = await getAllStocks();
-        if (stocks.length === 0) { if (mounted) setLoading(false); return; }
-        const [txs, divs] = await Promise.all([
-          getAllStockTransactions(),
-          getAllDividends(),
-        ]);
-        const result = computeHoldings(stocks, txs, divs);
-        if (result.holdings.length === 0) { if (mounted) setLoading(false); return; }
-        if (mounted) setHoldings(result);
-      } catch { /* ignore */ }
-      if (mounted) setLoading(false);
-    }
-    load();
-    return () => { mounted = false; };
-  }, []);
-
-  if (loading || !holdings) return null;
+export function PortfolioSummaryCard({ holdings }: { holdings: HoldingsResult | null }) {
+  if (!holdings || holdings.holdings.length === 0) return null;
 
   const fmt = (n: number) => `₱${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const pct = (n: number | null) => n !== null ? `${n >= 0 ? '+' : ''}${n.toFixed(2)}%` : '—';

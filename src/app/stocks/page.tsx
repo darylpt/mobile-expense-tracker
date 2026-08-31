@@ -219,7 +219,7 @@ export default function StocksPage() {
             )}
 
             {/* ── Portfolio summary card ── */}
-            <PortfolioSummaryCard />
+            <PortfolioSummaryCard holdings={holdings} />
 
             {/* ── Section tabs ── */}
             <div className="flex gap-1 border-b border-zinc-200 dark:border-zinc-700">
