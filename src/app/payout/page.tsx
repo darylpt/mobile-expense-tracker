@@ -10,7 +10,7 @@
 
 'use client';
 
-import { useState, Fragment } from 'react';
+import { useState, useRef, Fragment } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -68,6 +68,9 @@ export default function PayoutPage() {
     }))
   );
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const savedTimerRef = useRef<number | null>(null);
 
   // ── Derived ──────────────────────────────────────────────
 
@@ -153,16 +156,33 @@ export default function PayoutPage() {
 
   // ponytail: blocks save when percentages don't sum to 100% (or amounts don't match total)
   const handleSave = async () => {
-    await addPayout({
-      date: getToday(),
-      totalAmount,
-      splitMode,
-      splits: splits.map((s) => ({ person: s.person, value: s.value })),
-      // ponytail: saves the first opted-in person's split as the canonical one
-      savingsSubSplit: splits.find((s) => s.subSplit)?.savingsSplit,
-    });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    if (saving) return; // prevent duplicate submissions
+    setSaving(true);
+    setSaved(false);
+    setSaveError(null);
+    if (savedTimerRef.current !== null) {
+      clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = null;
+    }
+    try {
+      await addPayout({
+        date: getToday(),
+        totalAmount,
+        splitMode,
+        splits: splits.map((s) => ({ person: s.person, value: s.value })),
+        // ponytail: saves the first opted-in person's split as the canonical one
+        savingsSubSplit: splits.find((s) => s.subSplit)?.savingsSplit,
+      });
+      setSaved(true);
+      savedTimerRef.current = window.setTimeout(() => {
+        setSaved(false);
+        savedTimerRef.current = null;
+      }, 3000);
+    } catch {
+      setSaveError('Save failed — please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ── Render ───────────────────────────────────────────────
@@ -491,10 +511,13 @@ export default function PayoutPage() {
             </section>
 
             {/* ── Save Button ──────────────────────────────── */}
-            <div className="flex justify-center">
-              <Button onClick={handleSave} size="lg" disabled={!canSave}>
-                {saved ? '✓ Saved!' : 'Save Payout'}
+            <div className="flex flex-col items-center gap-2">
+              <Button onClick={handleSave} size="lg" disabled={!canSave || saving}>
+                {saving ? 'Saving…' : saved ? '✓ Saved!' : 'Save Payout'}
               </Button>
+              {saveError && (
+                <p className="text-sm text-red-600 dark:text-red-400">{saveError}</p>
+              )}
             </div>
           </div>
         </div>

@@ -43,7 +43,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | [`quick-add-sticky-defaults.md`](./quick-add-sticky-defaults.md) | ✅ Done | Three options reviewed: (1) "Copy Last" link, (2) Recent chips, (3) Sticky defaults. **Chose Option 3:** type/category/account/description persist after submit, only amount clears. |
 | [`phase-2-investments.md`](./phase-2-investments.md) | ✅ Done | Stock Portfolio Tracker, live dividend summary refresh, legacy Supabase dividend sync compatibility, and NaN-safe portfolio totals. |
 | [`available-balance.md`](./available-balance.md) | ✅ Done | Expected vs. current balance reconciliation. Denomination grid for Cash. Sub-split support. |
-| [`payout-calculator.md`](./payout-calculator.md) | ✅ Done | Standalone split calculator (percentage/amount modes, savings sub-split, no ledger writes). |
+| [`payout-calculator.md`](./payout-calculator.md) | ✅ Done | Standalone split calculator (percentage/amount modes, savings sub-split, no ledger writes). Saves are atomic, guarded against concurrent submissions, and report pending/success/failure states truthfully. |
 | [`balance-sub-splits.md`](./balance-sub-splits.md) | ✅ Done | Per-account Current balance broken into labeled sub-amounts. Toggle on Available Balance page. DB v13. |
 | [`auto-backup.md`](./auto-backup.md) | ✅ Done | Daily localStorage snapshot triggered on app load. Settings → Restore from auto-backup. |
 | [`codebase-audit-backlog.md`](./codebase-audit-backlog.md) | ✅ Done | Comprehensive 2026-07-10 audit. All P1 fixed 2026-07-10. All P2 resolved 2026-07-11. Full-codebase critic review: 18 fixes (sync correctness, React performance, a11y, CSV validation, a11y), 3 won't-fix. All 21 items resolved. |

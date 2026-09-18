@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.16.8"
+version: "0.16.9"
 phase: "build"
 current_epic: "stock-portfolio-tracker"
 current_story: "dividend-expansion"
-last_action: "2026-08-31 — Wired PortfolioSummaryCard to StocksPage holdings state so dividend totals update after CRUD."
+last_action: "2026-09-18 — Fixed payout save feedback and duplicate-submission handling."
 story_end: "2026-07-25T00:00:00Z"
 stories:
   - "stock-schema"

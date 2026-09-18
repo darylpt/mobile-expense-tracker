@@ -37,7 +37,8 @@ Read-only table showing each person's calculated amount. If a person has sub-spl
 
 ### Save
 
-Saves to IndexedDB `payouts` store. Shows "✓ Saved!" confirmation for 3 seconds.
+Saves the validated payout to IndexedDB `payouts` atomically with its sync-queue entry. While the write is pending, the save button is disabled and shows "Saving…". A successful write shows "✓ Saved!" for 3 seconds; a rejected write leaves the payout unsaved and shows "Save failed — please try again." Repeated clicks during one write are ignored, preventing duplicate records.
+
 
 ## Data Model
 
