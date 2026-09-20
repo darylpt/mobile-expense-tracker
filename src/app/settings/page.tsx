@@ -63,7 +63,7 @@ export default function SettingsPage() {
     moveStockTo,
   } = useStocks();
 
-  const [activeTab, setActiveTab] = useState<'accounts' | 'categories' | 'stocks' | 'preferences' | 'data'>('accounts');
+  const [activeTab, setActiveTab] = useState<'accounts' | 'categories' | 'stocks' | 'preferences' | 'data' | 'applock'>('accounts');
   const [mobilePage, setMobilePage] = useState<string | null>(null);
 
   // ── Mobile drill-down sub-page ──
@@ -127,6 +127,9 @@ export default function SettingsPage() {
                   <DataRepairSection />
                 </div>
               )}
+              {mobilePage === 'applock' && (
+                <AppLockSection />
+              )}
             </>
           )}
         </main>
@@ -157,6 +160,9 @@ export default function SettingsPage() {
             </SidebarTab>
             <SidebarTab active={activeTab === 'data'} onClick={() => setActiveTab('data')}>
               💾 Data Tools
+            </SidebarTab>
+            <SidebarTab active={activeTab === 'applock'} onClick={() => setActiveTab('applock')}>
+              🔒 App Lock
             </SidebarTab>
           </nav>
         </aside>
@@ -202,6 +208,9 @@ export default function SettingsPage() {
               <DataRepairSection />
             </div>
           )}
+          {activeTab === 'applock' && (
+            <AppLockSection />
+          )}
         </div>
       </div>
 
@@ -224,6 +233,7 @@ export default function SettingsPage() {
           <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/50">
             <HubLink onClick={() => setMobilePage('preferences')}>Preferences &amp; Cloud Sync</HubLink>
             <HubLink onClick={() => setMobilePage('data')}>Import / Export Data</HubLink>
+            <HubLink onClick={() => setMobilePage('applock')}>🔒 App Lock</HubLink>
           </div>
         </div>
       </div>
@@ -1510,6 +1520,259 @@ function DataRepairSection() {
         <p role="status" aria-live="polite" className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
           {msg}
         </p>
+      )}
+    </section>
+  );
+}
+
+// ============================================================
+// App Lock Section (local PIN-based privacy lock)
+// ============================================================
+
+function AppLockSection() {
+  const { hasLock, setPin, clearPin, verifyPin } = useAuth();
+  const [enabled, setEnabled] = useState(() => hasLock);
+  const [mode, setMode] = useState<'idle' | 'setup' | 'change-old' | 'change-new' | 'disable'>('idle');
+  const [pinValue, setPinValue] = useState('');
+  const [confirmValue, setConfirmValue] = useState('');
+  const [error, setError] = useState('');
+  const [msg, setMsg] = useState('');
+
+  const reset = () => {
+    setMode('idle');
+    setPinValue('');
+    setConfirmValue('');
+    setError('');
+  };
+
+  const handleEnable = () => {
+    setMode('setup');
+    setMsg('');
+    setError('');
+  };
+
+  const handleSetupSave = async () => {
+    if (pinValue.length < 6) {
+      setError('PIN must be 6 digits.');
+      return;
+    }
+    if (pinValue !== confirmValue) {
+      setError('PINs do not match.');
+      return;
+    }
+    await setPin(pinValue);
+    setEnabled(true);
+    setMsg('App lock enabled. You will be asked for your PIN on next app load.');
+    reset();
+  };
+
+  const handleChangePin = () => {
+    setMode('change-old');
+    setMsg('');
+    setError('');
+  };
+
+  const handleVerifyOld = async () => {
+    const ok = await verifyPin(pinValue);
+    if (!ok) {
+      setError('Incorrect PIN.');
+      setPinValue('');
+      return;
+    }
+    setMode('change-new');
+    setPinValue('');
+    setError('');
+  };
+
+  const handleNewPinSave = async () => {
+    if (pinValue.length < 6) {
+      setError('PIN must be 6 digits.');
+      return;
+    }
+    if (pinValue !== confirmValue) {
+      setError('PINs do not match.');
+      return;
+    }
+    await setPin(pinValue);
+    setMsg('PIN changed successfully.');
+    reset();
+  };
+
+  const handleDisable = () => {
+    setMode('disable');
+    setMsg('');
+    setError('');
+  };
+
+  const handleDisableConfirm = async () => {
+    const ok = await verifyPin(pinValue);
+    if (!ok) {
+      setError('Incorrect PIN.');
+      setPinValue('');
+      return;
+    }
+    clearPin();
+    setEnabled(false);
+    setMsg('App lock disabled.');
+    reset();
+  };
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
+      <h2 className="mb-1 text-base font-semibold text-zinc-900 dark:text-zinc-100">
+        App Lock
+      </h2>
+      <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+        Add a local PIN lock for privacy. The PIN is hashed with PBKDF2 and
+        stored only on this device. This is an honest privacy lock — it does
+        not encrypt your data.
+      </p>
+
+      {msg && (
+        <p role="status" aria-live="polite" className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
+          {msg}
+        </p>
+      )}
+
+      {error && (
+        <p role="alert" className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
+          {error}
+        </p>
+      )}
+
+      {/* Status */}
+      <div className="mb-4 flex items-center gap-2">
+        <span className={`inline-block h-2.5 w-2.5 rounded-full ${enabled ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} />
+        <span className="text-sm text-zinc-700 dark:text-zinc-300">
+          {enabled ? 'Enabled' : 'Disabled'}
+        </span>
+      </div>
+
+      {/* Idle state — show action buttons */}
+      {mode === 'idle' && (
+        <div className="flex flex-wrap gap-3">
+          {!enabled && (
+            <Button variant="primary" size="sm" onClick={handleEnable}>
+              Enable App Lock
+            </Button>
+          )}
+          {enabled && (
+            <>
+              <Button variant="secondary" size="sm" onClick={handleChangePin}>
+                Change PIN
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDisable}
+                className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+              >
+                Disable Lock
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Setup — enter + confirm new PIN */}
+      {mode === 'setup' && (
+        <div className="space-y-3">
+          <Input
+            type="password"
+            inputMode="numeric"
+            label="New PIN (6 digits)"
+            value={pinValue}
+            onChange={(e) => setPinValue(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            autoFocus
+            autoComplete="new-password"
+          />
+          <Input
+            type="password"
+            inputMode="numeric"
+            label="Confirm PIN"
+            value={confirmValue}
+            onChange={(e) => setConfirmValue(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            autoComplete="new-password"
+          />
+          <div className="flex gap-2">
+            <Button variant="primary" size="sm" onClick={handleSetupSave}>Save PIN</Button>
+            <Button variant="ghost" size="sm" onClick={reset}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Change PIN — verify old first */}
+      {mode === 'change-old' && (
+        <div className="space-y-3">
+          <Input
+            type="password"
+            inputMode="numeric"
+            label="Current PIN"
+            value={pinValue}
+            onChange={(e) => setPinValue(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            autoFocus
+            autoComplete="current-password"
+          />
+          <div className="flex gap-2">
+            <Button variant="primary" size="sm" onClick={handleVerifyOld}>Verify</Button>
+            <Button variant="ghost" size="sm" onClick={reset}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Change PIN — enter new PIN */}
+      {mode === 'change-new' && (
+        <div className="space-y-3">
+          <Input
+            type="password"
+            inputMode="numeric"
+            label="New PIN (6 digits)"
+            value={pinValue}
+            onChange={(e) => setPinValue(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            autoFocus
+            autoComplete="new-password"
+          />
+          <Input
+            type="password"
+            inputMode="numeric"
+            label="Confirm new PIN"
+            value={confirmValue}
+            onChange={(e) => setConfirmValue(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            autoComplete="new-password"
+          />
+          <div className="flex gap-2">
+            <Button variant="primary" size="sm" onClick={handleNewPinSave}>Save New PIN</Button>
+            <Button variant="ghost" size="sm" onClick={reset}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Disable — require PIN verification */}
+      {mode === 'disable' && (
+        <div className="space-y-3">
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Enter your current PIN to disable the app lock.
+          </p>
+          <Input
+            type="password"
+            inputMode="numeric"
+            label="Current PIN"
+            value={pinValue}
+            onChange={(e) => setPinValue(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            autoFocus
+            autoComplete="current-password"
+          />
+          <div className="flex gap-2">
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={handleDisableConfirm}
+            >
+              Disable Lock
+            </Button>
+            <Button variant="ghost" size="sm" onClick={reset}>Cancel</Button>
+          </div>
+        </div>
       )}
     </section>
   );

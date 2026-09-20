@@ -7,7 +7,7 @@
 
 ## 1. What This Is
 
-A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.16.9**, actively used since June 2026.
+A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.17.0**, actively used since June 2026.
 
 ---
 
@@ -19,7 +19,7 @@ A **local-first personal finance PWA** that replaces a Google Sheets budget trac
 | UI | React 19.2.4, Tailwind CSS 4 |
 | Storage | IndexedDB via `idb` v8 |
 | Cloud Sync | Supabase (Postgres + Auth + REST) |
-| Auth | Supabase Auth (magic link, invite-only) |
+| Auth | Supabase Auth (Google OAuth + magic link, invite-only) + local PIN app lock |
 | Language | TypeScript strict |
 | Unit Tests | Jest 30 + ts-jest + jsdom + fake-indexeddb |
 | E2E Tests | Playwright 1.61 (3 browsers × 3 viewports = 6 projects) |
@@ -173,10 +173,12 @@ $$;
 ## 6. Auth Lifecycle
 
 - Supabase not configured → `state = 'disabled'`, app works fully offline
+- Google OAuth is the primary sign-in method; magic link is fallback (invite-only, `shouldCreateUser: false`)
 - Authenticated → `lastUserId` localStorage marker prevents unnecessary cache wipe on same-user refresh
 - User switch detected → `clearAllLocalData()` + discard sync queue + re-pull
 - Sign-out → tries `backgroundSync()` first, warns if queue non-empty
 - Route guard uses `useRouter().replace()` in `useEffect` (not `redirect()` mid-render)
+- **App lock:** optional local PIN-based privacy lock (PBKDF2-hashed, stored in localStorage). When enabled + authenticated, a full-screen PIN overlay blocks app content until unlocked. Settings → App Lock for enable/disable/change.
 
 ### UX Flow
 
@@ -184,11 +186,13 @@ $$;
 User opens app
   ├─ Supabase not configured? → No auth. App works as today.
   └─ Supabase configured?
-       ├─ Has valid session? → Dashboard
+       ├─ Has valid session? → App lock enabled?
+       │    ├─ Yes → PIN screen
+       │    └─ No → Dashboard
        └─ No session → /login page
-            ├─ Enter email → "Send magic link"
-            ├─ Email sent → "Check your inbox"
-            └─ Click magic link → PKCE exchange → redirected back → session → dashboard
+            ├─ "Continue with Google" → OAuth redirect → return
+            ├─ Enter email → "Send magic link" (invite-only)
+            └─ Returning user with session → auto-redirect
 ```
 
 Invite-only model — no sign-up form. Users invited via Supabase dashboard.
@@ -199,12 +203,12 @@ Invite-only model — no sign-up form. Users invited via Supabase dashboard.
 
 | Route | Purpose | Key Features |
 |---|---|---|
-| `/login` | Magic-link sign-in | Invite-only, disabled when Supabase not configured |
+| `/login` | Sign-in (Google OAuth + magic link) | Google primary, magic link fallback, invite-only, disabled when Supabase not configured |
 | `/` | Summary / Dashboard | Month nav, 4 metric cards, Accounts table, Income/Expenses breakdowns with budget targets, Category/Account breakdown charts. Mobile: grouped CategoryBreakdown with progress bars, collapsed Quick Add |
 | `/transactions` | Transaction List | URL search-param filtering (type, month, account, category, text), date grouping toggle, pagination (50/page), edit modal, inline delete. Mobile: card layout. Desktop: table layout |
 | `/available-balance` | Cash Reconciliation | Per-account expected balance to user-selected date. **Current** field computable from sub-split amounts (toggle via layers icon). Cash: denomination breakdown grid (₱1000→₱1). Difference column. Read-only |
 | `/payout` | Payout Calculator | Standalone calc (no ledger writes). Percentage/flat-amount mode. Savings sub-split. Validated saves are atomic, guarded against concurrent submissions, and expose pending/success/failure state. |
-| `/settings` | Settings | Accounts CRUD + reorder, Categories CRUD + reorder, Tab Visibility toggle, Cloud Sync controls, Sign-out, Backup & Restore (JSON export/import, CSV export, CSV import from Google Sheets) |
+| `/settings` | Settings | Accounts CRUD + reorder, Categories CRUD + reorder, Tab Visibility toggle, App Lock (PIN), Cloud Sync controls, Sign-out, Backup & Restore (JSON export/import, CSV export, CSV import from Google Sheets) |
 
 ### Responsive Layout
 

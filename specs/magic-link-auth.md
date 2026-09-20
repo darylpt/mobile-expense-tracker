@@ -1,22 +1,23 @@
-# Spec: Magic-Link Authentication
+# Spec: Authentication & App Lock
 
 **Status:** ✅ Done
 
-> **Implementation notes (Jul 2026):** The `AuthGuard` was updated to use
-> `useRouter().replace()` in a `useEffect` instead of inline `redirect()` after
-> the throw-based redirect caused "Rendered more hooks than during the previous
-> render" crashes in Next.js 16's Router when signing out. Export
-> `clearAllLocalData()` and `getSyncQueueCount()` from `idb.ts` for the sign-out
-> flow. Sign-out tries `backgroundSync()` first and warns if the queue is
-> non-empty. User email displayed in the header when authenticated.
+> **v0.17.0 changes (Sep 2026):** Added Google OAuth as primary sign-in method
+> with magic-link fallback. Added local PIN-based app lock (privacy screen) using
+> PBKDF2-hashed PIN stored in localStorage. Login page redesigned with Google
+> button as primary CTA. Settings gained an "App Lock" section with enable/disable/change PIN controls.
 
 ---
 
 ## Objective
 
-Add a minimal authentication layer using **Supabase Auth (magic link)** so that when the app is connected to Supabase, users must sign in before accessing any page. When Supabase is not configured, the app remains fully offline and auth-free — no change from today.
+Provide authentication via **Supabase Auth** (Google OAuth primary, email magic
+link fallback) and a **local PIN-based app lock** for privacy. When Supabase is
+not configured, the app remains fully offline and auth-free. The app lock is an
+honest privacy lock — it does not encrypt data.
 
-**Key constraint:** The app is a static PWA with zero server components. All auth handling is client-side.
+**Key constraint:** The app is a static PWA with zero server components. All auth
+and lock handling is client-side.
 
 ---
 
@@ -24,19 +25,45 @@ Add a minimal authentication layer using **Supabase Auth (magic link)** so that 
 
 ```
 User opens app
-  ├─ Supabase not configured? → No auth. App works as today.
+  ├─ App lock enabled? → PIN screen (must unlock; works offline too)
+  └─ Supabase not configured? → No auth. App works offline.
   └─ Supabase configured?
-       ├─ Has valid session? → Dashboard (or whatever route they requested)
+       ├─ Has valid session? → App lock enabled?
+       │    ├─ Yes → PIN screen (must unlock to proceed)
+       │    └─ No → Dashboard
        └─ No session → /login page
-            ├─ Enter email → "Send magic link"
-            ├─ Email sent → "Check your inbox" + link to resend
-            ├─ Code expired / error → Show error message
-            └─ Click magic link → PKCE exchange → redirected back → session detected → dashboard
+            ├─ Click "Continue with Google" → OAuth redirect → Supabase → return
+            ├─ Enter email → "Send magic link" (invite-only, no signup)
+            ├─ Email sent → "Check your inbox" + resend cooldown
+            └─ Returning user with session → auto-redirect to dashboard
+```
+
+### App lock flow
+
+```
+User authenticated + lock enabled
+  ├─ Show PIN screen (full-screen overlay)
+  ├─ Enter correct PIN → unlock → show app content
+  ├─ Enter wrong PIN → error message, retry
+  └─ "Sign out instead" → sign out, go to /login
+
+Settings → App Lock
+  ├─ Enable → enter PIN → confirm PIN → saved
+  ├─ Change PIN → verify old → enter new → confirm → saved
+  └─ Disable → verify old → cleared
 ```
 
 ### Invite-only model
 
-There is **no sign-up form**. Users are invited via the Supabase dashboard (Authentication → Users → Invite). The login page only accepts **existing users**. Supabase's "Enable email confirmations" and "Allow new user sign-ups" settings in the dashboard control this externally.
+There is **no sign-up form**. Users are invited via the Supabase dashboard
+(Authentication → Users → Invite). The login page only accepts **existing
+users**.
+
+For magic links, `shouldCreateUser: false` prevents self-registration.
+For Google OAuth, Supabase does not support `shouldCreateUser` on the client.
+To preserve invite-only behavior, **disable "Allow new user sign-ups"** in the
+Supabase dashboard (Authentication → Providers → Settings) so that OAuth
+sign-ins for unregistered emails are rejected server-side.
 
 ---
 
@@ -46,16 +73,19 @@ There is **no sign-up form**. Users are invited via the Supabase dashboard (Auth
 
 | File | Purpose |
 |---|---|
-| `src/context/AuthContext.tsx` | Auth provider, context, `useAuth` hook |
-| `src/app/login/page.tsx` | Magic link form |
+| `src/components/auth/AuthGuard.tsx` | Route guard + lock gate (extracted from AuthContext) |
+| `src/components/auth/PinScreen.tsx` | Full-screen numeric PIN entry overlay |
 
 ### Modified files
 
 | File | Change |
 |---|---|
-| `src/app/layout.tsx` | Wrap children with `<AuthProvider>`, add route guard logic |
-| `src/app/settings/page.tsx` | Add "Sign out" button (visible only when Supabase auth is active) |
-| `specs/README.md` | Add this spec to the index |
+| `src/context/AuthContext.tsx` | Added `signInWithOAuth`, app lock state (`isLocked`, `hasLock`, `unlock`, `setPin`, `clearPin`, `verifyPin`), PBKDF2 hashing helpers, merged lock+auth init, user identity tracking |
+| `src/components/auth/AuthGuard.tsx` | Route guard: enforces lock before disabled passthrough, redirect logic |
+| `src/app/login/page.tsx` | Google OAuth button (primary), magic link form (fallback), divider, returning-user copy |
+| `src/app/settings/page.tsx` | New "App Lock" section with enable/disable/change PIN controls |
+| `specs/README.md` | Added spec entries |
+| `specs/project-spec.md` | Updated auth section, routes, version |
 
 ---
 
@@ -77,76 +107,136 @@ interface AuthContextValue {
   state: 'disabled' | 'loading' | 'authenticated' | 'unauthenticated';
   user: User | null;
   signIn: (email: string) => Promise<{ error?: string }>;
+  signInWithOAuth: () => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
+
+  // Local app lock
+  isLocked: boolean;      // lock enabled + not yet unlocked (works even when auth is disabled)
+  hasLock: boolean;        // PIN hash exists in localStorage
+  unlock: (pin: string) => Promise<boolean>;
+  setPin: (pin: string) => Promise<void>;
+  clearPin: () => void;
+  verifyPin: (pin: string) => Promise<boolean>;
 }
 ```
 
-### Behavior
+### App lock storage
 
-- **On mount:** Calls `supabase.auth.getSession()`. Sets up `onAuthStateChange` listener for automatic session reactivity (handles magic link redirect, token refresh, sign out).
-- **Magic link redirect:** When the user clicks the magic link in their email, Supabase redirects to the app with a URL fragment containing the code. `supabase-js`'s `getSession()` call on mount automatically reads and exchanges this PKCE code — no special handling needed beyond calling `getSession()`.
-- **Cleanup:** `onAuthStateChange` subscription is unsubscribed on unmount.
+All stored in `localStorage`:
 
-### Edge: Supabase not configured
+| Key | Value |
+|---|---|
+| `app-lock-hash` | PBKDF2-derived hash (base64) |
+| `app-lock-salt` | 16-byte random salt (base64) |
+| `app-lock-enabled` | `"true"` or absent |
 
-`supabase` client is `null` → `state` is `'disabled'`. The auth guard and login page check this and pass through / show a message accordingly.
+**Never stores the PIN in plaintext.** Uses PBKDF2 with 100,000 iterations and
+SHA-256 via `crypto.subtle`. Constant-time comparison prevents timing attacks.
+
+### OAuth behavior
+
+- Calls `supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${window.location.origin}/login` } })`
+- On success, Supabase redirects the browser to the provider
+- On return, `onAuthStateChange` picks up the `SIGNED_IN` event
+- If the Google provider is not configured in Supabase, the error is displayed
+- If the provider returns an error (e.g. access denied), the callback URL contains `?error=` and `?error_description=` query params which are surfaced on the login page
+- After OAuth sign-in, if app lock is enabled, the PIN screen is shown
+
+### Magic link behavior (unchanged)
+
+- Calls `supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: origin } })`
+- Invite-only model — no sign-up form
+
+### Sign-out behavior
+
+- Clears local IndexedDB data (`clearAllLocalData()`)
+- Removes `lastUserId` from localStorage
+- Calls `supabase.auth.signOut()`
+- Resets `isLocked` to `false`
 
 ---
 
 ## Login Page (`/login`)
 
+### Layout
+
+1. **Title:** "Sign in"
+2. **Subtitle:** "Returning users go straight to the dashboard."
+3. **Google OAuth button** (primary, full-width, with Google logo)
+4. **Divider** ("or")
+5. **Email magic link form** (Input + "Send magic link" button)
+6. **Error display** (role="alert")
+
 ### States
 
 | State | UI |
 |---|---|
-| Input | Email field + "Send magic link" button |
-| Sending | Button disabled, "Sending..." |
-| Success | "Check your email for the magic link." + "Send again" link after a cooldown |
+| Idle | Google button + email form |
+| OAuth loading | Google button shows spinner |
+| Sending email | Email button disabled, "Sending..." |
+| Email sent | "Check your email" + resend with 30s cooldown |
 | Error | Red inline error message |
 | Already authenticated | Redirect to `/` |
 
-### Layout
-
-- Centered card, minimal branding
-- No nav/header (don't want to show protected navigation to unauthenticated users)
-- Full viewport height, clean background
-
-### Accessibility
-
-- `<label>` on email input
-- `aria-live="polite"` on status messages
-- Focus management on success/error
-
 ---
 
-## Route Guard (in `AuthContext.tsx`)
+## Route Guard (`src/components/auth/AuthGuard.tsx`)
 
 ### Logic
 
 ```
-if (authState === 'disabled') → <>{children}</>            // no auth, pass through
-if (authState === 'loading')  → <FullPageSpinner />        // checking session
-if (authState === 'unauthenticated' && pathname !== '/login') → navigate /login
-if (authState === 'authenticated' && pathname === '/login') → navigate /
+if (authState === 'loading')  → <FullPageSpinner />           // checking
+if (isLocked)                 → <PinScreen />                  // privacy lock (local, works offline too)
+if (authState === 'disabled') → <>{children}</>               // no auth (lock enforced above)
+if (unauthenticated && !/login) → navigate /login
+if (authenticated && /login && !locked) → navigate /
 else → <>{children}</>
 ```
 
-### Implementation
+Lock state initializes eagerly when Supabase is absent so a configured PIN
+still gates the app offline. Authenticated users get lock state resolved
+atomically with session to prevent a fail-open flash. User identity changes
+re-engage the lock so a different user cannot inherit an unlocked state.
 
-A `<AuthGuard>` client component rendered inside the root layout, wrapping
-`children`. Uses `usePathname()` and `useRouter()` from `next/navigation`.
-
-**Important:** Navigation uses `router.replace()` inside a `useEffect`, **not**
-`redirect()` during render. The `redirect()` function from `next/navigation`
-throws a `NEXT_REDIRECT` error mid-render, which corrupts Next.js's internal
-Router hooks ordering and causes "Rendered more hooks than during the previous
-render" crashes on state transitions like sign-out.
+**Important:** Navigation uses `router.replace()` inside a `useEffect`, not
+`redirect()` mid-render. The login page remains accessible when locked (user
+can sign out from the PIN screen).
 
 ---
 
-## Sign Out (Settings page)
+## PinScreen (`src/components/auth/PinScreen.tsx`)
 
-Add a "Sign out" button in Settings, below the import/export section. Only rendered when `authState === 'authenticated'`. On click: calls `signOut()`, redirects to `/login`.
+Full-screen overlay with:
+- Lock icon
+- 6 digit indicator circles (fill as digits enter)
+- Numeric keypad (0-9 + backspace)
+- Keyboard input support (desktop)
+- Mode-dependent title: "Set a PIN" / "Confirm your PIN" / "Enter your PIN"
+- Error message for wrong PIN or mismatched confirmation
+- "Sign out instead" escape hatch
+- Auto-submit on 6 digits entered
+
+### Modes
+
+1. **setup** — first-time PIN creation (if AuthGuard detects lock enabled but no PIN set)
+2. **setup-confirm** — re-enter to confirm
+3. **unlock** — verify against stored hash
+
+---
+
+## App Lock (Settings)
+
+### Section UI
+
+- Status indicator (green dot = enabled, grey = disabled)
+- Enable button (when disabled) → inline PIN entry + confirm
+- Change PIN button (when enabled) → verify old → enter new → confirm
+- Disable button (when enabled) → verify old → clear
+
+### PIN entry in Settings
+
+Uses `<Input type="password" inputMode="numeric">` with digit-only filtering.
+Exactly 6 digits (matching PinScreen). No plaintext PIN display.
 
 ---
 
@@ -154,20 +244,26 @@ Add a "Sign out" button in Settings, below the import/export section. Only rende
 
 | Case | Behavior |
 |---|---|
-| **Supabase env vars missing** | `state = 'disabled'`. No login prompt. App works fully offline as today. |
-| **Offline + no session** | Can't fetch session → `getSession()` errors silently. `state = 'unauthenticated'`. User sees login page with a "You appear to be offline" message. Can't sign in until online. |
-| **Offline + cached session** | Supabase-js client caches the session in localStorage. `getSession()` returns it. App works. |
-| **Session expires mid-use** | `onAuthStateChange` fires `SIGNED_OUT`. `state` flips to `unauthenticated`. Route guard redirects to `/login`. IndexedDB data is untouched. |
-| **Magic link expired** | Supabase returns an error. Login page shows "Link expired. Try again." |
-| **User refreshes on `/login`** | `getSession()` runs again. Still no session → stays on login. No flash-of-redirect. |
-| **Direct navigation to protected route while unauthenticated** | Route guard catches it, redirects to `/login?redirect=/original-path`. After login, redirect back. |
-| **Multiple tabs** | Supabase-js broadcasts auth events across tabs via `broadcastChannel`. Signing out in one tab reflects in all. |
+| **Supabase env vars missing** | `state = 'disabled'`. No login prompt. App works offline. Lock still enforced if configured (local localStorage). |
+| **Google provider not configured** | OAuth error displayed: "provider is not enabled" |
+| **Offline + no session** | `state = 'unauthenticated'`. Login page shown. Can't sign in. |
+| **Offline + cached session** | Supabase-js caches session in localStorage. App works. |
+| **Session expires mid-use** | `onAuthStateChange` fires `SIGNED_OUT`. Redirect to `/login`. |
+| **Magic link expired** | Supabase error shown. User retries. |
+| **User on /login with session** | Auto-redirect to `/` (unless locked) |
+| **Lock enabled, refresh** | Session persisted → lock check → PIN screen |
+| **Lock enabled, wrong PIN** | Error message, clear input, retry |
+| **Lock enabled, sign out** | Lock state cleared, redirect to /login |
+| **Lock enabled, no PIN set** | Lock screen shows setup mode |
+| **Multiple tabs** | Supabase broadcasts auth events via `broadcastChannel` |
+| **PIN forgotten** | "Sign out instead" → sign out → lock state cleared → can re-authenticate |
 
 ---
 
 ## Dependencies
 
-None new. `@supabase/supabase-js` is already installed. No `@supabase/auth-ui-react`.
+None new. `@supabase/supabase-js` is already installed. Web Crypto API is
+available in all modern browsers (no polyfill needed).
 
 ## Config / Env
 
@@ -175,14 +271,7 @@ Already present:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-Add to documentation:
-- Supabase dashboard: add `http://localhost:3000/**` to Authentication → Redirect URLs for local dev
-- For production: add the production URL
-- "Allow new user sign-ups" can be toggled as needed — invite-only flow works either way since `shouldCreateUser: false` prevents self-registration
-
-## Deferred
-
-- Social login providers (Google, Apple, etc.)
-- Password-based auth
-- User profile / avatar
-- Multi-user data isolation (`user_id` on tables)
+Add to Supabase dashboard:
+- **Authentication → Providers → Google:** Enable and configure OAuth credentials
+- **Authentication → URL Configuration:** Add the OAuth callback URL (e.g. `http://localhost:3000/login`) to Redirect URLs — the app sends Google OAuth callbacks to `${window.location.origin}/login`. Magic-link callbacks use the app origin (e.g. `http://localhost:3000`); add both URLs if you use both sign-in methods.
+- **Disable "Allow new user sign-ups"** to enforce invite-only. Magic links pass `shouldCreateUser: false`; OAuth relies on the dashboard setting since `shouldCreateUser` cannot be passed to the provider.

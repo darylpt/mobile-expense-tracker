@@ -4,7 +4,7 @@ A local-first personal finance tracker with optional Supabase cloud sync.
 Data lives in IndexedDB on your device — the app works fully offline.
 When Supabase is configured, changes sync across devices automatically.
 
-**Status:** Phase 1 complete. Active use since June 2026. **v0.1.8**
+**Status:** Phase 1 complete. Active use since June 2026. **v0.17.0**
 
 ---
 
@@ -16,7 +16,7 @@ When Supabase is configured, changes sync across devices automatically.
 | UI | React 19, Tailwind CSS 4 |
 | Storage | IndexedDB via [`idb`](https://github.com/jakearchibald/idb) v8 |
 | Cloud Sync | Supabase (Postgres + Auth + REST API) |
-| Auth | Supabase Auth (magic link, invite-only) |
+| Auth | Supabase Auth (Google OAuth + magic link, invite-only) + local PIN app lock |
 | Language | TypeScript strict |
 | Testing | Jest 30 (unit) + Playwright 1.61 (E2E) |
 | Linting | ESLint 9 with `eslint-config-next` |
@@ -32,7 +32,7 @@ src/
 ├── app/                    # Next.js App Router pages
 │   ├── page.tsx            # /          – Summary / Dashboard
 │   ├── login/
-│   │   └── page.tsx        # /login     – Magic-link sign-in
+│   │   └── page.tsx        # /login     – Google OAuth + magic-link sign-in
 │   ├── transactions/
 │   │   └── page.tsx        # /transactions – Full transaction list
 │   ├── available-balance/
@@ -42,13 +42,14 @@ src/
 │   └── settings/
 │       └── page.tsx        # /settings  – Accounts, Categories, Cloud Sync, Backup
 ├── components/
+│   ├── auth/               # AuthGuard (route gate), PinScreen (PIN entry overlay)
 │   ├── common/             # Button, Input, Dropdown
 │   ├── forms/              # QuickAddForm, EditTransactionModal, TransactionFormFields
 │   ├── layout/             # Header (tab nav, user email, sign-out, version badge, sync status, mobile bottom nav)
 │   ├── summary/            # TransactionList, MonthlySummaryCard, CategoryBreakdown
 │   └── available-balance/  # CashDenominationInput
 ├── context/
-│   ├── AuthContext.tsx     # Auth provider, route guard, sign-in/sign-out
+│   ├── AuthContext.tsx     # Auth provider, app lock state, OAuth + magic-link sign-in/sign-out
 │   └── TransactionContext.tsx  # Global state + auth-aware cache lifecycle
 ├── hooks/
 │   ├── useTransactions.ts     # Derived views from TransactionContext
@@ -96,11 +97,12 @@ During pull, soft-deleted records are purged from local IDB.
 
 ## Routes / Screens
 
-### `/login` — Magic-link sign-in
+### `/login` — Sign-in (Google OAuth + magic link)
 
-Shown when Supabase is configured and no session exists. Enter email → receive
-magic link. Invite-only (no sign-up form). When Supabase is not configured,
-auth is disabled entirely and the app works fully offline.
+Shown when Supabase is configured and no session exists. **Google OAuth is the
+primary action** — a single click redirects to Google via Supabase. Magic link
+(email) is the fallback. Invite-only (no sign-up form). When Supabase is not
+configured, auth is disabled entirely and the app works fully offline.
 
 ### `/` — Summary / Dashboard
 
@@ -138,10 +140,12 @@ does **not** create ledger transactions.
 **Accounts:** inline add/edit/delete with delete-blocked-if-in-use checks,
 drag-and-drop reordering. **Categories:** grouped by type (Income/Expense/Transfer),
 same CRUD + reorder. Same-name categories allowed across types.
-**Tab Visibility:** toggle Balances/Payout/Stocks tabs on/off. **Cloud Sync:** sync
-status, last sync time, Sync Now, Re-sync All buttons. **Sign out** (visible
-when authenticated). **Backup & Restore:** export all data as JSON, export
-transactions as CSV, import from JSON or CSV (Google Sheets format).
+**Tab Visibility:** toggle Balances/Payout/Stocks tabs on/off.
+**App Lock:** enable/disable a local PIN-based privacy lock, change PIN.
+PIN is hashed with PBKDF2 and stored only in localStorage.
+**Cloud Sync:** sync status, last sync time, Sync Now, Re-sync All buttons.
+**Sign out** (visible when authenticated). **Backup & Restore:** export all data
+as JSON, export transactions as CSV, import from JSON or CSV (Google Sheets format).
 
 ---
 
@@ -187,8 +191,19 @@ Import CSV) or restore a JSON backup.
    ```
 3. Run the migrations in `supabase/migrations/` via Supabase Dashboard →
    SQL Editor (run in order: 001, 002, 003)
-4. Invite users via Supabase Dashboard → Authentication → Users → Invite
-5. Restart the dev server — the login page appears on next load
+4. **Enable Google OAuth** (optional but recommended):
+   - Dashboard → Authentication → Providers → Google → Enable
+   - Configure OAuth credentials (Google Cloud Console → Credentials)
+   - Add the OAuth callback URL (e.g. `http://localhost:3000/login`) to
+     Authentication → URL Configuration → Redirect URLs — the app sends
+     Google OAuth callbacks to `${window.location.origin}/login`
+   - Magic-link callbacks use the app origin (e.g. `http://localhost:3000`)
+     instead; add both URLs if you use both sign-in methods
+   - **Disable "Allow new user sign-ups"** to enforce invite-only (OAuth
+     cannot pass `shouldCreateUser` on the client, so the dashboard setting
+     is the only enforcement for OAuth)
+5. Invite users via Supabase Dashboard → Authentication → Users → Invite
+6. Restart the dev server — the login page appears on next load
 
 ### Scripts
 

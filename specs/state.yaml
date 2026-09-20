@@ -1,10 +1,10 @@
 project: "mobile-expense-tracker"
-version: "0.16.9"
+version: "0.17.0"
 phase: "build"
-current_epic: "stock-portfolio-tracker"
-current_story: "dividend-expansion"
-last_action: "2026-09-18 — Fixed payout save feedback and duplicate-submission handling."
-story_end: "2026-07-25T00:00:00Z"
+current_epic: "auth-and-security"
+current_story: "oauth-and-app-lock"
+last_action: "2026-09-18 — Review fixes: aligned 6-digit PIN contract, fixed lock fail-open flash, documented OAuth invite-only, enforced offline lock, surfaced OAuth callback errors."
+story_end: "2026-09-18T00:00:00Z"
 stories:
   - "stock-schema"
   - "stock-crud"
@@ -14,6 +14,7 @@ stories:
   - "stock-tests"
   - "stock-supabase-sync"
   - "dividend-expansion"
+  - "oauth-and-app-lock"
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
