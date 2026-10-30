@@ -6,11 +6,11 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 |---|---|---|---|---|
 | [`phase-1-budget-tracker.md`](./phase-1-budget-tracker.md) | ✅ Done | All 9 Phase 1 tasks implemented. |
 | [`responsive-layout-pass.md`](./responsive-layout-pass.md) | ✅ Done | Multi-column grids on all 4 routes at `lg:`. Available Balance skipped (cash input embedded in table row). **Manual E2E check 2026-06-28:** Verified clean at 375/768/1280px. |
-| [`local-first-sync-supabase.md`](./local-first-sync-supabase.md) | ✅ Done | Local-first sync with Supabase. Outbox pattern, soft-delete ghost-record prevention, LWW DB trigger, offline-first. Per-user isolation via user_id. 3-phase processSyncQueue (read/network/write). Monotonic counter for FIFO ordering. resyncAll recovery. Auto-sync debounced after every CRUD. |
+| [`local-first-sync-supabase.md`](./local-first-sync-supabase.md) | ✅ Done | Authoritative sync, generation fence, queued-edit conflict/replay, deployment contracts, and typed remote-row test harness. Settings behavior is owned by [CSV import](csv-import.md). |
 | [`budget-target-persistence.md`](./budget-target-persistence.md) | ✅ Done | Hybrid (global defaults + per-month overrides). Store added to IndexedDB, in-memory store removed. |
 | Settings page accessibility/coding-standards retrofit | ✅ Done | Error handling, aria-labels, aria-live, scope="col". PASS on re-review. |
 | [`transaction-editing.md`](./transaction-editing.md) | ✅ Done | Edit modal and Transactions Add isolation; see the feature spec for the render contract and regression coverage. |
-| [`transaction-filters.md`](./transaction-filters.md) | ✅ Done | Filter persistence contract, implementation decisions, and dev plus production-export regression coverage. |
+| [`transaction-filters.md`](./transaction-filters.md) | ✅ Done | Filter persistence contract, hydration-safe mirror restoration, and dev plus production-export regression coverage. |
 | [`e2e-testing-playwright.md`](./e2e-testing-playwright.md) | ✅ Done | Coverage lives in [`e2e/`](../e2e/); browser and viewport projects are defined in [`playwright.config.ts`](../playwright.config.ts), with the static-export filter run in [`playwright.prod.config.ts`](../playwright.prod.config.ts). |
 | Show all categories in breakdowns | ✅ Done | Income/Expense tables now include zero-amount rows. |
 | Ponytail-audit cleanup | ✅ Done | Shared validation (`validateTransactionForm`), shared test fixture (`tx()`), removed `totalTransfers` dead field, inlined `toLocaleString` → `formatCurrency`. Net -50 lines. |
@@ -19,7 +19,8 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | Transactions tab | ✅ Done | `/transactions` route created, tab added to Header nav, removed from dashboard. |
 | SonarQube code quality fixes | ✅ Done | 0 ESLint errors, 0 TS errors, 109/109 tests passing. |
 | [`backup-restore.md`](./backup-restore.md) | ✅ Done | JSON export/import of all 6 stores + CSV transaction export. Settings UI. |
-| [`csv-import.md`](./csv-import.md) | ✅ Done | CSV import from Google Sheets. Parse, validate, preview, bulk-insert accounts/categories/transactions. Removed hardcoded seed data. Empty-state onboarding on all pages. |
+| [`csv-import.md`](./csv-import.md) | ✅ Done | Atomic six-store replacement plus durable marker, retained account IDs, explicit missing-account review, local/cloud replacement status, and first-open generation hydration before any write is stamped. The `#orphan-review` deep link hydrates from a post-mount effect and scrolls the review into view. |
+| Dataset replacement generation fence | ✅ Done | Read-only generation RLS, managed-write RPC, exact generation fence, idempotent replacement, paginated reconciliation, conflict surfacing. Migration `007_dataset_generation.sql`. |
 | Empty state / onboarding flow | ✅ Done | All pages show "No data yet → Go to Settings → Import" when no transactions exist. Payout (standalone) excluded. |
 | Seed data removal | ✅ Done | `DEFAULT_ACCOUNTS`, `DEFAULT_CATEGORIES`, `SEED_TRANSACTIONS`, `DEFAULT_BUDGET_TARGETS` removed from constants. `seedTransactionsIfEmpty()` deleted. App starts clean — user imports their own data. |
 | README rewrite | ✅ Done | Boilerplate Next.js README replaced with full project docs: architecture, routes, data model, scripts, backup guidance, cloud sync setup. |
@@ -28,7 +29,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | [`user-data-isolation.md`](./user-data-isolation.md) | ✅ Done | Per-user `user_id` on all tables, new RLS, local cache wipe on user switch. Wipes existing shared data. localStorage marker (lastUserId) prevents unnecessary cache wipe on same-user refresh. Sync queue discarded on user switch (intentional). |
 | Sync ordering fix (monotonic counter) | ✅ Done | Monotonic counter (`++syncSeqCounter`) in `enqueueSyncEntry()` replaces `Date.now()` to preserve FIFO ordering during bulk import. 23503 FK error resolved by ordering accounts/categories before transactions. |
 | `resyncAll()` recovery | ✅ Done | Clears queue, re-enqueues all local data in dependency order (accounts → categories → … → transactions). "Re-sync all" button in Settings with confirmation dialog. |
-| `ensureUuids()` slug migration | ✅ Done | Called at start of `backgroundSync()`. Converts legacy slug IDs to UUIDs in IDB. `crypto.randomUUID()` used for new records. |
+| `ensureUuids()` slug migration | ✅ Done | Called at start of `backgroundSync()`. One readwrite transaction deletes old account/category keys before writing `crypto.randomUUID()` IDs, then remaps transactions, balance snapshot `id`/`accountId`, queue refs, and every persisted replacement-marker snapshot. The versioned `uuid_migration_v2_done` completion flag is set after commit; the legacy `uuid_migration_done` key cannot skip this corrected migration. Regression: `idb-import-uuid-snapshot.test.ts`. |
 | Auto-sync after CRUD | ✅ Done | Debounced `requestSync()` from `enqueueSyncEntry()` (2s debounce, dynamic import to avoid circular dep). Sync fires automatically after every local change. |
 | Auth redirect fix (hooks crash) | ✅ Done | `AuthGuard` replaced `redirect()` (throws mid-render) with `useRouter().replace()` in `useEffect`, preventing "Rendered more hooks than during the previous render" crash on sign-out. |
 | Migration 003 (sort_order column) | ✅ Done | `supabase/migrations/003_add_sort_order.sql` adds `sort_order INTEGER` to accounts and categories tables. Must be run on Supabase before sync will work. |

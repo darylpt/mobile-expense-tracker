@@ -7,11 +7,12 @@
 
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { useAuth } from '@/context/AuthContext';
+import { useTransactionContext } from '@/context/TransactionContext';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useCategories } from '@/hooks/useCategories';
 import { useStocks } from '@/hooks/useStocks';
@@ -22,14 +23,21 @@ import {
   importAllData,
   transactionsToCsv,
   importFromCsv,
-  deduplicateTransactions,
   getAutoBackup,
+  getDatasetReplacementMarker,
+  getOrphanAccountGroups,
+  relinkOrphanedAccountRefs,
 } from '@/lib/idb';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatImportError } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
 import { parseCsv, type ParsedCsv } from '@/lib/csv-import';
 import { getSyncQueueCount, resyncAll } from '@/lib/idb';
-import { backgroundSync } from '@/lib/sync';
+import { backgroundSync, resolveReplacementConflict } from '@/lib/sync';
+import {
+  LOCAL_DATASET_OWNER,
+  type DatasetReplacementMarker,
+} from '@/lib/dataset-replacement';
+import { accountLabel, type MissingAccountGroup } from '@/lib/orphans';
 import { CsvImportPreview } from '@/components/forms/CsvImportPreview';
 import { ManageTickers } from '@/components/stocks/ManageTickers';
 
@@ -43,6 +51,7 @@ export default function SettingsPage() {
     updateAccount,
     deleteAccount,
     moveAccountTo,
+    refreshAccounts,
   } = useAccounts();
 
   const {
@@ -52,6 +61,7 @@ export default function SettingsPage() {
     updateCategory,
     deleteCategory,
     moveCategoryTo,
+    refreshCategories,
   } = useCategories();
 
   const {
@@ -63,8 +73,34 @@ export default function SettingsPage() {
     moveStockTo,
   } = useStocks();
 
-  const [activeTab, setActiveTab] = useState<'accounts' | 'categories' | 'stocks' | 'preferences' | 'data' | 'applock'>('accounts');
+  const { refreshTransactions } = useTransactionContext();
+
+  const refreshAfterReplacement = useCallback(async () => {
+    await Promise.all([refreshAccounts(), refreshCategories(), refreshTransactions()]);
+  }, [refreshAccounts, refreshCategories, refreshTransactions]);
+
+  // Server and first client render must agree, so the hash is applied after mount.
+  const [activeTab, setActiveTab] = useState<'accounts' | 'categories' | 'stocks' | 'preferences' | 'data' | 'applock'>(
+    'accounts'
+  );
   const [mobilePage, setMobilePage] = useState<string | null>(null);
+  const [pendingOrphanScroll, setPendingOrphanScroll] = useState(false);
+  const isLoading = accountsLoading || categoriesLoading || stocksLoading;
+
+  /* eslint-disable react-hooks/set-state-in-effect -- the fragment is external state read after hydration */
+  useEffect(() => {
+    if (window.location.hash !== '#orphan-review') return;
+    setActiveTab('data');
+    setMobilePage('data');
+    setPendingOrphanScroll(true);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingOrphanScroll || isLoading) return;
+    document.getElementById('orphan-review')?.scrollIntoView({ block: 'start' });
+    setPendingOrphanScroll(false);
+  }, [pendingOrphanScroll, isLoading]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // ── Mobile drill-down sub-page ──
   if (mobilePage) {
@@ -123,8 +159,8 @@ export default function SettingsPage() {
               {mobilePage === 'data' && (
                 <div className="space-y-6">
                   <BackupSection />
-                  <ImportSection />
-                  <DataRepairSection />
+                  <ImportSection onImported={refreshAfterReplacement} />
+                  <OrphanReviewSection accounts={accounts} onRelinked={refreshAfterReplacement} />
                 </div>
               )}
               {mobilePage === 'applock' && (
@@ -204,8 +240,8 @@ export default function SettingsPage() {
           {activeTab === 'data' && (
             <div className="space-y-6">
               <BackupSection />
-              <ImportSection />
-              <DataRepairSection />
+              <ImportSection onImported={refreshAfterReplacement} />
+              <OrphanReviewSection accounts={accounts} onRelinked={refreshAfterReplacement} />
             </div>
           )}
           {activeTab === 'applock' && (
@@ -1236,13 +1272,65 @@ function BackupSection() {
 // CSV Import Section
 // ============================================================
 
-function ImportSection() {
+function replacementConflictMessage(marker: DatasetReplacementMarker): string {
+  const condition = marker.remoteGeneration !== null && marker.remoteGeneration > marker.generation
+    ? 'The cloud dataset was replaced by another device.'
+    : 'Cloud records conflict with local edits.';
+  return `${condition}${marker.lastError ? ` ${marker.lastError}` : ''}`;
+}
+
+function replacementStatusMessage(marker: DatasetReplacementMarker | null, cloudEnabled: boolean): string {
+  if (!marker) return 'Saved locally.';
+  if (!cloudEnabled) return 'Saved locally. Cloud sync is not configured.';
+  switch (marker.status) {
+    case 'pending':
+      return 'Saved locally. Cloud replacement pending — it will retry automatically.';
+    case 'applied':
+      return 'Saved locally and replaced in the cloud.';
+    case 'failed':
+      return `Saved locally. Cloud replacement is blocked${marker.lastError ? `: ${marker.lastError}` : ''}. Retry from Cloud Sync.`;
+    case 'conflict':
+      return `Saved locally. ${replacementConflictMessage(marker)}`;
+  }
+}
+
+function ImportSection({ onImported }: { onImported: () => Promise<void> }) {
+  const { state: authState, user } = useAuth();
   const [csvText, setCsvText] = useState('');
   const [parsed, setParsed] = useState<ParsedCsv | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [marker, setMarker] = useState<DatasetReplacementMarker | null>(null);
   const [showMobileInput, setShowMobileInput] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const ownerId = user?.id ?? LOCAL_DATASET_OWNER;
+  const cloudEnabled = authState !== 'disabled';
+
+  const refreshMarker = useCallback(async () => {
+    const next = await getDatasetReplacementMarker(ownerId);
+    setMarker(next);
+    return next;
+  }, [ownerId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      getDatasetReplacementMarker(ownerId)
+        .then((next) => {
+          if (cancelled) return;
+          setMarker(next);
+          setMsg(next ? replacementStatusMessage(next, cloudEnabled) : null);
+        })
+        .catch(() => {});
+    };
+    window.addEventListener('sync-complete', refresh);
+    refresh();
+    return () => {
+      cancelled = true;
+      window.removeEventListener('sync-complete', refresh);
+    };
+  }, [ownerId, cloudEnabled]);
 
   const handleParse = (text: string) => {
     setMsg(null);
@@ -1271,18 +1359,57 @@ function ImportSection() {
     e.target.value = '';
   };
 
+  const retryCloudReplacement = async () => {
+    setMsg('Retrying cloud replacement…');
+    try {
+      await backgroundSync();
+    } catch {
+      // backgroundSync keeps the marker actionable
+    }
+    const next = await refreshMarker();
+    setMsg(replacementStatusMessage(next, cloudEnabled));
+    await onImported();
+  };
+
+  const forceCloudReplacement = async () => {
+    setMsg('Replacing cloud data with this snapshot…');
+    try {
+      await resolveReplacementConflict(ownerId);
+      await backgroundSync();
+    } catch {
+      // marker stays in conflict/failed state for another attempt
+    }
+    const next = await refreshMarker();
+    setMsg(replacementStatusMessage(next, cloudEnabled));
+    await onImported();
+  };
+
   const handleImport = async () => {
     if (!parsed || parsed.transactions.length === 0) return;
     if (!window.confirm('Import will REPLACE all current data. Are you sure?')) return;
     setIsImporting(true);
     setMsg(null);
     try {
-      await importFromCsv(csvText);
-      setMsg('Data imported successfully! Reload the page to see changes.');
+      await importFromCsv(csvText, ownerId);
       setParsed(null);
       setCsvText('');
-    } catch {
-      setMsg('Import failed.');
+
+      await onImported();
+      const localMarker = await refreshMarker();
+      setMsg(replacementStatusMessage(localMarker, cloudEnabled));
+
+      if (cloudEnabled && navigator.onLine) {
+        try {
+          await backgroundSync();
+        } catch {
+          // local data is committed; the marker stays queued
+        }
+        const syncedMarker = await refreshMarker();
+        setMsg(replacementStatusMessage(syncedMarker, cloudEnabled));
+        await onImported();
+      }
+    } catch (error) {
+      setMsg(formatImportError(error));
     } finally {
       setIsImporting(false);
     }
@@ -1347,6 +1474,30 @@ Date,Amount,Description,Type,Category,From Account,To Account
         <p role="status" aria-live="polite" className="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
           {msg}
         </p>
+      )}
+
+      {marker?.status === 'failed' && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+          <p>
+            The last import is saved on this device, but the cloud replacement is
+            blocked{marker.lastError ? `: ${marker.lastError}` : '.'}
+          </p>
+          <Button variant="secondary" size="sm" className="mt-2" onClick={retryCloudReplacement}>
+            Retry cloud replacement
+          </Button>
+        </div>
+      )}
+
+      {marker?.status === 'conflict' && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+          <p>
+            {replacementConflictMessage(marker)} Replace the entire cloud dataset
+            with this local snapshot only if it is the copy you want to keep.
+          </p>
+          <Button variant="danger" size="sm" className="mt-2" onClick={forceCloudReplacement}>
+            Replace cloud data with this snapshot
+          </Button>
+        </div>
       )}
 
       <CsvImportPreview
@@ -1479,43 +1630,204 @@ function formatSyncTime(ts: number): string {
 // Data Repair Section
 // ============================================================
 
-function DataRepairSection() {
+function OrphanReviewSection({
+  accounts,
+  onRelinked,
+}: {
+  accounts: Account[];
+  onRelinked: () => Promise<void>;
+}) {
+  const { transactions } = useTransactionContext();
+  const [syncRevision, setSyncRevision] = useState(0);
+  useEffect(() => {
+    const refresh = () => setSyncRevision((value) => value + 1);
+    window.addEventListener('sync-complete', refresh);
+    return () => window.removeEventListener('sync-complete', refresh);
+  }, []);
+  const [groups, setGroups] = useState<MissingAccountGroup[] | null>(null);
+  const [targets, setTargets] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
 
-  const handleDedup = async () => {
-    if (!window.confirm('This will scan for duplicate transactions caused by previous imports and remove them. Proceed?')) return;
-    setIsRunning(true);
+  const loadGroups = useCallback(async () => {
+    setGroups(await getOrphanAccountGroups());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getOrphanAccountGroups()
+      .then((next) => {
+        if (cancelled) return;
+        setGroups(next);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setGroups([]);
+        setMsg('Could not load missing account references.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accounts, transactions, syncRevision]);
+
+  const handleRelink = async (sourceAccountId: string, expectedTransactionIds: string[]) => {
+    const targetAccountId = targets[sourceAccountId];
+    if (!targetAccountId) return;
+    setBusyId(sourceAccountId);
     setMsg(null);
     try {
-      const result = await deduplicateTransactions();
-      if (result.deleted === 0 && result.relinked === 0 && result.remaining === 0) {
-        setMsg('No duplicates found. Your data is clean.');
-      } else {
-        const parts: string[] = [];
-        if (result.deleted > 0) parts.push(`${result.deleted} duplicate${result.deleted !== 1 ? 's' : ''} removed`);
-        if (result.relinked > 0) parts.push(`${result.relinked} transaction${result.relinked !== 1 ? 's' : ''} re-linked to correct accounts`);
-        if (result.remaining > 0) parts.push(`${result.remaining} transaction${result.remaining !== 1 ? 's' : ''} still orphaned (no match found)`);
-        setMsg(`Done: ${parts.join(', ')}. Reload to see changes.`);
-      }
-    } catch {
-      setMsg('Repair failed — check console for details.');
+      const count = await relinkOrphanedAccountRefs(
+        sourceAccountId,
+        targetAccountId,
+        expectedTransactionIds
+      );
+      setTargets((prev) => {
+        const next = { ...prev };
+        delete next[sourceAccountId];
+        return next;
+      });
+      await loadGroups();
+      await onRelinked();
+      setMsg(
+        count === 0
+          ? 'No transactions needed re-linking.'
+          : `${count} transaction${count === 1 ? '' : 's'} re-linked. Amounts, categories, dates, descriptions, and transaction IDs are unchanged.`
+      );
+    } catch (error) {
+      await loadGroups();
+      await onRelinked();
+      setMsg(error instanceof Error ? error.message : 'Re-link failed.');
     } finally {
-      setIsRunning(false);
+      setBusyId(null);
     }
   };
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
+    <section
+      id="orphan-review"
+      className="scroll-mt-24 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6"
+    >
       <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-        Data Repair
+        Missing Account Review
       </h2>
       <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
-        Fix duplicate transactions from previous CSV imports. Removes confirmed duplicates and re-links orphaned transactions to the most likely accounts.
+        Transactions that still reference an account ID that no longer exists.
+        Nothing is guessed or deleted. Choose the existing account that should
+        replace each missing ID. Transfers that would end up with the same
+        account on both sides are rejected; edit those transactions individually.
       </p>
-      <Button variant="secondary" size="sm" onClick={handleDedup} disabled={isRunning}>
-        {isRunning ? 'Scanning…' : 'Deduplicate Transactions'}
-      </Button>
+
+      {groups === null && (
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
+      )}
+
+      {groups !== null && groups.length === 0 && (
+        <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
+          No missing account references.
+        </p>
+      )}
+
+      {groups !== null && groups.length > 0 && (
+        <div className="space-y-4">
+          {groups.map((group) => {
+            const targetId = targets[group.accountId] ?? '';
+            const selectId = `orphan-target-${group.accountId}`;
+            return (
+              <div
+                key={group.accountId}
+                className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700"
+              >
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                      Missing account ID
+                    </p>
+                    <code className="block break-all text-xs text-zinc-700 dark:text-zinc-300">
+                      {group.accountId}
+                    </code>
+                  </div>
+                  <p className="shrink-0 text-sm text-zinc-600 dark:text-zinc-400">
+                    In {formatCurrency(group.inflow)} · Out {formatCurrency(group.outflow)}
+                  </p>
+                </div>
+
+                <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+                  {group.transactions.map((tx) => (
+                    <li
+                      key={tx.id}
+                      className="rounded-lg bg-zinc-50 p-2 text-sm dark:bg-zinc-800/40"
+                    >
+                      <div className="flex flex-wrap items-baseline justify-between gap-1">
+                        <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                          {tx.date} · {tx.category}
+                        </span>
+                        <span className="tabular-nums text-zinc-700 dark:text-zinc-300">
+                          {formatCurrency(tx.amount)}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                        {accountLabel(tx.fromAccount, accounts) || '—'} →{' '}
+                        {accountLabel(tx.toAccount, accounts) || '—'}
+                      </p>
+                      {tx.description && (
+                        <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                          {tx.description}
+                        </p>
+                      )}
+                      <p className="mt-0.5 break-all text-[10px] text-zinc-400 dark:text-zinc-500">
+                        {tx.id}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <div className="min-w-0 flex-1">
+                    <label
+                      htmlFor={selectId}
+                      className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
+                    >
+                      Reassign to existing account
+                    </label>
+                    <select
+                      id={selectId}
+                      value={targetId}
+                      onChange={(event) =>
+                        setTargets((prev) => ({
+                          ...prev,
+                          [group.accountId]: event.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                    >
+                      <option value="">Choose an account…</option>
+                      {accounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={!targetId || busyId === group.accountId}
+                    onClick={() =>
+                      handleRelink(
+                        group.accountId,
+                        group.transactions.map((transaction) => transaction.id)
+                      )
+                    }
+                  >
+                    {busyId === group.accountId ? 'Re-linking…' : 'Re-link transactions'}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {msg && (
         <p role="status" aria-live="polite" className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
           {msg}

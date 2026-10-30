@@ -350,6 +350,26 @@ describe('TransactionList filter mirror identity switch', () => {
   });
 });
 
+describe('TransactionList saved filters during hydration', () => {
+  test('restores saved selection before the hydration effects can clear its mirror', () => {
+    const { renderToString } = jest.requireActual('react-dom/server.node');
+    const saved = 'type=income%2Ctransaction';
+    mockUseTransactionContext.mockReturnValue(contextValue(makeTransactions(3)));
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(<TransactionList />);
+    document.body.appendChild(container);
+    localStorage.setItem(FILTERS_STORAGE_KEY, saved);
+
+    render(<TransactionList />, { container, hydrate: true });
+
+    expect(localStorage.getItem(FILTERS_STORAGE_KEY)).toBe(saved);
+    expect(window.location.search).toBe(`?${saved}`);
+    for (const chip of screen.getAllByRole('button', { name: 'Expense' })) {
+      expect(chip.getAttribute('aria-pressed')).toBe('false');
+    }
+  });
+});
+
 describe('TransactionList filter mirror with a stale router query', () => {
   function renderWithQuery(query: string) {
     window.history.replaceState(null, '', `/transactions?${query}`);

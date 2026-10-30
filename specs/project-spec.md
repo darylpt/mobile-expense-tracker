@@ -25,13 +25,13 @@ A **local-first personal finance PWA** that replaces a Google Sheets budget trac
 | E2E Tests | Playwright 1.61 (6 dev projects: 3 cross-browser desktop runs plus Chromium mobile/tablet/desktop; separate production-static-export Chromium config) |
 | Linting | ESLint 9 + eslint-config-next |
 
-**Zero server-side code.** Every component is `'use client'`. No API routes, no server components, no server actions.
+**No Next.js server-side code.** Every component is `'use client'`. The app ships no API routes, server components, or server actions. Managed writes and CSV-import dataset replacement are enforced inside the Supabase database instead: authenticated `SECURITY DEFINER` RPCs (`apply_managed_write`, `replace_user_dataset`) own all writes to the six managed tables, and migration 007 removes their direct INSERT/UPDATE/DELETE policies.
 
 ---
 
 ## 3. Data Model
 
-### 3.1 IndexedDB Stores (11 total)
+### 3.1 IndexedDB Stores (12 total)
 
 | Store | Key | Purpose |
 |---|---|---|
@@ -46,8 +46,9 @@ A **local-first personal finance PWA** that replaces a Google Sheets budget trac
 | `stockTransactions` | UUID | Buy/sell transaction log |
 | `dividends` | UUID | Dividend records (cash and stock) |
 | `syncQueue` | auto-increment | Pending outbound sync entries (FIFO by monotonic counter) |
+| `datasetMarkers` | userId | Durable CSV replacement snapshot/state (`local` when cloud is disabled) |
 
-**DB version:** 13 (current). Migrations v2→v13 handled in `idb.ts` upgrade callback.
+**DB version:** 14 (current). Migrations v2→v14 handled in `idb.ts` upgrade callback.
 
 ### 3.2 Transaction Record
 
@@ -127,12 +128,10 @@ A **local-first personal finance PWA** that replaces a Google Sheets budget trac
 
 ## 4. Supabase Schema
 
-The 10 application data stores map 1:1 to Supabase Postgres tables; `syncQueue` is local-only. Each remote table has:
-- `user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE`
-- `created_at TIMESTAMPTZ`
-- `updated_at TIMESTAMPTZ` (with LWW trigger)
-- `deleted_at TIMESTAMPTZ` (soft-delete)
-- Per-user RLS policies (SELECT/INSERT/UPDATE/DELETE gated on `auth.uid() = user_id`)
+The 10 application data stores map 1:1 to Supabase Postgres tables; `syncQueue` and `datasetMarkers` are local-only. The six CSV-managed tables carry `dataset_generation`; authenticated clients can read but not write them directly. Every remote table has `user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE` and `created_at TIMESTAMPTZ`; mutable tables add `updated_at TIMESTAMPTZ` (LWW trigger) and `deleted_at TIMESTAMPTZ` (soft-delete). RLS is per-user (`auth.uid() = user_id`), but the policy set differs:
+- **Managed tables** (`accounts`, `categories`, `transactions`, `cash_denominations`, `payouts`, `budget_targets`): SELECT only. All INSERT/UPDATE/DELETE goes through the `apply_managed_write` and `replace_user_dataset` RPCs, and a trigger drops rows whose `dataset_generation` is not the current generation.
+- **Remaining synced tables** (`stocks`, `stock_transactions`, `dividends`, `balance_snapshots`): SELECT/INSERT/UPDATE/DELETE, gated on `auth.uid() = user_id`.
+- **`dataset_generations`**: SELECT only; the RPCs update it.
 
 Dividend sync retains the legacy `date` and `amount` columns while also storing the expanded `ex_date`, `pay_date`, `qty`, `rate`, `fee`, and `dividend_yield` fields. Legacy rows are normalized to the v13 local shape during pull.
 
@@ -154,6 +153,7 @@ $$;
 4. `004_stock_sync.sql` — stocks, stock transactions, and legacy dividends tables
 5. `005_balance_snapshots.sql` — balance snapshots table
 6. `006_dividend_expansion.sql` — expanded dividend columns and legacy backfill
+7. `007_dataset_generation.sql` — dataset generation, read-only generation RLS, managed-write RPC, write fence, replacement RPC
 ---
 
 ## 5. Sync Architecture (Outbox Pattern)
@@ -165,8 +165,16 @@ $$;
 5. Conflict resolution: Last-Writer-Wins by `updated_at` (LWW trigger on Supabase)
 6. Soft-delete: "Delete" sets `deleted_at`, never hard-deletes from REST API
 7. `resyncAll()` recovery: clears queue, re-enqueues in dependency order
-8. `ensureUuids()`: one-shot migration from legacy slug IDs to `crypto.randomUUID()`
+8. `ensureUuids()`: one-shot migration from legacy slug IDs to `crypto.randomUUID()`. One readwrite transaction deletes the old account/category keys, writes the new ones, and remaps transaction refs, balance snapshot `id`/`accountId`, queue identity fields, and every replacement-marker snapshot; the versioned `uuid_migration_v2_done` flag is set only after commit, and the legacy `uuid_migration_done` key is ignored so a prior migration never suppresses this corrected run
 9. `syncInFlight` guard prevents concurrent sync cycles
+10. Durable `datasetMarkers` snapshot gates managed push/pull until `replace_user_dataset` applies it
+11. Managed single-record writes use `apply_managed_write`; direct managed INSERT/UPDATE/DELETE policies are removed
+12. Exact generation match is enforced by the server fence; `dataset_generations` is client read-only
+13. A newer remote generation reconciles the full managed snapshot with paginated reads; queued managed edits produce a visible conflict
+14. A managed push fenced by `conflict` keeps its queue entry, stops the cycle, and records a conflict marker instead of retrying or pulling
+15. Conflict resolution re-reads and validates the marker inside its snapshot transaction and derives the next generation there
+16. A pending `local` marker is adopted under the authenticated user ID in one `datasetMarkers` transaction; an authenticated import deletes the obsolete local marker
+17. On first open, `getDB()` shares one initialization promise and resolves it only after `datasetMarkers` hydrates the active generation; a failed open or hydration clears the promise so a later call retries without exposing a partially initialized singleton
 
 ---
 
@@ -234,8 +242,21 @@ Date,Amount,Description,Type,Category,From Account,To Account
 
 - **Carry Over rows** → account starting balances (one-time, first month only)
 - **Regular rows** → transactions (type mapped from CSV Type column)
-- **Account creation** from unique names, slug-based IDs
+- **Account creation** from unique names; an unambiguous normalized-name match on both sides retains the existing ID, otherwise a new UUID is generated. Transaction references are remapped
 - **Category creation** with auto-detected type from CSV Type values
+- **Failure reporting** shows the caught error name and message
+
+### Replacement Contract
+
+- Six managed stores, the durable marker snapshot, managed queue cleanup, and obsolete local-marker removal commit in one IndexedDB transaction
+- One transactional RPC applies the snapshot, soft-deletes missing rows, and never touches `balance_snapshots` or hard-deletes accounts
+- Status distinguishes local pending, cloud applied, failed, and conflicted replacement
+- A managed push fenced by `conflict` preserves its queue entry and local rows in a conflict marker instead of retry-dropping or pulling
+- An older-generation queue entry is a post-snapshot edit from a tab with a stale in-memory generation, so it also becomes a conflict marker instead of being dropped
+- Writes wait until the persisted generation is loaded. The first `getDB()` call shares one initialization promise across all callers and resolves only after marker hydration, so a queue entry started during that open carries the persisted generation rather than `0`
+- Reconciliation and replacement RPC outcomes commit only while the durable marker identity is unchanged; a concurrent import always wins
+- Re-importing the same CSV converges to one latest snapshot; retrying the same snapshot is idempotent
+- Missing references stay inspectable with exact IDs; repair requires an explicit target account and deletes nothing
 
 ---
 
@@ -271,6 +292,12 @@ Date,Amount,Description,Type,Category,From Account,To Account
 |---|---|
 | `src/lib/aggregations.test.ts` | Account balance computation, income/expense breakdowns |
 | `src/lib/idb.test.ts` | IDB CRUD operations, sync queue, migrations |
+| `src/lib/idb-import.test.ts` | Atomic replacement, marker snapshot, obsolete local-marker removal, re-import convergence, failure rollback, explicit relinking |
+| `src/lib/idb-first-open-generation.test.ts` | First-open hydration barrier: a queue entry started during initialization carries the persisted generation |
+| `src/lib/idb-import-uuid-snapshot.test.ts` | UUID migration after an import: no duplicate account, local references and balance snapshot follow, every persisted marker snapshot is remapped, a preexisting `uuid_migration_done` key does not suppress the correctly versioned rerun, and a failed migration leaves `uuid_migration_v2_done` unset |
+| `src/lib/dataset-replacement.test.ts` | Account identity, ID retention, generation sequencing |
+| `src/lib/orphans.test.ts` | Missing-account grouping, safe labels, reference-only relinking |
+| `src/lib/sync.test.ts` | Replacement retry/idempotency, managed-write RPC, generation gate, fenced-push conflict retention, atomic local marker adoption, marker-transition-safe resolution, paginated reconciliation |
 | `src/lib/csv-import.test.ts` | CSV parsing, date detection, amount parsing, carry-over logic |
 | `src/lib/reconciliation.test.ts` | Expected balance computation |
 | `src/hooks/useTransactions.test.ts` | Transaction add/delete through the hook |
@@ -281,7 +308,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `src/components/summary/PortfolioSummaryCard.test.tsx` | Portfolio summary rerender behavior and empty-state handling |
 | `src/context/AuthContext.test.tsx` | Auth lifecycle, identity isolation, sign-out cleanup, PIN remount, and filter mirror gates |
 | `src/lib/transaction-filters.test.ts` | Persistable filter allowlist and query canonicalization |
-| `src/components/summary/TransactionList.test.tsx` | Add dialog toggle render isolation; StrictMode restore/settlement; empty-URL/stale-router settlement; stale-router and view-only URL projection; consecutive filter updates and stale-page normalization; auth-gated persistence and identity-switch provenance |
+| `src/components/summary/TransactionList.test.tsx` | Add dialog toggle render isolation; StrictMode restore/settlement; empty-URL/stale-router settlement; stale-router and view-only URL projection; consecutive filter updates and stale-page normalization; auth-gated persistence, identity-switch provenance, and server-rendered hydration restore |
 | `src/components/forms/DividendForm.test.tsx` | Dividend fields, validation, computed amounts, and loading state |
 | `src/components/stocks/DividendLog.test.tsx` | Dividend table, legacy amounts, yields, and edit/delete actions |
 
@@ -294,6 +321,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence |
 | `e2e/transaction-filter-persistence.spec.ts` | Filter selection, direct-URL selection/clearing, and tab restore against dev and the static export |
+| `e2e/settings-orphan-review-deeplink.spec.ts` | Orphan-review deep link hydration and scroll |
 
 Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 
@@ -316,7 +344,9 @@ Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 | Transaction Filter Persistence | ✅ See [feature contract](transaction-filters.md) |
 | User Data Isolation | ✅ user_id on all tables, RLS, cache wipe on user switch |
 | Backup & Restore | ✅ JSON export/import, CSV export/import |
-| CSV Import | ✅ Google Sheets format, carry-over→starting balance |
+| CSV Import | ✅ Google Sheets format, carry-over→starting balance, retained account IDs |
+| Dataset Replacement Sync | ✅ Durable marker, generation fence, managed-write RPC, idempotent replacement |
+| Missing Account Review | ✅ Exact missing IDs, explicit relinking, no guessing/deletion; `#orphan-review` deep link hydrates after mount and scrolls to the review |
 | Codebase Audit | ✅ 21 findings resolved |
 | Empty State / Onboarding | ✅ All pages show import guidance when empty |
 | Seed Data Removal | ✅ App starts clean |
@@ -344,6 +374,13 @@ Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 | Sync queue discarded on user switch | Intentional: unsynced offline changes from another user should not pollute new user's queue. |
 | `lastUserId` localStorage marker | Prevents full cache wipe + re-pull on same-user page refresh. |
 | Monotonic counter for sync ordering | `Date.now()` collides during bulk import. `++syncSeqCounter` guarantees FIFO. |
+| Managed writes require an RPC | Direct PostgREST writes cannot prove the current generation |
+| Full paginated reconciliation on generation change | Supabase caps selects at 1000 rows; partial replacement loses rows |
+| Pending managed edits surface a conflict | Preserves user work and the queue |
+| Local marker adoption | Offline import remains usable before sign-in |
+| A fenced push keeps its queue entry | Retry counting would drop the user's write even though only explicit resolution can fix the generation |
+| Local marker adoption is one transaction | Separate check, copy, and delete can overwrite a user marker or delete a newer local marker |
+| Conflict preparation re-reads the marker | Reading before the transaction can rebuild and overwrite a marker changed by a concurrent import |
 
 ---
 
@@ -427,3 +464,9 @@ Local Express API (`server/index.ts`) for AI assistant integration. See [`server
 ## 14. What's Left
 
 - **Dividend → expense tracker integration** — auto-create income transactions from dividend records (deferred — separate tracking layer for now)
+
+### Import sync correction (0.18.3)
+
+CI test typing uses record-shaped remote mock rows and supported accessible-name role queries; application behavior and release version are unchanged.
+
+See the [sync contract](local-first-sync-supabase.md#import-sync-correction-0183) for stale-cycle fencing, queued-edit replay, and actionable LWW conflicts, and the [Settings import contract](csv-import.md#import-sync-correction-0183) for live status, recovery explanations, and missing-account review.

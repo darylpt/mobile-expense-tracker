@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.17.8"
+version: "0.18.3"
 phase: "build"
 current_epic: "auth-and-security"
-current_story: "transaction-filter-persistence"
-last_action: "2026-10-30 — Transaction filter persistence; see specs/transaction-filters.md for restore, auth, and tab-navigation coverage."
+current_story: "oauth-and-app-lock"
+last_action: "2026-10-30 — The legacy-ID to UUID migration now deletes each old account and category primary key before writing its replacement inside one readwrite transaction, so the unique account-name index no longer aborts the migration, and the same transaction remaps transaction account references, balance snapshot id/accountId, queue recordId and payload identity fields, and every persisted replacement-marker snapshot. The completion guard is versioned: uuid_migration_v2_done is written only after commit, and the legacy uuid_migration_done key is ignored so existing installs run the corrected migration once without repeated DB scans. Covered by idb-import-uuid-snapshot.test.ts: a CSV import that retains a legacy account ID, a legacy category with multi-user marker snapshots, a preexisting legacy flag that must not suppress the rerun, and a forced failure that must leave the versioned flag unset. DB v14, migration 007 deploy prerequisite, version 0.18.3."
 story_end: "2026-10-30T00:00:00Z"
 stories:
   - "stock-schema"
@@ -19,8 +19,8 @@ stories:
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
-  tests_passing: 147
+  tests_passing: "188/188 unit tests in 20 suites (excluding E2E and known TransactionList filter mock/source mismatch; unfiltered run previously had one suite failure); orphan-review deep-link E2E 1/1 Chromium"
   eslint_errors: 0
-  eslint_warnings: 3
+  eslint_warnings: 5 # pre-existing warnings
   ts_errors: 0
   build_clean: true

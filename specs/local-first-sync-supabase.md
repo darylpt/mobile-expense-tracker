@@ -28,7 +28,7 @@ broker for cross-device syncing.
 
 ## 1. PostgreSQL Schema
 
-All 6 IndexedDB stores map 1:1 to Supabase tables. UUID primary keys match the
+The six CSV-managed stores below map to Supabase tables. The full store inventory is in [the project data model](project-spec.md#3-data-model). UUID primary keys match the
 `crypto.randomUUID()` format. Timestamps are `TIMESTAMPTZ` — conversion between
 `Date.now()` ms and Postgres happens in the sync layer.
 
@@ -137,13 +137,22 @@ $$;
 -- Applied to: accounts, categories, transactions, payouts, budget_targets
 ```
 
-### RLS (per-user, from migration 002)
+### RLS (per-user, after migration 007)
 
-All 6 tables share 4 policies each:
-- `SELECT USING (auth.uid() = user_id)`
-- `INSERT WITH CHECK (auth.uid() = user_id)`
-- `UPDATE USING (auth.uid() = user_id)`
-- `DELETE USING (auth.uid() = user_id)`
+Every table is gated on `auth.uid() = user_id`, but migration 007 splits the
+policy set:
+
+- **Six managed tables** (`accounts`, `categories`, `transactions`,
+  `cash_denominations`, `payouts`, `budget_targets`): `SELECT USING
+  (auth.uid() = user_id)` only. `INSERT`/`UPDATE`/`DELETE` policies are
+  dropped; writes must go through `apply_managed_write` or
+  `replace_user_dataset`, which run as `SECURITY DEFINER` and enforce the
+  dataset generation.
+- **Remaining synced tables** (`stocks`, `stock_transactions`, `dividends`,
+  `balance_snapshots`): SELECT/INSERT/UPDATE/DELETE, all gated on
+  `auth.uid() = user_id`.
+- **`dataset_generations`**: `SELECT USING (auth.uid() = user_id)` only; the
+  RPCs own inserts and updates.
 
 ---
 
@@ -162,6 +171,7 @@ syncQueue {
     payload: object | null;
     timestamp: number;       // monotonic counter (syncSeqCounter)
     retryCount: number;
+    datasetGeneration?: number; // managed writes carry the hydrated generation
   }
   indexes: { byTimestamp: number }
 }
@@ -177,36 +187,32 @@ the same IndexedDB transaction** as the data write — atomic by construction.
 FIFO ordering during bulk imports where multiple entries share the same
 millisecond timestamp.
 
+### Dataset replacement gate
+
+CSV import writes a durable `datasetMarkers` snapshot and clears managed queue entries in one transaction. `backgroundSync` reads `dataset_generations.generation`; a non-applied marker is applied through `replace_user_dataset` before any managed push or pull. The RPC records the snapshot UUID for idempotent retry and returns `conflict` when another device advanced the generation.
+
+Managed single-record writes use `apply_managed_write(p_generation, p_store, p_operation, p_record_id, p_record)`. Direct INSERT/UPDATE/DELETE policies on the six managed tables are removed, so a legacy client that omits the generation cannot write at all. The trigger also requires `NEW.dataset_generation` to equal the current generation. `dataset_generations` is read-only to clients. Creates and updates carry the record's `updated_at`; the RPC writes that incoming timestamp (server time only when it is absent), so the LWW trigger still skips a queued change older than the stored row instead of overwriting newer data.
+
+When the remote generation advances, a client with no queued managed writes reconciles the authoritative remote snapshot with paginated reads and replaces the six local stores in one transaction that also rechecks the applied marker identity (user ID, generation, snapshot ID) and `syncQueue`. A client with no local marker starts at generation 0, so any remote generation above 0 triggers that reconcile instead of preserving stale local-only rows. If a concurrent import or replacement changed the marker while the remote pages were fetched, the stores, queue, and marker are left untouched and the current marker is returned so the next step handles its pending or conflict state. A client with queued managed edits receives a `conflict` marker containing a local snapshot; its queue and local rows are preserved until the user resolves it. Adoption of a pending `local` marker under the authenticated user ID checks, copies, and deletes the marker in one `datasetMarkers` readwrite transaction, so a concurrent import cannot overwrite the user marker or delete a newer local marker.
+
+When `apply_managed_write` returns `conflict` during a push, `processSyncQueue` stops immediately without incrementing the retry count or dropping the entry, then reports the conflict to `backgroundSync`. `backgroundSync` rechecks the marker inside the snapshot transaction and records a conflict marker with the current local rows; the rest of the queue is left untouched, and no pull runs against the superseding remote snapshot.
+
+Conflict resolution rebuilds the snapshot from the current local six stores, clears only the managed queue entries represented by that snapshot, writes the pending marker, and activates the next generation before calling the RPC. The marker is re-read inside that transaction and the next generation derives from that fresh view (`max(generation, remoteGeneration) + 1`), so a concurrent import or reconciliation is never overwritten with stale data; if the marker is no longer a conflict, nothing is rebuilt or applied. Each replacement RPC outcome commits only if the marker still matches the user ID, snapshot ID, generation, and status the attempt started from; a newer import wins untouched and no active generation is rolled back. Edits queued during the RPC carry the new generation and are pushed after the replacement succeeds. On failure the marker, snapshot, and queued edits remain intact.
+
 ### Process Sync Queue (3-phase)
 
 The queue is processed in three distinct phases to avoid IndexedDB
 async-boundary leaks:
 
 1. **Read** — single read-only transaction to fetch all pending entries
-2. **Network** — loop over entries, calling Supabase upsert/deletes outside
-   any IDB transaction
-3. **Write** — fresh readwrite transaction to delete successes and update
-   retry counts
-
-```typescript
-async function processSyncQueue(): Promise<void> {
-  // 1. Read
-  const allEntries = await db.getAllFromIndex('syncQueue', 'byTimestamp');
-  // 2. Network
-  for (const entry of allEntries) {
-    await supabase.from(tableName).upsert(remotePayload, { onConflict: 'id' });
-  }
-  // 3. Write
-  const tx = db.transaction('syncQueue', 'readwrite');
-  for (const id of drops) await tx.store.delete(id);
-}
-```
+2. **Network** — non-managed entries upsert directly. Managed entries call `apply_managed_write` with the applied generation; a `conflict` response stops the phase and keeps the entry and the rest of the queue untouched. An entry stamped below the current generation is not dropped: replacement transactions clear managed entries atomically, so a surviving older-generation entry is a post-snapshot edit from a tab with a stale in-memory generation. It raises a managed conflict before any write or pull so the queue and local rows are preserved for explicit resolution
+3. **Write** — fresh readwrite transaction to delete successes and update retry counts; a retry is only re-put if the entry still exists. A managed conflict rethrows after this phase so `backgroundSync` can record the conflict marker instead of pulling
 
 ### Conflict Resolution: Last-Writer-Wins
 
-- **Push (local→remote):** Supabase upsert with `?on_conflict=id`. The LWW
-  trigger silently rejects updates where incoming `updated_at` ≤ existing.
-- **Pull (remote→local):** Per-record `updated_at` comparison — newer wins.
+Non-managed pushes use direct upserts; managed pushes use the generation-fenced RPC and verify the persisted row before acknowledging a queued create or update. A rejected managed edit remains queued and enters actionable conflict state, including when the generation is unchanged. Explicit resolution replaces the entire cloud managed dataset with the current local snapshot at a newer generation.
+
+Pulls compare per-record timestamps, preserve queued local edits, and validate the applied marker inside the managed-store write transaction. See the correction details below for replacement-time replay and stale-cycle fencing.
 
 ### Soft-delete strategy
 
@@ -216,9 +222,18 @@ async function processSyncQueue(): Promise<void> {
 
 ### ensureUuids()
 
-Called at the start of `backgroundSync()`. Scans all stores for legacy slug IDs
-(non-UUID strings) and replaces them with `crypto.randomUUID()`. This smooths
-the migration from the old slug-based ID scheme.
+Called at the start of `backgroundSync()`. Scans every account and category for
+legacy slug IDs (non-UUID strings) and replaces them with
+`crypto.randomUUID()`. The old primary key is deleted before the new one is
+written, so the unique account-name index never holds both rows. One
+`readwrite` transaction covers accounts, categories, transactions,
+balanceSnapshots, syncQueue, and datasetMarkers: transaction refs, a balance
+snapshot's `id`/`accountId`, queue identity fields, and every persisted
+replacement-marker snapshot follow the new IDs. The completion flag is
+versioned. `uuid_migration_v2_done` is set only after the transaction commits.
+The earlier `uuid_migration_done` key is ignored, so an installation that
+completed the first migration still runs this corrected one once; after that
+commit the versioned flag suppresses the scan on later syncs.
 
 ### resyncAll() recovery
 
@@ -315,8 +330,8 @@ async function pullStore(storeName, userId):
 |---|---|
 | **Offline launch** | IDB loads instantly. Sync queue accumulates. No crash. |
 | **Online→offline mid-sync** | Current queue entry fails (warn, retry later). No partial data. |
-| **Same record edited on 2 devices offline** | LWW by `updated_at`. Second device to sync loses that edit. |
-| **Sync queue overflow** | Max 5 retries per entry, then dropped with console warning. |
+| **Same record edited on 2 devices offline** | See [Conflict Resolution](#conflict-resolution-last-writer-wins); rejected managed edits remain available for explicit resolution. |
+| **Sync queue overflow** | Non-managed failures are dropped after 5 retries with a console warning. Managed network failures remain queued for retry; managed write conflicts remain queued for explicit resolution. |
 | **FK violation (23503)** | Dependency ordering ensures accounts → categories → … → transactions. resyncAll re-enqueues in correct order. |
 | **First-time setup** | App works fully offline. Sync silently no-ops until Supabase configured. |
 | **Sign-out with pending sync** | backgroundSync() runs first; if it fails and queue non-empty, user is warned before proceeding. |
@@ -333,6 +348,33 @@ async function pullStore(storeName, userId):
 1. `001_schema.sql` — tables, LWW trigger, initial auth.role() RLS
 2. `002_user_isolation.sql` — TRUNCATE, user_id column, per-user RLS
 3. `003_add_sort_order.sql` — sort_order on accounts + categories
+4. `004_stock_sync.sql` — stocks, stock transactions, legacy dividends
+5. `005_balance_snapshots.sql` — balance snapshots
+6. `006_dividend_schema_compatibility.sql` — expanded dividend columns and backfill
+7. `007_dataset_generation.sql` — generation table, read-only generation RLS, managed-write RPC, row fence, replacement RPC, revoked direct managed writes
 
 After running migrations, `NOTIFY pgrst, 'reload schema'` or refresh the
 Supabase API schema cache in Dashboard → API.
+
+**Production status:** migration 007 is already applied in production following the user-confirmed successful pre-migration backup. Production postflight confirmed the generation table, six generation columns, both RPCs, and zero direct managed-write policies. Do not rerun migration 007 in production.
+
+**Fresh deployments:** apply the migration sequence above, including 007, before enabling client sync. Without 007, `backgroundSync` stops before push/pull and leaves local data and the queue intact.
+
+## 7. Key Decisions
+
+| Decision | Rationale |
+|---|---|
+| All managed writes go through RPCs | Direct PostgREST writes cannot prove the client sent the current generation, so legacy upserts could overwrite current rows |
+| Exact generation match in the trigger | Rejects omitted/older generations and arbitrary future generations |
+| Generation table is client read-only | Only the RPCs may change server generation |
+| Paginated remote reconciliation | Supabase caps a select at 1000 rows; a partial replace would drop rows |
+| Pending managed edits produce a conflict | Silently dropping the queue or stale local rows loses user work |
+| A fenced push keeps its queue entry | Retry counting would drop the user's write after five attempts even though only an explicit resolution can fix the generation |
+| Local marker adoption is one transaction | Separate check, copy, and delete can overwrite a user marker or delete a newer local marker |
+| Conflict preparation re-reads the marker | Reading before the transaction can rebuild and overwrite a marker changed by a concurrent import |
+
+### Import sync correction (0.18.3)
+
+The sync test harness models remote rows as records with unknown field values, so readback and queued-edit assertions remain type-checked without changing mock behavior.
+
+Managed pulls validate the applied generation inside the IndexedDB write transaction; stale cycles stop before processing newer queue entries. Replacement completion rebases queued edits above cloud snapshot timestamps in FIFO order, including explicit conflict resolution. Managed writes require a persisted-row readback before acknowledgement; rejected writes remain queued and enter the existing actionable conflict state, including same-generation LWW conflicts across accounts, categories, transactions, payouts, and budget targets. Explicit resolution rebuilds the local snapshot and replaces the cloud dataset at a newer generation. Network failures retain the queue for retry. Pulls preserve records with queued changes. Settings status and repair behavior is documented in [CSV import](csv-import.md#marker-lifecycle-and-status).

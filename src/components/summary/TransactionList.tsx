@@ -17,6 +17,7 @@ import { Button } from '@/components/common/Button';
 import { EditTransactionModal } from '@/components/forms/EditTransactionModal';
 import { AddTransactionButton } from '@/components/summary/AddTransactionButton';
 import type { Transaction, TransactionType } from '@/types';
+import { DELETED_ACCOUNT_LABEL } from '@/lib/orphans';
 
 import { FILTERS_STORAGE_KEY, filterQuery } from '@/lib/transaction-filters';
 
@@ -211,7 +212,8 @@ export function TransactionList() {
   // A query already in the URL is explicit and wins over the saved one.
   // Otherwise the plain `/transactions` tab link restores the last query.
   useEffect(() => {
-    if (!canMirrorFilters) return;
+    // Hydration must capture the saved query before an empty URL can clear it.
+    if (!isHydrated || !canMirrorFilters) return;
     // An identity change abandons the restore instead of saving its query back.
     if (restore.status === 'active' && userId !== restore.userId) return;
     // The browser URL is canonical: explicit filter writes and clears replace it
@@ -233,7 +235,7 @@ export function TransactionList() {
     } catch {}
     // `searchParams` is a re-run trigger only: Next can project a query the URL
     // has already replaced, so its value must not decide the mirror.
-  }, [searchParams, canMirrorFilters, userId, restore, activeRestore]);
+  }, [searchParams, isHydrated, canMirrorFilters, userId, restore, activeRestore]);
 
   // `useSearchParams` can keep reporting the pre-restore query through the whole
   // static-export restore window. The URL is still canonical; read the controls
@@ -335,7 +337,7 @@ export function TransactionList() {
   /** Resolve an account id to a display name, falling back gracefully if the account was deleted. */
   const accountLabel = (id: string | null): string => {
     if (!id) return '';
-    return accountMap.get(id) ?? 'Deleted account';
+    return accountMap.get(id) ?? DELETED_ACCOUNT_LABEL;
   };
 
   // Current month displayed in the month selector
