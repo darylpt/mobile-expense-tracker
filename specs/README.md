@@ -10,7 +10,8 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | [`budget-target-persistence.md`](./budget-target-persistence.md) | ✅ Done | Hybrid (global defaults + per-month overrides). Store added to IndexedDB, in-memory store removed. |
 | Settings page accessibility/coding-standards retrofit | ✅ Done | Error handling, aria-labels, aria-live, scope="col". PASS on re-review. |
 | [`transaction-editing.md`](./transaction-editing.md) | ✅ Done | Edit modal and Transactions Add isolation; see the feature spec for the render contract and regression coverage. |
-| [`e2e-testing-playwright.md`](./e2e-testing-playwright.md) | ✅ Done | Full Playwright setup: 66 tests, 6 projects (Chromium/Firefox/WebKit × mobile/tablet/desktop). |
+| [`transaction-filters.md`](./transaction-filters.md) | ✅ Done | Filter persistence contract, implementation decisions, and dev plus production-export regression coverage. |
+| [`e2e-testing-playwright.md`](./e2e-testing-playwright.md) | ✅ Done | Coverage lives in [`e2e/`](../e2e/); browser and viewport projects are defined in [`playwright.config.ts`](../playwright.config.ts), with the static-export filter run in [`playwright.prod.config.ts`](../playwright.prod.config.ts). |
 | Show all categories in breakdowns | ✅ Done | Income/Expense tables now include zero-amount rows. |
 | Ponytail-audit cleanup | ✅ Done | Shared validation (`validateTransactionForm`), shared test fixture (`tx()`), removed `totalTransfers` dead field, inlined `toLocaleString` → `formatCurrency`. Net -50 lines. |
 | Summary card layout restructure | ✅ Done | Month nav pulled out to full-width above cards. Stats converted from 3-column grid to vertical list. Total count in pill badge. |

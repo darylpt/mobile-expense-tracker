@@ -322,8 +322,10 @@ function TabLink({ href, pathname, children }: { href: string; pathname: string;
   const h = href.replace(/\/+$/, '') || '/';
   const isActive = h === '/' ? p === '/' : p === h || p.startsWith(h + '/');
 
+  // A document navigation avoids replaying the static router's initial query cache.
+  const Tab = h === '/transactions' ? 'a' : Link;
   return (
-    <Link
+    <Tab
       href={href}
       className={`shrink-0 rounded-t-lg px-4 py-2 text-sm font-medium transition-colors ${
         isActive
@@ -332,7 +334,7 @@ function TabLink({ href, pathname, children }: { href: string; pathname: string;
       }`}
     >
       {children}
-    </Link>
+    </Tab>
   );
 }
 
@@ -367,7 +369,7 @@ function MobileBottomNav({ tabs, pathname }: { tabs: TabDef[]; pathname: string 
           return (
             <button
               key={tab.href}
-              onClick={() => router.push(tab.href)}
+              onClick={() => tab.href === '/transactions' ? window.location.assign(tab.href) : router.push(tab.href)}
               aria-current={isActive ? 'page' : undefined}
               className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
                 isActive

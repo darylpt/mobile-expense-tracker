@@ -132,6 +132,8 @@ Used by the auth lifecycle in TransactionContext (step 4). Separate from the mig
 
 ---
 
+For saved transaction filter isolation, see the [filter persistence contract](transaction-filters.md#2-behavior-contract).
+
 ## 4. Auth lifecycle (`TransactionContext.tsx`)
 
 ### Current behavior
@@ -195,7 +197,7 @@ Without it, refreshing the page as the same user would trigger a clear + full re
 - `src/types/index.d.ts` — interfaces stay the same (no `userId` field in local types)
 - UI components — no changes; data comes from the same hooks/context
 - Offline-first — IDB is the source of truth for UI; sync is background
-- `src/context/AuthContext.tsx` — stays as-is; TransactionContext consumes it
+- `src/context/AuthContext.tsx` — clears the saved transaction filter mirror at identity boundaries
 
 ---
 

@@ -96,7 +96,7 @@ New file: `src/components/summary/AddTransactionButton.tsx`
 
 ### 3.6 URL search synchronization
 
-The search draft tracks the last observed URL `q` value. A guarded render-time adjustment resets the draft only when `q` changes externally, preserving local typing without a state-setting effect. Enter or blur commits the draft to the URL. This preserves the existing URL-based filtering; it adds no filter persistence. The regression contract is covered by `TransactionList.test.tsx` (search draft sync).
+The search draft tracks the last observed URL `q` value. A guarded render-time adjustment resets the draft only when `q` changes externally, preserving local typing without a state-setting effect. Enter or blur commits the draft to the URL; the committed query is mirrored with the other allowlisted filters. Persistence is owned by the transaction-filter contract, not by the draft synchronization itself. The regression contract is covered by `TransactionList.test.tsx` (search draft sync).
 
 ## 4. Files to modify
 

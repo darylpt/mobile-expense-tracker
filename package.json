@@ -1,6 +1,6 @@
 {
   "name": "temp-expense-tracker",
-  "version": "0.17.1",
+  "version": "0.17.8",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -11,6 +11,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:e2e": "playwright test",
+    "test:e2e:prod": "playwright test --config=playwright.prod.config.ts",
     "version:bump": "node -e \"const fs=require('fs'), p='src/lib/version.ts', c=fs.readFileSync(p,'utf8'), v=c.match(/'([^']+)'/)[1], pv=v.split('.').map(Number);pv[2]++;fs.writeFileSync(p,c.replace(v,pv.join('.')));console.log('v'+pv.join('.'))\" && git add src/lib/version.ts"
   },
   "dependencies": {
