@@ -9,6 +9,21 @@ import type { Transaction, Account, Category, CashDenomination, Payout, BudgetTa
 import { DB_NAME, DB_VERSION, STORES } from './constants';
 import { generateId } from './utils';
 import { parseCsv, type ParsedCsv } from './csv-import';
+import {
+  LOCAL_DATASET_OWNER,
+  MANAGED_STORES,
+  isManagedStore,
+  nextDatasetGeneration,
+  retainExistingAccountIds,
+  type DatasetReplacementMarker,
+} from './dataset-replacement';
+import {
+  affectedTransactionIds,
+  findSelfTransferConflicts,
+  groupTransactionsByMissingAccount,
+  relinkTransactionReferences,
+  type MissingAccountGroup,
+} from './orphans';
 
 // ============================================================
 // Sync Queue Types (stored in IndexedDB, processed by sync.ts)
@@ -25,6 +40,8 @@ export interface SyncQueueEntry {
   payload: unknown;
   timestamp: number;
   retryCount: number;
+  /** Applied dataset generation when the entry was enqueued. */
+  datasetGeneration?: number;
 }
 
 // ============================================================
@@ -89,6 +106,10 @@ export interface ExpenseTrackerDB {
       byTimestamp: number;
     };
   };
+  [STORES.DATASET_MARKERS]: {
+    key: string;
+    value: DatasetReplacementMarker;
+  };
   [STORES.STOCKS]: {
     key: string;
     value: Stock;
@@ -116,13 +137,16 @@ export interface ExpenseTrackerDB {
 /** Singleton database instance */
 let dbInstance: IDBPDatabase<ExpenseTrackerDB> | null = null;
 
+let activeDatasetGeneration = 0;
+let generationInitialized = false;
+
 /**
  * Open (or create) the IndexedDB database and initialize stores/indexes.
  */
 export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
   if (dbInstance) return dbInstance;
 
-  dbInstance = await openDB<ExpenseTrackerDB>(DB_NAME, DB_VERSION, {
+  const db = await openDB<ExpenseTrackerDB>(DB_NAME, DB_VERSION, {
     // ponytail: no automated migration test. If a user reports data loss on upgrade,
     // write a test that opens an old-version DB fixture, runs the upgrade path,
     // and asserts data survives. Classic IndexedDB footgun.
@@ -175,6 +199,11 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
       if (!db.objectStoreNames.contains(STORES.SYNC_QUEUE)) {
         const sqStore = db.createObjectStore(STORES.SYNC_QUEUE, { keyPath: 'id' });
         sqStore.createIndex('byTimestamp', 'timestamp', { unique: false });
+      }
+
+      // ── New store added in v14 (durable dataset replacement marker) ──
+      if (!db.objectStoreNames.contains(STORES.DATASET_MARKERS)) {
+        db.createObjectStore(STORES.DATASET_MARKERS, { keyPath: 'userId' });
       }
 
       // ── New stores added in v11 (stock portfolio tracker) ──
@@ -366,8 +395,19 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
 
     },
   });
+  dbInstance = db;
 
-  return dbInstance;
+  if (!generationInitialized) {
+    generationInitialized = true;
+    const markers = await db.getAll(STORES.DATASET_MARKERS);
+    for (const marker of markers) {
+      if (marker.generation > activeDatasetGeneration) {
+        activeDatasetGeneration = marker.generation;
+      }
+    }
+  }
+
+  return db;
 }
 
 /**
@@ -381,6 +421,7 @@ export async function clearAllLocalData(): Promise<void> {
     await tx.objectStore(storeName).clear();
     await tx.done;
   }
+  setActiveDatasetGeneration(0);
 }
 
 // ============================================================
@@ -408,6 +449,11 @@ export async function getSyncQueueCount(): Promise<number> {
 // even when thousands of entries are enqueued in the same millisecond.
 // Seeded with Date.now() to be roughly time-ordered across page loads.
 let syncSeqCounter: number = Date.now();
+
+/** Keep the applied generation current so new queue entries carry it. */
+export function setActiveDatasetGeneration(generation: number): void {
+  activeDatasetGeneration = generation;
+}
 
 // Debounced auto-sync: every enqueue triggers a push to Supabase after
 // a quiet period, so rapid edits (bulk import, batch deletes) collapse
@@ -447,6 +493,7 @@ function enqueueSyncEntryInTx(
     payload,
     timestamp: seq,
     retryCount: 0,
+    datasetGeneration: activeDatasetGeneration,
   });
 }
 
@@ -466,6 +513,7 @@ export async function enqueueSyncEntry<T>(
     payload,
     timestamp: seq,
     retryCount: 0,
+    datasetGeneration: activeDatasetGeneration,
   });
   requestSync(); // fire-and-forget, debounced
 }
@@ -1547,190 +1595,283 @@ export async function resyncAll(): Promise<void> {
 // ============================================================
 
 /**
- * Parse a CSV string and import all data into IndexedDB atomically.
+ * Parse a CSV string and replace the six managed stores in one IndexedDB
+ * transaction. The same transaction writes the durable replacement marker
+ * holding the immutable snapshot and clears stale managed sync entries.
  *
- * Clears all existing stores, then writes the parsed accounts (with
- * starting balances from carry-overs), categories, and transactions.
- *
- * Returns the parsed data (including any parse errors).
+ * Accounts whose names match exactly one existing account keep that ID so
+ * transaction references survive the replacement. An authenticated import also
+ * drops any obsolete local-only marker in the same transaction, so a stale
+ * local snapshot cannot be adopted by a later account.
  */
-export async function importFromCsv(csvText: string): Promise<ParsedCsv> {
+export async function importFromCsv(
+  csvText: string,
+  userId: string = LOCAL_DATASET_OWNER
+): Promise<ParsedCsv> {
   const parsed = parseCsv(csvText);
 
   const db = await getDB();
   const tx = db.transaction(
-    [STORES.ACCOUNTS, STORES.CATEGORIES, STORES.TRANSACTIONS, STORES.CASH_DENOMINATIONS, STORES.PAYOUTS, STORES.BUDGET_TARGETS],
+    [...MANAGED_STORES, STORES.SYNC_QUEUE, STORES.DATASET_MARKERS],
     'readwrite'
   );
 
   const acctStore = tx.objectStore(STORES.ACCOUNTS);
   const catStore = tx.objectStore(STORES.CATEGORIES);
   const txStore = tx.objectStore(STORES.TRANSACTIONS);
+  const markerStore = tx.objectStore(STORES.DATASET_MARKERS);
 
-  await acctStore.clear();
-  await catStore.clear();
-  await txStore.clear();
-  await tx.objectStore(STORES.CASH_DENOMINATIONS).clear();
-  await tx.objectStore(STORES.PAYOUTS).clear();
-  await tx.objectStore(STORES.BUDGET_TARGETS).clear();
+  // A failed write aborts the transaction. Observe its rejection from the
+  // start so the AbortError never surfaces unhandled; the caller gets the
+  // write error that caused the abort.
+  const settlement = tx.done.catch(() => undefined);
 
-  const now = Date.now();
+  try {
+    const existingAccounts = await acctStore.getAll();
+    const retained = retainExistingAccountIds(parsed, existingAccounts);
 
-  const addedAccounts: Account[] = [];
-  const addedCategories: Category[] = [];
-  const addedTransactions: Transaction[] = [];
+    await acctStore.clear();
+    await catStore.clear();
+    await txStore.clear();
+    await tx.objectStore(STORES.CASH_DENOMINATIONS).clear();
+    await tx.objectStore(STORES.PAYOUTS).clear();
+    await tx.objectStore(STORES.BUDGET_TARGETS).clear();
 
-  for (const acct of parsed.accounts) {
-    await acctStore.add(acct);
-    addedAccounts.push(acct);
+    const now = Date.now();
+
+    const addedTransactions: Transaction[] = retained.transactions.map((t) => ({
+      ...t,
+      id: generateId(),
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    for (const account of retained.accounts) {
+      await acctStore.add(account);
+    }
+    for (const category of retained.categories) {
+      await catStore.add(category);
+    }
+    for (const transaction of addedTransactions) {
+      await txStore.add(transaction);
+    }
+
+    const previous = (await markerStore.get(userId)) ?? null;
+    const marker: DatasetReplacementMarker = {
+      userId,
+      generation: nextDatasetGeneration(previous),
+      snapshotId: generateId(),
+      status: 'pending',
+      snapshot: {
+        accounts: retained.accounts,
+        categories: retained.categories,
+        transactions: addedTransactions,
+        cashDenominations: [],
+        payouts: [],
+        budgetTargets: [],
+      },
+      remoteGeneration: null,
+      attempts: 0,
+      lastError: null,
+      updatedAt: now,
+    };
+    await markerStore.put(marker);
+    if (userId !== LOCAL_DATASET_OWNER) {
+      await markerStore.delete(LOCAL_DATASET_OWNER);
+    }
+
+    const syncStore = tx.objectStore(STORES.SYNC_QUEUE);
+    let syncCursor = await syncStore.index('byTimestamp').openCursor();
+    while (syncCursor) {
+      if (isManagedStore(syncCursor.value.storeName)) {
+        await syncCursor.delete();
+      }
+      syncCursor = await syncCursor.continue();
+    }
+
+    await tx.done;
+
+    setActiveDatasetGeneration(marker.generation);
+    requestSync();
+    return retained;
+  } catch (error) {
+    // Wait for the abort to finish rolling back every store, then rethrow the
+    // failure that triggered it.
+    await settlement;
+    throw error;
   }
-  for (const cat of parsed.categories) {
-    await catStore.add(cat);
-    addedCategories.push(cat);
+}
+
+/**
+ * Read the durable replacement marker for a user. The marker survives reloads
+ * and failed cloud attempts.
+ */
+export async function getDatasetReplacementMarker(
+  userId: string
+): Promise<DatasetReplacementMarker | null> {
+  const db = await getDB();
+  return (await db.get(STORES.DATASET_MARKERS, userId)) ?? null;
+}
+
+export async function putDatasetReplacementMarker(
+  marker: DatasetReplacementMarker
+): Promise<void> {
+  const db = await getDB();
+  await db.put(STORES.DATASET_MARKERS, marker);
+}
+
+/**
+ * Rebuild a conflict snapshot from the current local managed stores and clear
+ * the managed queue entries it represents in the same transaction. The marker
+ * is re-read and validated inside that transaction, and the next generation is
+ * derived from it there, so a concurrent import or reconciliation is never
+ * overwritten with stale data. Returns the prepared pending marker, or null
+ * when the current marker is no longer a conflict.
+ */
+export async function prepareConflictReplacement(
+  userId: string
+): Promise<DatasetReplacementMarker | null> {
+  const db = await getDB();
+  const tx = db.transaction(
+    [...MANAGED_STORES, STORES.SYNC_QUEUE, STORES.DATASET_MARKERS],
+    'readwrite'
+  );
+  const markerStore = tx.objectStore(STORES.DATASET_MARKERS);
+  const current = await markerStore.get(userId);
+  if (!current || current.status !== 'conflict') {
+    await tx.done;
+    return null;
   }
-  for (const t of parsed.transactions) {
-    const record = { ...t, id: generateId(), createdAt: now, updatedAt: now };
-    await txStore.add(record);
-    addedTransactions.push(record);
+
+  const [accounts, categories, transactions, cashDenominations, payouts, budgetTargets] =
+    await Promise.all([
+      tx.objectStore(STORES.ACCOUNTS).getAll(),
+      tx.objectStore(STORES.CATEGORIES).getAll(),
+      tx.objectStore(STORES.TRANSACTIONS).getAll(),
+      tx.objectStore(STORES.CASH_DENOMINATIONS).getAll(),
+      tx.objectStore(STORES.PAYOUTS).getAll(),
+      tx.objectStore(STORES.BUDGET_TARGETS).getAll(),
+    ]);
+
+  const syncStore = tx.objectStore(STORES.SYNC_QUEUE);
+  let cursor = await syncStore.index('byTimestamp').openCursor();
+  while (cursor) {
+    if (isManagedStore(cursor.value.storeName)) {
+      await cursor.delete();
+    }
+    cursor = await cursor.continue();
+  }
+
+  const generation = nextDatasetGeneration(current);
+  const marker: DatasetReplacementMarker = {
+    ...current,
+    generation,
+    status: 'pending',
+    snapshot: {
+      accounts,
+      categories,
+      transactions,
+      cashDenominations,
+      payouts,
+      budgetTargets,
+    },
+    snapshotId: generateId(),
+    remoteGeneration: null,
+    attempts: 0,
+    lastError: null,
+    updatedAt: Date.now(),
+  };
+  await markerStore.put(marker);
+  await tx.done;
+
+  setActiveDatasetGeneration(generation);
+  return marker;
+}
+
+// ============================================================
+// Orphan review
+// ============================================================
+
+export async function getOrphanAccountGroups(): Promise<MissingAccountGroup[]> {
+  const db = await getDB();
+  const [transactions, accounts] = await Promise.all([
+    db.getAll(STORES.TRANSACTIONS),
+    db.getAll(STORES.ACCOUNTS),
+  ]);
+  return groupTransactionsByMissingAccount(transactions, accounts);
+}
+
+/**
+ * Point every reference to `sourceAccountId` at an existing user-selected
+ * account. Only matching from/to references change; no transaction is deleted.
+ */
+export async function relinkOrphanedAccountRefs(
+  sourceAccountId: string,
+  targetAccountId: string,
+  expectedTransactionIds: string[]
+): Promise<number> {
+  if (sourceAccountId === targetAccountId) {
+    throw new Error('Choose an account that is different from the missing one.');
+  }
+
+  const db = await getDB();
+  const tx = db.transaction(
+    [STORES.TRANSACTIONS, STORES.ACCOUNTS, STORES.SYNC_QUEUE],
+    'readwrite'
+  );
+  const txStore = tx.objectStore(STORES.TRANSACTIONS);
+  const syncStore = tx.objectStore(STORES.SYNC_QUEUE);
+
+  const abort = async (message: string): Promise<never> => {
+    tx.abort();
+    await tx.done.catch(() => {});
+    throw new Error(message);
+  };
+
+  if (!(await tx.objectStore(STORES.ACCOUNTS).get(targetAccountId))) {
+    return abort('Target account not found.');
+  }
+
+  const transactions = await txStore.getAll();
+  const affectedIds = affectedTransactionIds(transactions, sourceAccountId).sort();
+  const reviewedIds = [...new Set(expectedTransactionIds)].sort();
+  if (
+    affectedIds.length !== reviewedIds.length ||
+    affectedIds.some((id, index) => id !== reviewedIds[index])
+  ) {
+    return abort(
+      'The missing-account transactions changed. Review the updated list and try again.'
+    );
+  }
+
+  const selfTransfers = findSelfTransferConflicts(
+    transactions,
+    sourceAccountId,
+    targetAccountId
+  );
+  if (selfTransfers.length > 0) {
+    return abort(
+      `${selfTransfers.length} transfer${selfTransfers.length === 1 ? '' : 's'} would use the same account on both sides. Edit ${selfTransfers.length === 1 ? 'that transaction' : 'those transactions'} individually.`
+    );
+  }
+
+  const updatedAt = Date.now();
+  const { updated, count } = relinkTransactionReferences(
+    transactions,
+    sourceAccountId,
+    targetAccountId,
+    updatedAt
+  );
+
+  for (const record of updated) {
+    await txStore.put(record);
+    enqueueSyncEntryInTx(syncStore, STORES.TRANSACTIONS, record.id, 'update', record);
   }
 
   await tx.done;
 
-  // Clear stale sync queue entries for the stores we just wiped
-  // to prevent old-ID payloads from creating ghost records on Supabase.
-  const syncTx = db.transaction(STORES.SYNC_QUEUE, 'readwrite');
-  const syncStore = syncTx.objectStore(STORES.SYNC_QUEUE);
-  const syncIndex = syncStore.index('byTimestamp');
-  let syncCursor = await syncIndex.openCursor();
-  while (syncCursor) {
-    const entry = syncCursor.value as { storeName: string };
-    if (
-      entry.storeName === STORES.ACCOUNTS ||
-      entry.storeName === STORES.CATEGORIES ||
-      entry.storeName === STORES.TRANSACTIONS ||
-      entry.storeName === STORES.CASH_DENOMINATIONS ||
-      entry.storeName === STORES.PAYOUTS ||
-      entry.storeName === STORES.BUDGET_TARGETS
-    ) {
-      await syncCursor.delete();
-    }
-    syncCursor = await syncCursor.continue();
-  }
-  await syncTx.done;
-
-  // Enqueue sync entries so imported data gets pushed to Supabase
-  for (const acct of addedAccounts) {
-    enqueueSyncEntry(STORES.ACCOUNTS, acct.id, 'create', acct);
-  }
-  for (const cat of addedCategories) {
-    enqueueSyncEntry(STORES.CATEGORIES, cat.id, 'create', cat);
-  }
-  for (const t of addedTransactions) {
-    enqueueSyncEntry(STORES.TRANSACTIONS, t.id, 'create', t);
-  }
-
-  return parsed;
-}
-
-// ============================================================
-// Transaction Deduplication
-// ============================================================
-
-/**
- * Scan for orphaned transactions (references to deleted accounts) and
- * either delete confirmed duplicates or re-link them to the most likely
- * valid account based on historical frequency.
- */
-export async function deduplicateTransactions(): Promise<{ deleted: number; relinked: number; remaining: number }> {
-  const db = await getDB();
-  const allTxs = await db.getAll(STORES.TRANSACTIONS);
-  const accounts = await db.getAll(STORES.ACCOUNTS);
-  const validIds = new Set(accounts.map((a) => a.id));
-
-  // Find orphaned transactions
-  const orphaned = allTxs.filter((tx) => {
-    const fromBad = tx.fromAccount && !validIds.has(tx.fromAccount);
-    const toBad = tx.toAccount && !validIds.has(tx.toAccount);
-    return fromBad || toBad;
-  });
-
-  if (orphaned.length === 0) return { deleted: 0, relinked: 0, remaining: 0 };
-
-  // Build twin index: key = "date|amount|type|description" → array of valid transactions
-  const validTxs = allTxs.filter((tx) => {
-    const fromOk = !tx.fromAccount || validIds.has(tx.fromAccount);
-    const toOk = !tx.toAccount || validIds.has(tx.toAccount);
-    return fromOk && toOk;
-  });
-
-  const twinIndex = new Map<string, typeof validTxs>();
-  for (const tx of validTxs) {
-    const key = `${tx.date}|${tx.amount}|${tx.type}|${tx.category}|${tx.description ?? ''}`;
-    const group = twinIndex.get(key) ?? [];
-    group.push(tx);
-    twinIndex.set(key, group);
-  }
-
-  let deleted = 0;
-  let relinked = 0;
-  let remaining = 0;
-
-  for (const tx of orphaned) {
-    const key = `${tx.date}|${tx.amount}|${tx.type}|${tx.category}|${tx.description ?? ''}`;
-    const twins = twinIndex.get(key);
-
-    if (twins && twins.length > 0) {
-      // Confirmed duplicate — delete
-      await db.delete(STORES.TRANSACTIONS, tx.id);
-      enqueueSyncEntry(STORES.TRANSACTIONS, tx.id, 'delete', null);
-      deleted++;
-    } else {
-      // No twin — try to re-link by finding the most common valid account for this transaction type + category
-      const fromCounts = new Map<string, number>();
-      const toCounts = new Map<string, number>();
-      for (const v of validTxs) {
-        if (v.type === tx.type && v.category === tx.category) {
-          if (v.fromAccount) fromCounts.set(v.fromAccount, (fromCounts.get(v.fromAccount) ?? 0) + 1);
-          if (v.toAccount) toCounts.set(v.toAccount, (toCounts.get(v.toAccount) ?? 0) + 1);
-        }
-      }
-      // Fallback: if no category matches, use type-wide counts
-      if (fromCounts.size === 0 && toCounts.size === 0) {
-        for (const v of validTxs) {
-          if (v.type === tx.type) {
-            if (v.fromAccount) fromCounts.set(v.fromAccount, (fromCounts.get(v.fromAccount) ?? 0) + 1);
-            if (v.toAccount) toCounts.set(v.toAccount, (toCounts.get(v.toAccount) ?? 0) + 1);
-          }
-        }
-      }
-
-      let changed = false;
-      if (tx.fromAccount && !validIds.has(tx.fromAccount)) {
-        const best = [...fromCounts.entries()].sort((a, b) => b[1] - a[1])[0];
-        if (best) {
-          tx.fromAccount = best[0];
-          changed = true;
-        }
-      }
-      if (tx.toAccount && !validIds.has(tx.toAccount)) {
-        const best = [...toCounts.entries()].sort((a, b) => b[1] - a[1])[0];
-        if (best) {
-          tx.toAccount = best[0];
-          changed = true;
-        }
-      }
-
-      if (changed) {
-        await db.put(STORES.TRANSACTIONS, tx);
-        enqueueSyncEntry(STORES.TRANSACTIONS, tx.id, 'update', tx);
-        relinked++;
-      } else {
-        remaining++;
-      }
-    }
-  }
-
-  return { deleted, relinked, remaining };
+  if (count > 0) requestSync();
+  return count;
 }
 
 // ── Auto-backup ───────────────────────────────────────────────

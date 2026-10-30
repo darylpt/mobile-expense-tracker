@@ -193,7 +193,14 @@ Import CSV) or restore a JSON backup.
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
    ```
 3. Run the migrations in `supabase/migrations/` via Supabase Dashboard →
-   SQL Editor (run in order: 001, 002, 003)
+   SQL Editor (run every file in order: 001 through 007)
+   > **Cutover warning:** migration `007_dataset_generation.sql` revokes direct
+   > INSERT/UPDATE/DELETE on the six CSV-managed tables (`accounts`,
+   > `categories`, `transactions`, `cash_denominations`, `payouts`,
+   > `budget_targets`) and routes writes through `apply_managed_write` /
+   > `replace_user_dataset`. An older client build that still writes those
+   > tables directly fails with an RLS error once 007 runs. Upgrade every
+   > active client and run 007 during a coordinated maintenance window.
 4. **Enable Google OAuth** (optional but recommended):
    - Dashboard → Authentication → Providers → Google → Enable
    - Configure OAuth credentials (Google Cloud Console → Credentials)

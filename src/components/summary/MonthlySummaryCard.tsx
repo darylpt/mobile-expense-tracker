@@ -388,6 +388,16 @@ function AccountsTable({ rows, hideAmounts }: { rows: AccountRow[]; hideAmounts:
           </tbody>
         </table>
       </div>
+      {dataRows.some((row) => row.accountId === '_orphaned') && (
+        <p className="mt-3 text-sm">
+          <Link
+            href="/settings#orphan-review"
+            className="font-medium text-blue-600 hover:underline dark:text-blue-400"
+          >
+            Review deleted-account transactions
+          </Link>
+        </p>
+      )}
     </SectionCard>
   );
 }

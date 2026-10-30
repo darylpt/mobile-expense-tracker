@@ -78,6 +78,15 @@ export function formatCurrencyShort(amount: number): string {
   return formatCurrency(amount);
 }
 
+export function formatImportError(error: unknown): string {
+  if (error instanceof Error) {
+    const name = error.name || null;
+    const detail = error.message.trim().split('\n')[0].slice(0, 200).trim();
+    if (detail) return `Import failed: ${name ? `${name}: ` : ''}${detail}`;
+  }
+  return 'Import failed. Please try again or check the CSV file.';
+}
+
 /**
  * Filter transactions by month/year.
  */

@@ -6,7 +6,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 |---|---|---|---|---|
 | [`phase-1-budget-tracker.md`](./phase-1-budget-tracker.md) | ✅ Done | All 9 Phase 1 tasks implemented. |
 | [`responsive-layout-pass.md`](./responsive-layout-pass.md) | ✅ Done | Multi-column grids on all 4 routes at `lg:`. Available Balance skipped (cash input embedded in table row). **Manual E2E check 2026-06-28:** Verified clean at 375/768/1280px. |
-| [`local-first-sync-supabase.md`](./local-first-sync-supabase.md) | ✅ Done | Local-first sync with Supabase. Outbox pattern, soft-delete ghost-record prevention, LWW DB trigger, offline-first. Per-user isolation via user_id. 3-phase processSyncQueue (read/network/write). Monotonic counter for FIFO ordering. resyncAll recovery. Auto-sync debounced after every CRUD. |
+| [`local-first-sync-supabase.md`](./local-first-sync-supabase.md) | ✅ Done | Local-first sync with Supabase. Outbox pattern, soft-delete, LWW, per-user isolation. Durable dataset marker, generation fence, managed-write RPC, idempotent replacement, paginated reconciliation, local marker adoption. Migration 007 is a deploy prerequisite. |
 | [`budget-target-persistence.md`](./budget-target-persistence.md) | ✅ Done | Hybrid (global defaults + per-month overrides). Store added to IndexedDB, in-memory store removed. |
 | Settings page accessibility/coding-standards retrofit | ✅ Done | Error handling, aria-labels, aria-live, scope="col". PASS on re-review. |
 | [`transaction-editing.md`](./transaction-editing.md) | ✅ Done | Edit modal and Transactions Add isolation; see the feature spec for the render contract and regression coverage. |
@@ -19,7 +19,8 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | Transactions tab | ✅ Done | `/transactions` route created, tab added to Header nav, removed from dashboard. |
 | SonarQube code quality fixes | ✅ Done | 0 ESLint errors, 0 TS errors, 109/109 tests passing. |
 | [`backup-restore.md`](./backup-restore.md) | ✅ Done | JSON export/import of all 6 stores + CSV transaction export. Settings UI. |
-| [`csv-import.md`](./csv-import.md) | ✅ Done | CSV import from Google Sheets. Parse, validate, preview, bulk-insert accounts/categories/transactions. Removed hardcoded seed data. Empty-state onboarding on all pages. |
+| [`csv-import.md`](./csv-import.md) | ✅ Done | Atomic six-store replacement plus durable marker, retained account IDs, explicit missing-account review, and local/cloud replacement status. |
+| Dataset replacement generation fence | ✅ Done | Read-only generation RLS, managed-write RPC, exact generation fence, idempotent replacement, paginated reconciliation, conflict surfacing. Migration `007_dataset_generation.sql`. |
 | Empty state / onboarding flow | ✅ Done | All pages show "No data yet → Go to Settings → Import" when no transactions exist. Payout (standalone) excluded. |
 | Seed data removal | ✅ Done | `DEFAULT_ACCOUNTS`, `DEFAULT_CATEGORIES`, `SEED_TRANSACTIONS`, `DEFAULT_BUDGET_TARGETS` removed from constants. `seedTransactionsIfEmpty()` deleted. App starts clean — user imports their own data. |
 | README rewrite | ✅ Done | Boilerplate Next.js README replaced with full project docs: architecture, routes, data model, scripts, backup guidance, cloud sync setup. |

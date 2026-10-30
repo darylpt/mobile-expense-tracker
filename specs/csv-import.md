@@ -101,10 +101,13 @@ The per-row transaction type comes from the CSV's `Type` column directly, not fr
 ### Account creation
 
 1. Collect all unique account names from `From Account` and `To Account` columns (excluding Carry Over — those only reference one account)
-2. Generate an `id` from the name: lowercase, replace non-alphanum with hyphens (e.g., `GoTyme(Sona)` → `gotyme-sona`)
-3. For Carry Over accounts: set `startingBalance` from the Carry Over row amount
-4. For all other accounts: set `startingBalance: 0`
-5. Write all accounts to IndexedDB
+2. Match each name to an existing local account using the deterministic normalized-name rule: Unicode NFKC, trim, collapse internal whitespace to one space, lowercase
+3. If exactly one existing account matches, the imported account **keeps that account's ID**. Duplicate normalized names are ambiguous and never match
+4. Otherwise generate a new UUID for the account
+5. For Carry Over accounts: set `startingBalance` from the Carry Over row amount
+6. For all other accounts: set `startingBalance: 0`
+7. Remap every transaction `fromAccount` / `toAccount` to the retained or new account ID
+8. Write all accounts to IndexedDB
 
 ### Category creation
 
@@ -115,7 +118,7 @@ The per-row transaction type comes from the CSV's `Type` column directly, not fr
      - All rows have both accounts → `transaction`
      - Any row has `To Account` but no `From Account` → `income`
      - Otherwise → `expense`
-3. Generate `id` from name: lowercase, replace spaces/special chars with hyphens
+3. Generate a UUID for each category
 4. Write all categories to IndexedDB
 
 Expected output for the two source CSVs is documented in [`specs/data/import-output.md`](data/import-output.md).
@@ -149,15 +152,13 @@ Add below the existing Backup/Restore section. Paste CSV or upload `.csv` file.
 
 | File | Change |
 |---|---|
-| `src/lib/idb.ts` | Add `importFromCsv(csvText)` — orchestrates clearing all stores, parsing CSV, writing accounts/categories/transactions in one atomic transaction |
-| `src/lib/csv-import.ts` | **New** — parser: `parseCsv(text) → ParsedCsv` that returns extracted accounts, categories, transactions, and errors |
-| `src/lib/constants.ts` | Remove `DEFAULT_ACCOUNTS`, `DEFAULT_CATEGORIES`, `SEED_TRANSACTIONS`, `DEFAULT_BUDGET_TARGETS`. Keep `DB_NAME`, `DB_VERSION`, `STORES` only. |
-| `src/app/settings/page.tsx` | Add Import CSV section |
-| `src/components/forms/CsvImportPreview.tsx` | **New** — preview table: account list, category list, sample transactions, error list |
-| `src/components/summary/MonthlySummaryCard.tsx` | Handle empty state — show "Import your data to get started" with link to Settings if no transactions |
-| `src/app/available-balance/page.tsx` | Handle empty accounts gracefully |
-| `src/app/payout/page.tsx` | Handle empty state gracefully |
-| `src/app/transactions/page.tsx` | Handle empty state — show "Import your data" instead of "No transactions yet" |
+| `src/lib/idb.ts` | `importFromCsv(csvText, userId)` atomically replaces the six managed stores, writes the durable marker snapshot, and clears stale managed queue entries |
+| `src/lib/csv-import.ts` | Parser: `parseCsv(text) → ParsedCsv` |
+| `src/lib/dataset-replacement.ts` | Managed-store list, normalized account identity, marker/snapshot types, generation sequencing |
+| `src/lib/sync.ts` | Replacement RPC, generation-gated push/pull, remote snapshot reconciliation, local marker adoption |
+| `src/lib/orphans.ts` | Missing-account grouping, safe labels, explicit relinking |
+| `src/app/settings/page.tsx` | Import status, conflict actions, Missing Account Review |
+| `supabase/migrations/007_dataset_generation.sql` | Generation table, write fence, managed-write RPC, replacement RPC |
 
 ### Parser (`csv-import.ts`)
 
@@ -166,7 +167,6 @@ interface ParsedCsv {
   accounts: Account[];
   categories: Category[];
   transactions: Transaction[];
-  carryOvers: Array<{ accountId: string; amount: number }>;
   errors: CsvError[];
   summary: {
     totalRows: number;
@@ -179,6 +179,7 @@ interface ParsedCsv {
     transferCount: number;
     carryOverCount: number;
     totalAmount: number;
+    truncated: boolean;
   };
 }
 
@@ -190,13 +191,30 @@ interface CsvError {
 
 ### Import flow (`idb.ts` — `importFromCsv`)
 
-1. Call `parseCsv(csvText)` — if errors, return them (don't proceed)
-2. Open a single `readwrite` transaction across all stores
-3. Clear all stores
-4. Write all accounts (with correct starting balances from carry-overs)
-5. Write all categories
-6. Write all transactions with auto-generated `id`, `createdAt`, `updatedAt`
-7. Done → user reloads the app
+1. Parse the CSV and read existing accounts inside one `readwrite` transaction over the six managed stores, `syncQueue`, and `datasetMarkers`
+2. Retain IDs for accounts with exactly one normalized-name match and remap transaction references
+3. Clear the six managed stores and write the snapshot
+4. Write the durable marker with a new snapshot UUID and the next generation, status `pending`
+5. Delete managed queue entries in the same transaction
+6. For an authenticated import, also delete the obsolete `local` marker in the same transaction
+7. Commit, activate the pending generation, refresh visible context, then attempt cloud replacement
+
+A failure at any step aborts the transaction, leaving the previous data and marker intact.
+
+### Marker lifecycle and status
+
+| Status | Meaning |
+|---|---|
+| `pending` | Local commit succeeded; cloud replacement not yet applied |
+| `applied` | The RPC applied this generation |
+| `failed` | The RPC failed; snapshot retained and retried |
+| `conflict` | Another device advanced the generation, or pending local managed edits must be resolved |
+
+Settings distinguishes saved-locally-pending, cloud-applied, failed, and conflicted states. A `local` marker is adopted under the authenticated user ID on first sync; the check, copy, and delete run in one `datasetMarkers` readwrite transaction. An authenticated import deletes any obsolete `local` marker in its own transaction so a stale local-only snapshot cannot be adopted by a later account.
+
+### Missing account review
+
+The `Deleted accounts` catch-all keeps totals correct. Missing Account Review lists each missing ID with its transactions and requires an explicit existing target account. Target existence, the reviewed transaction ID set, and self-transfer validity are checked inside the same readwrite transaction before any write. A changed set is rejected and refreshed. Transfers that would end up with the same account on both sides are rejected and must be edited individually. Only matching from/to references change, and nothing is deleted or guessed.
 
 ### Empty-state handling
 
@@ -234,13 +252,30 @@ The app **should still render** — just show the empty state instead of tables/
 
 ## Acceptance Criteria
 
-1. Paste the user's ~38-row ledger CSV → parses all rows, extracts 8 accounts with correct starting balances, 21 categories, ~30 transactions
-2. Import creates everything in IndexedDB in one atomic write
-3. After import + reload: Summary shows correct totals from Jan 2026
-4. After import: Accounts table shows correct starting balances (Cash = 34, Landbank = 600.68, etc.)
-5. Export CSV after import is approximately round-trippable
-6. Fresh app (no data) shows empty-state guidance on every page
-7. 0 ESLint errors, 0 TS build errors
+1. Import commits the six managed stores, the durable marker snapshot, managed queue cleanup, and any obsolete `local` marker deletion in one IndexedDB transaction
+2. A crash or write failure during import leaves the previous stores and marker intact
+3. Re-importing the same CSV produces one latest local snapshot and one latest cloud snapshot after sync
+4. Offline import commits locally and the marker remains actionable when online
+5. Exactly one normalized-name account match retains the account ID and remaps transaction references
+6. The UI refreshes transactions/accounts/categories immediately after the local commit
+7. Status distinguishes local pending, cloud applied, failed, and conflicted replacement
+8. Cloud replacement is idempotent for the same snapshot and reports generation conflicts
+9. Accounts and `balance_snapshots` are never hard-deleted; stale writes cannot resurrect rows
+10. Missing account references stay visible with exact IDs; explicit relinking changes only selected references and deletes nothing
+11. No automatic orphan guessing or duplicate deletion remains
+12. A failed import shows the underlying error name and message
+
+## Key Decisions
+
+| Decision | Rationale |
+|---|---|
+| Durable marker plus transactional RPC | Six REST calls can half-replace the ledger; one snapshot application is atomic and retryable |
+| Per-user generation with managed-write RPC | Direct table writes cannot require a generation argument, so legacy clients could overwrite current rows. Revoking direct writes and routing managed changes through `apply_managed_write` makes the generation mandatory |
+| Snapshot UUID idempotency | A retry after a lost response applies once |
+| Generation conflict surfaced | Another device's replacement is a user decision |
+| Account IDs retained on unambiguous normalized match | Keeps references stable; ambiguity falls back to a new UUID |
+| Explicit orphan relinking only | Guessing corrupts financial data |
+| `balance_snapshots` excluded | Outside the six-store scope; accounts are soft-deleted |
 
 ## Future (not building now)
 

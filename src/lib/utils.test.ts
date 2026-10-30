@@ -1,8 +1,8 @@
 // ============================================================
-// utils.test.ts — Pure-function tests for calculateCategoryBreakdown
+// utils.test.ts — Pure-function tests
 // ============================================================
 
-import { calculateCategoryBreakdown } from './utils';
+import { calculateCategoryBreakdown, formatImportError } from './utils';
 import { tx } from './test-utils';
 
 describe('calculateCategoryBreakdown', () => {
@@ -102,5 +102,43 @@ describe('calculateCategoryBreakdown', () => {
     const result = calculateCategoryBreakdown(txs);
     const sum = result.reduce((s, r) => s + r.percentage, 0);
     expect(sum).toBeCloseTo(100, 5);
+  });
+});
+
+describe('formatImportError', () => {
+  it('includes the exception name and message for IndexedDB errors', () => {
+    const error = new Error('Key already exists in the object store.');
+    error.name = 'ConstraintError';
+    expect(formatImportError(error)).toBe(
+      'Import failed: ConstraintError: Key already exists in the object store.',
+    );
+  });
+
+  it('includes the default Error name for a plain Error', () => {
+    expect(formatImportError(new Error('Quota exceeded.'))).toBe(
+      'Import failed: Error: Quota exceeded.',
+    );
+  });
+
+  it('falls back to the generic action when the message is empty', () => {
+    const error = new Error('');
+    error.name = 'ConstraintError';
+    expect(formatImportError(error)).toBe(
+      'Import failed. Please try again or check the CSV file.',
+    );
+    expect(formatImportError(new Error('  \n '))).toBe(
+      'Import failed. Please try again or check the CSV file.',
+    );
+  });
+
+  it('returns a generic action for unknown failures', () => {
+    expect(formatImportError(undefined)).toBe('Import failed. Please try again or check the CSV file.');
+    expect(formatImportError('boom')).toBe('Import failed. Please try again or check the CSV file.');
+  });
+
+  it('truncates long details', () => {
+    expect(formatImportError(new Error('a'.repeat(300)))).toBe(
+      `Import failed: Error: ${'a'.repeat(200)}`,
+    );
   });
 });

@@ -6,10 +6,13 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import Link from 'next/link';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useCategories } from '@/hooks/useCategories';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useTransactionContext, formatAmount } from '@/context/TransactionContext';
+import { accountLabel } from '@/lib/orphans';
+import type { Account } from '@/types';
 
 type BreakdownTab = 'category' | 'account';
 
@@ -60,31 +63,32 @@ export function CategoryBreakdown() {
     return m;
   }, [accounts]);
 
-  // Map account IDs to human-readable names
+  // Merge known accounts into the breakdown while keeping raw IDs as keys.
   const enrichedAccountBreakdown = useMemo(() => {
-    const m = accountNameMap;
     const seen = new Set<string>();
     const merged: typeof accountBreakdown = [];
 
-    // First, show all known accounts with their actual data
     for (const acct of accounts) {
       const existing = accountBreakdown.find((a) => a.account === acct.id);
       seen.add(acct.id);
       merged.push(existing
-        ? { ...existing, account: acct.name }
-        : { account: acct.name, totalIncome: 0, totalExpenses: 0, netFlow: 0 });
+        ? { ...existing }
+        : { account: acct.id, totalIncome: 0, totalExpenses: 0, netFlow: 0 });
     }
 
-    // Any accounts from transactions not in the known list
     for (const item of accountBreakdown) {
       if (!seen.has(item.account)) {
         seen.add(item.account);
-        merged.push({ ...item, account: m.get(item.account) ?? item.account });
+        merged.push(item);
       }
     }
 
     return merged;
-  }, [accountBreakdown, accounts, accountNameMap]);
+  }, [accountBreakdown, accounts]);
+
+  const hasMissingAccounts = accountBreakdown.some(
+    (item) => !accountNameMap.has(item.account)
+  );
 
   if (isLoading) {
     return (
@@ -133,7 +137,19 @@ export function CategoryBreakdown() {
       {activeTab === 'category' ? (
         <CategoryBreakdownList items={enrichedCategoryBreakdown} hideAmounts={hideAmounts} />
       ) : (
-        <AccountBreakdownList items={enrichedAccountBreakdown} hideAmounts={hideAmounts} />
+        <div>
+          <AccountBreakdownList items={enrichedAccountBreakdown} hideAmounts={hideAmounts} accounts={accounts} />
+          {hasMissingAccounts && (
+            <p className="mt-3 text-sm">
+              <Link
+                href="/settings#orphan-review"
+                className="font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Review deleted-account transactions
+              </Link>
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -226,7 +242,7 @@ function CategoryBreakdownList({ items, hideAmounts }: BreakdownListProps) {
 // Account breakdown list
 // ============================================================
 
-function AccountBreakdownList({ items, hideAmounts }: { items: { account: string; totalIncome: number; totalExpenses: number; netFlow: number }[]; hideAmounts: boolean }) {
+function AccountBreakdownList({ items, hideAmounts, accounts }: { items: { account: string; totalIncome: number; totalExpenses: number; netFlow: number }[]; hideAmounts: boolean; accounts: Account[] }) {
   if (items.length === 0) {
     return (
       <p className="py-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
@@ -244,7 +260,7 @@ function AccountBreakdownList({ items, hideAmounts }: { items: { account: string
         >
           <div className="flex items-center justify-between">
             <span className="font-medium text-zinc-800 dark:text-zinc-200">
-              {item.account}
+              {accountLabel(item.account, accounts)}
             </span>
             <span
               className={`text-sm font-semibold ${
