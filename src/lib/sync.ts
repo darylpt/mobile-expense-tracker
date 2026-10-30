@@ -115,8 +115,8 @@ function snakeToCamel(record: Record<string, unknown>): Record<string, unknown> 
 class ManagedWriteConflictError extends Error {
   readonly generation: number | null;
 
-  constructor(generation: number | null) {
-    super('Cloud dataset generation changed during write.');
+  constructor(generation: number | null, message = 'Cloud dataset generation changed during write.') {
+    super(message);
     this.name = 'ManagedWriteConflictError';
     this.generation = generation;
   }
@@ -241,7 +241,9 @@ export async function processSyncQueue(generation: number): Promise<void> {
                 key !== 'created_at' && key !== 'updated_at' && value !== undefined &&
                 Object.hasOwn(row, key) &&
                 !samePersistedValue(row[key], value))) {
-              throw new Error('Managed write was not persisted; local edit remains queued.');
+              throw new ManagedWriteConflictError(
+                generation, 'Managed write was not persisted; local edit remains queued.'
+              );
             }
           } else {
             const { error: upsertError } = await supabase.from(tableName).upsert(remotePayload, {
@@ -743,7 +745,9 @@ async function recordManagedConflict(
     remoteGeneration,
     snapshot: { accounts, categories, transactions, cashDenominations, payouts, budgetTargets },
     snapshotId: crypto.randomUUID(),
-    lastError: `Cloud data was replaced by another device (generation ${remoteGeneration}). Local managed edits are waiting.`,
+    lastError: remoteGeneration === current.generation
+      ? 'Cloud records conflict with local edits. Local managed edits are waiting for explicit resolution.'
+      : `Cloud data was replaced by another device (generation ${remoteGeneration}). Local managed edits are waiting.`,
     updatedAt: Date.now(),
   };
   await markers.put(conflicted);

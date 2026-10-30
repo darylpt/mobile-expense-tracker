@@ -368,7 +368,9 @@ async function pullStore(storeName, userId):
 After running migrations, `NOTIFY pgrst, 'reload schema'` or refresh the
 Supabase API schema cache in Dashboard → API.
 
-**Deployment prerequisite:** migration 007 must be applied before the 0.18.0 client syncs. It has not been applied remotely. Until it is applied, `backgroundSync` stops before push/pull and leaves local data and the queue intact.
+**Production status:** migration 007 is already applied in production following the user-confirmed successful pre-migration backup. Production postflight confirmed the generation table, six generation columns, both RPCs, and zero direct managed-write policies. Do not rerun migration 007 in production.
+
+**Fresh deployments:** apply the migration sequence above, including 007, before enabling client sync. Without 007, `backgroundSync` stops before push/pull and leaves local data and the queue intact.
 
 ## 7. Key Decisions
 
@@ -385,4 +387,4 @@ Supabase API schema cache in Dashboard → API.
 
 ### Import sync correction (0.18.3)
 
-Managed pulls validate the applied generation inside the IndexedDB write transaction; stale cycles stop before processing newer queue entries. Replacement completion rebases queued edits above cloud snapshot timestamps in FIFO order, including explicit conflict resolution. Managed writes require a persisted-row readback before acknowledgement; failed writes remain queued and prevent the cycle from pulling. Pulls preserve records with queued changes. Missing Account Review reloads on account/transaction changes and sync completion in both Settings layouts. Migration 007 remains unchanged.
+Managed pulls validate the applied generation inside the IndexedDB write transaction; stale cycles stop before processing newer queue entries. Replacement completion rebases queued edits above cloud snapshot timestamps in FIFO order, including explicit conflict resolution. Managed writes require a persisted-row readback before acknowledgement; rejected writes remain queued and enter the existing actionable conflict state, including same-generation LWW conflicts across accounts, categories, transactions, payouts, and budget targets. Explicit resolution rebuilds the local snapshot and replaces the cloud dataset at a newer generation. Network failures retain the queue for retry. Pulls preserve records with queued changes. Missing Account Review reloads on account/transaction changes and sync completion in both Settings layouts. Migration 007 remains unchanged.

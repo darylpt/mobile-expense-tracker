@@ -1196,3 +1196,62 @@ describe('import sync interleavings', () => {
     expect((await db.get(STORES.ACCOUNTS, ACCOUNT.id))?.name).toBe('Edited');
   });
 });
+
+
+describe('same-generation managed write conflicts', () => {
+  it.each([
+    [STORES.ACCOUNTS, { ...ACCOUNT, name: 'Local edit' }],
+    [STORES.CATEGORIES, { id: ACCOUNT.id, name: 'Local edit', type: 'expense', createdAt: 1 }],
+    [STORES.TRANSACTIONS, { id: ACCOUNT.id, amount: 25, date: '2026-01-01', type: 'expense',
+      category: 'Food', fromAccount: null, toAccount: null, createdAt: 1 }],
+    [STORES.PAYOUTS, { id: ACCOUNT.id, date: '2026-01-01', totalAmount: 25, splitMode: 'amount', splits: [] }],
+    [STORES.BUDGET_TARGETS, { id: ACCOUNT.id, category: 'Food', month: '2026-01', amount: 25 }],
+  ] as const)('exposes resolution and recovers a rejected %s edit', async (store, value) => {
+    await putDatasetReplacementMarker(marker({ status: 'applied', generation: 2, snapshot: null }));
+    state.remoteGeneration = 2;
+    const db = await getDB();
+    const local = { ...value, id: 'a1111111-1111-4111-8111-111111111111', updatedAt: 2 };
+    await db.put(store, local as never);
+    await db.put(STORES.SYNC_QUEUE, { id: 'rejected', recordId: local.id, storeName: store,
+      operation: 'update', payload: local, timestamp: 1, retryCount: 4, datasetGeneration: 2 });
+    await db.put(STORES.SYNC_QUEUE, { id: 'later', recordId: 'later', storeName: STORES.STOCKS,
+      operation: 'create', payload: { id: 'later' }, timestamp: 2, retryCount: 0 });
+    const table = store === STORES.BUDGET_TARGETS ? 'budget_targets' : store;
+    state.pulls[table] = [{ id: local.id, updated_at: iso(10000), dataset_generation: 2 }];
+    state.rpc = () => ({ data: { status: 'applied', generation: 2 }, error: null });
+    let completions = 0;
+    const onComplete = () => { completions++; };
+    window.addEventListener('sync-complete', onComplete);
+    try {
+      await backgroundSync();
+      const conflicted = await getDatasetReplacementMarker(USER);
+      expect(conflicted?.status).toBe('conflict');
+      expect(conflicted?.remoteGeneration).toBe(2);
+      expect(conflicted?.lastError).toContain('explicit resolution');
+      expect(conflicted?.snapshot?.[store]).toContainEqual(local);
+      expect(await db.get(store, local.id)).toEqual(local);
+      expect((await db.get(STORES.SYNC_QUEUE, 'rejected'))?.retryCount).toBe(4);
+      expect(await db.get(STORES.SYNC_QUEUE, 'later')).toBeDefined();
+      expect(completions).toBe(1);
+      expect(state.selects).toEqual(['dataset_generations', table]);
+      const calls = state.rpcCalls.length;
+      await backgroundSync();
+      expect(state.rpcCalls).toHaveLength(calls);
+      state.rpc = (params) => {
+        state.remoteGeneration = Number(params.p_generation);
+        state.pulls[table] = params[`p_${table}`] as Record<string, unknown>[];
+        return { data: { status: 'applied', generation: params.p_generation }, error: null };
+      };
+      const resolved = await resolveReplacementConflict(USER);
+      expect(resolved?.status).toBe('applied');
+      expect(resolved?.generation).toBe(3);
+      expect(await db.get(store, local.id)).toEqual(local);
+      await backgroundSync();
+      expect(await getSyncQueueCount()).toBe(0);
+      expect(state.upserts.some((write) => write.table === 'stocks')).toBe(true);
+      expect(localStorage.getItem('last_sync_time')).not.toBeNull();
+    } finally {
+      window.removeEventListener('sync-complete', onComplete);
+    }
+  });
+});
