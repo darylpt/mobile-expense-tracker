@@ -300,3 +300,5 @@ The app **should still render** — just show the empty state instead of tables/
 ### Import sync correction (0.18.3)
 
 Managed pulls validate the applied generation inside the IndexedDB write transaction; stale cycles stop before processing newer queue entries. Replacement completion rebases queued edits above cloud snapshot timestamps in FIFO order, including explicit conflict resolution. Managed writes require a persisted-row readback before acknowledgement; failed writes remain queued and prevent the cycle from pulling. Pulls preserve records with queued changes. Missing Account Review reloads on account/transaction changes and sync completion in both Settings layouts. Migration 007 remains unchanged.
+
+The shared Settings import panel refreshes its persisted replacement marker and status text on `sync-complete` in both desktop and mobile layouts. Background conflicts and failed replacements expose resolution or retry controls without remounting the page; applied or cleared markers remove stale controls.

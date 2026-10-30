@@ -1308,15 +1308,20 @@ function ImportSection({ onImported }: { onImported: () => Promise<void> }) {
 
   useEffect(() => {
     let cancelled = false;
-    getDatasetReplacementMarker(ownerId)
-      .then((next) => {
-        if (cancelled) return;
-        setMarker(next);
-        if (next) setMsg(replacementStatusMessage(next, cloudEnabled));
-      })
-      .catch(() => {});
+    const refresh = () => {
+      getDatasetReplacementMarker(ownerId)
+        .then((next) => {
+          if (cancelled) return;
+          setMarker(next);
+          setMsg(next ? replacementStatusMessage(next, cloudEnabled) : null);
+        })
+        .catch(() => {});
+    };
+    window.addEventListener('sync-complete', refresh);
+    refresh();
     return () => {
       cancelled = true;
+      window.removeEventListener('sync-complete', refresh);
     };
   }, [ownerId, cloudEnabled]);
 
