@@ -308,7 +308,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `src/components/summary/PortfolioSummaryCard.test.tsx` | Portfolio summary rerender behavior and empty-state handling |
 | `src/context/AuthContext.test.tsx` | Auth lifecycle, identity isolation, sign-out cleanup, PIN remount, and filter mirror gates |
 | `src/lib/transaction-filters.test.ts` | Persistable filter allowlist and query canonicalization |
-| `src/components/summary/TransactionList.test.tsx` | Add dialog toggle render isolation; StrictMode restore/settlement; empty-URL/stale-router settlement; stale-router and view-only URL projection; consecutive filter updates and stale-page normalization; auth-gated persistence and identity-switch provenance |
+| `src/components/summary/TransactionList.test.tsx` | Add dialog toggle render isolation; StrictMode restore/settlement; empty-URL/stale-router settlement; stale-router and view-only URL projection; consecutive filter updates and stale-page normalization; auth-gated persistence, identity-switch provenance, and server-rendered hydration restore |
 | `src/components/forms/DividendForm.test.tsx` | Dividend fields, validation, computed amounts, and loading state |
 | `src/components/stocks/DividendLog.test.tsx` | Dividend table, legacy amounts, yields, and edit/delete actions |
 

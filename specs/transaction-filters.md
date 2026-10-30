@@ -1,6 +1,6 @@
 # Spec: Transaction Filter Persistence
 
-**Status:** ✅ Done (v0.17.8, 2026-10-30)
+**Status:** ✅ Done (v0.17.8; hydration restore fix in v0.18.3)
 **Scope:** Keep `/transactions` filter selections across tab navigation while preserving URL-driven filtering.
 
 ---
@@ -30,7 +30,7 @@ The list owns restore/save behavior, `src/lib/transaction-filters.ts` selects pe
 | `FILTERS_STORAGE_KEY = 'transactions_filters'` | localStorage key, alongside existing `tab_prefs` / `last_sync_time` keys |
 | `Restore` state | Captures the saved query once after hydration and eligible auth; a pending restore settles only after the browser URL itself has a query—a divergent explicit URL wins immediately, otherwise Next must match the published projection. Stale router params alone cannot settle it. |
 | Restore publish | Updates the URL immediately, then republishes through Next's patched `replaceState` so `useSearchParams` reflects the restored query |
-| Persistence effect | Applies the allowlist to saved and restored queries; explicit URL queries remain authoritative, including view-only queries |
+| Persistence effect | Applies the allowlist to saved and restored queries; explicit URL queries remain authoritative, including view-only queries; waits for hydration so the first effect cannot clear the saved query before restore capture |
 | `setParam` | Builds updates from the canonical URL projection, preserves view-only parameters, and deletes the stored query when the last filter is removed |
 | `clearFilters` | Deletes the stored query when mirror access is allowed, then replaces the URL with path-only `/transactions` without a document navigation |
 | Page reset | Removes `page` for active filters using the canonical URL projection so stale router params cannot overwrite a pending restore |
@@ -76,6 +76,6 @@ Browser smoke on `/transactions`:
 4. Paste an explicit filtered URL and confirm it overrides the stored selection.
 5. Click `Clear all`, leave the tab, return, and confirm default filters.
 
-Focused regression tests cover filter selection, StrictMode restore without clobbering the saved mirror, stale-router settlement and control projection, rejection of stale-router settlement while the browser URL is empty, explicit URL and view-only query precedence, consecutive updates before router catch-up, stale-page normalization, clear/filter updates, identity-switch provenance, authentication cleanup, the real list remount after PIN sign-out, loading/unauthenticated persistence gates, and offline URL restore/precedence.
+Focused regression tests cover restoring the mirror and visible selection through server-rendered markup hydration before persistence can clear it, filter selection, StrictMode restore without clobbering the saved mirror, stale-router settlement and control projection, rejection of stale-router settlement while the browser URL is empty, explicit URL and view-only query precedence, consecutive updates before router catch-up, stale-page normalization, clear/filter updates, identity-switch provenance, authentication cleanup, the real list remount after PIN sign-out, loading/unauthenticated persistence gates, and offline URL restore/precedence.
 
 `npm run test:e2e` runs all specs under `e2e/` against `next dev`, including this filter suite. `npm run test:e2e:prod` builds the static export, serves `out/` with `e2e/serve-static.mjs`, and runs only this suite in Chromium against `playwright.prod.config.ts`. The filter suite covers a visible type-filter selection mirrored to storage and restored after Settings → Transactions, direct-URL clearing, removing the last search pill, reload, and tab returns with view-only parameters excluded.
