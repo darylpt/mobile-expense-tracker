@@ -7,7 +7,7 @@
 
 ## 1. What This Is
 
-A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.17.0**, actively used since June 2026.
+A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.17.1**, actively used since June 2026.
 
 ---
 
@@ -276,6 +276,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `src/hooks/useTransactions.test.ts` | Derived view hooks |
 | `src/lib/dividends.test.ts` | Legacy/expanded dividend sync compatibility |
 | `src/components/summary/PortfolioSummaryCard.test.tsx` | Portfolio summary rerender behavior and empty-state handling |
+| `src/components/summary/TransactionList.test.tsx` | Add dialog toggle does not re-render `TransactionList` |
 
 ### E2E Tests (Playwright)
 
@@ -286,7 +287,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence |
 
-**114/114 unit tests passing. 0 ESLint errors, 0 TS errors.**
+**116/116 unit tests passing at v0.17.1. 0 ESLint errors, 3 ESLint warnings, 0 TS errors.**
 
 ---
 
@@ -301,6 +302,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | Local-First Sync (Supabase) | ✅ Outbox pattern, LWW, per-user isolation |
 | Budget Target Persistence | ✅ Hybrid global defaults + per-month overrides |
 | Transaction Editing | ✅ Edit modal with shared TransactionFormFields |
+| Transactions Add Isolation | ✅ Add open state lives in leaf `AddTransactionButton`; `TransactionList` is not re-rendered on Add open/close. Local Chromium, 5,000 loaded and 50 visible: 275.8 ms → 13.9 ms |
 | E2E Testing (Playwright) | ✅ 66 tests, 6 projects |
 | Magic-Link Auth | ✅ Invite-only, useEffect-based route guard |
 | User Data Isolation | ✅ user_id on all tables, RLS, cache wipe on user switch |

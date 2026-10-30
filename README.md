@@ -4,7 +4,7 @@ A local-first personal finance tracker with optional Supabase cloud sync.
 Data lives in IndexedDB on your device — the app works fully offline.
 When Supabase is configured, changes sync across devices automatically.
 
-**Status:** Phase 1 complete. Active use since June 2026. **v0.17.0**
+**Status:** Phase 1 complete. Active use since June 2026. **v0.17.1**
 
 ---
 
@@ -46,7 +46,7 @@ src/
 │   ├── common/             # Button, Input, Dropdown
 │   ├── forms/              # QuickAddForm, EditTransactionModal, TransactionFormFields
 │   ├── layout/             # Header (tab nav, user email, sign-out, version badge, sync status, mobile bottom nav)
-│   ├── summary/            # TransactionList, MonthlySummaryCard, CategoryBreakdown
+│   ├── summary/            # TransactionList, AddTransactionButton, MonthlySummaryCard, CategoryBreakdown
 │   └── available-balance/  # CashDenominationInput
 ├── context/
 │   ├── AuthContext.tsx     # Auth provider, app lock state, OAuth + magic-link sign-in/sign-out
