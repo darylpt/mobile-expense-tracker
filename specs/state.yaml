@@ -3,7 +3,7 @@ version: "0.17.1"
 phase: "build"
 current_epic: "auth-and-security"
 current_story: "oauth-and-app-lock"
-last_action: "2026-10-30 — Transactions Add lag fix: Add dialog state moved to leaf AddTransactionButton; TransactionList no longer re-renders when Add opens. 116/116 unit tests passing."
+last_action: "2026-10-30 — Transactions Add lag fix; see specs/transaction-editing.md for the state boundary and regression contract."
 story_end: "2026-09-18T00:00:00Z"
 stories:
   - "stock-schema"

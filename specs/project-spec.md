@@ -287,7 +287,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence |
 
-**116/116 unit tests passing at v0.17.1. 0 ESLint errors, 3 ESLint warnings, 0 TS errors.**
+Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 
 ---
 
@@ -302,7 +302,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | Local-First Sync (Supabase) | ✅ Outbox pattern, LWW, per-user isolation |
 | Budget Target Persistence | ✅ Hybrid global defaults + per-month overrides |
 | Transaction Editing | ✅ Edit modal with shared TransactionFormFields |
-| Transactions Add Isolation | ✅ Add open state lives in leaf `AddTransactionButton`; `TransactionList` is not re-rendered on Add open/close. Local Chromium, 5,000 loaded and 50 visible: 275.8 ms → 13.9 ms |
+| Transactions Add Isolation | ✅ See [Transaction Editing §2.4](./transaction-editing.md#24-add-entry-point) for the render contract and performance evidence |
 | E2E Testing (Playwright) | ✅ 66 tests, 6 projects |
 | Magic-Link Auth | ✅ Invite-only, useEffect-based route guard |
 | User Data Isolation | ✅ user_id on all tables, RLS, cache wipe on user switch |
