@@ -1,12 +1,13 @@
 // ============================================================
 // TransactionList - Displays a filterable, scrollable list of
 // transactions with edit and delete capability.
-// Filter state lives in URL search params (shareable/persistent).
+// Filter state lives in URL search params (shareable) and is
+// mirrored to localStorage so tab switches don't lose it.
 // ============================================================
 
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useTransactionContext, formatAmount } from '@/context/TransactionContext';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -15,6 +16,8 @@ import { Button } from '@/components/common/Button';
 import { EditTransactionModal } from '@/components/forms/EditTransactionModal';
 import { AddTransactionButton } from '@/components/summary/AddTransactionButton';
 import type { Transaction, TransactionType } from '@/types';
+
+const FILTERS_STORAGE_KEY = 'transactions_filters';
 
 export function TransactionList() {
   const ctx = useTransactionContext();
@@ -27,6 +30,9 @@ export function TransactionList() {
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
+  // Initialize once so React StrictMode's double effect can't clobber a pending restore.
+  const filtersInitialized = useRef(false);
+
   // ==================================================================
   // URL search param helpers
   // ==================================================================
@@ -38,27 +44,56 @@ export function TransactionList() {
     } else {
       params.set(name, value);
     }
-    router.replace(`/transactions?${params.toString()}`, { scroll: false });
+    const query = params.toString();
+    if (!query) {
+      try { localStorage.removeItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
+    }
+    router.replace(`/transactions?${query}`, { scroll: false });
   };
 
   const removeParam = (name: string) => setParam(name, null);
 
   const clearFilters = () => {
+    try { localStorage.removeItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
     router.replace('/transactions', { scroll: false });
   };
 
   // ==================================================================
-  // Search input — local state to avoid re-render on every keystroke
+  // Filter persistence
+  // ==================================================================
+
+  // A query already in the URL is explicit and wins over the saved one.
+  // Otherwise the plain `/transactions` tab link restores the last query.
+  useEffect(() => {
+    const query = searchParams.toString();
+    if (!filtersInitialized.current) {
+      filtersInitialized.current = true;
+      if (!query) {
+        let saved: string | null = null;
+        try { saved = localStorage.getItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
+        if (saved) {
+          router.replace(`/transactions?${saved}`, { scroll: false });
+          return;
+        }
+      }
+    }
+    if (!query) return;
+    try { localStorage.setItem(FILTERS_STORAGE_KEY, query); } catch { /* ignore storage failures */ }
+  }, [searchParams, router]);
+
+  // ==================================================================
+  // Search input draft. The URL q is the committed value.
   // ==================================================================
 
   const urlQ = searchParams.get('q') ?? '';
-  const [searchValue, setSearchValue] = useState(urlQ);
-  // Remember which URL value the draft was synced to, so an external q change
-  // (e.g. filter pill × clicked) resets the draft while typing stays local.
-  const [syncedQ, setSyncedQ] = useState(urlQ);
 
-  if (urlQ !== syncedQ) {
-    setSyncedQ(urlQ);
+  // Reset the draft when q changes externally (filter pill ×, back/forward,
+  // pasted URL). Comparing against the last q seen keeps the reset
+  // conditional, and the input updates in the same render as the URL.
+  const [searchValue, setSearchValue] = useState(urlQ);
+  const [lastUrlQ, setLastUrlQ] = useState(urlQ);
+  if (lastUrlQ !== urlQ) {
+    setLastUrlQ(urlQ);
     setSearchValue(urlQ);
   }
 

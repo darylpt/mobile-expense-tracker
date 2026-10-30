@@ -4,7 +4,7 @@ A local-first personal finance tracker with optional Supabase cloud sync.
 Data lives in IndexedDB on your device — the app works fully offline.
 When Supabase is configured, changes sync across devices automatically.
 
-**Status:** Phase 1 complete. Active use since June 2026. **v0.17.1**
+**Status:** Phase 1 complete. Active use since June 2026. **v0.17.3**
 
 ---
 
@@ -120,7 +120,7 @@ progress bars. Quick Add form is collapsed by default — tap to expand.
 Full list with URL search-param filtering: type chips (income/expense/transfer),
 month range, account, category, text search. Date grouping toggle, pagination
 (50/page) when no filters active. Mobile card layout, desktop table layout.
-Edit modal and inline delete.
+Edit modal and inline delete. The last filter query is mirrored to `localStorage` and restored when returning via the plain Transactions tab; an explicit URL query wins and `Clear all` forgets the mirror.
 
 ### `/available-balance` — Cash Reconciliation
 

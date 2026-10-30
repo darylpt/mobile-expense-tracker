@@ -1,13 +1,13 @@
 # Unified Project Spec — mobile-expense-tracker v2.0
 
-> Merged from 12 individual spec files. Single source of truth.
-> Compiled: 2026-07-26. Status: all Phase 1 and Phase 2 features done.
+> Merged from 13 individual spec files. Single source of truth.
+> Compiled: 2026-10-30. Status: all Phase 1 and Phase 2 features done.
 
 ---
 
 ## 1. What This Is
 
-A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.17.1**, actively used since June 2026.
+A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.17.3**, actively used since June 2026.
 
 ---
 
@@ -205,7 +205,7 @@ Invite-only model — no sign-up form. Users invited via Supabase dashboard.
 |---|---|---|
 | `/login` | Sign-in (Google OAuth + magic link) | Google primary, magic link fallback, invite-only, disabled when Supabase not configured |
 | `/` | Summary / Dashboard | Month nav, 4 metric cards, Accounts table, Income/Expenses breakdowns with budget targets, Category/Account breakdown charts. Mobile: grouped CategoryBreakdown with progress bars, collapsed Quick Add |
-| `/transactions` | Transaction List | URL search-param filtering (type, month, account, category, text), date grouping toggle, pagination (50/page), edit modal, inline delete. Mobile: card layout. Desktop: table layout |
+| `/transactions` | Transaction List | URL search-param filtering (type, month, account, category, text), date grouping toggle, pagination (50/page), edit modal, inline delete. Filter query is mirrored to `localStorage` and restored when returning via the plain tab link; an explicit URL query wins. `Clear all` clears the mirror. Mobile: card layout. Desktop: table layout |
 | `/available-balance` | Cash Reconciliation | Per-account expected balance to user-selected date. **Current** field computable from sub-split amounts (toggle via layers icon). Cash: denomination breakdown grid (₱1000→₱1). Difference column. Read-only |
 | `/payout` | Payout Calculator | Standalone calc (no ledger writes). Percentage/flat-amount mode. Savings sub-split. Validated saves are atomic, guarded against concurrent submissions, and expose pending/success/failure state. |
 | `/settings` | Settings | Accounts CRUD + reorder, Categories CRUD + reorder, Tab Visibility toggle, App Lock (PIN), Cloud Sync controls, Sign-out, Backup & Restore (JSON export/import, CSV export, CSV import from Google Sheets) |
@@ -305,6 +305,7 @@ Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 | Transactions Add Isolation | ✅ See [Transaction Editing §2.4](./transaction-editing.md#24-add-entry-point) for the render contract and performance evidence |
 | E2E Testing (Playwright) | ✅ 66 tests, 6 projects |
 | Magic-Link Auth | ✅ Invite-only, useEffect-based route guard |
+| Transaction Filter Persistence | ✅ Last filter query restored across tab switches; explicit URL wins |
 | User Data Isolation | ✅ user_id on all tables, RLS, cache wipe on user switch |
 | Backup & Restore | ✅ JSON export/import, CSV export/import |
 | CSV Import | ✅ Google Sheets format, carry-over→starting balance |
