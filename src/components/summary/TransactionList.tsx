@@ -9,6 +9,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useAuth } from '@/context/AuthContext';
 import { useTransactionContext, formatAmount } from '@/context/TransactionContext';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { formatMonthYear, getPreviousMonthYear, getNextMonthYear, getCurrentMonthYear } from '@/lib/utils';
@@ -20,6 +21,7 @@ import type { Transaction, TransactionType } from '@/types';
 import { FILTERS_STORAGE_KEY, filterQuery } from '@/lib/transaction-filters';
 
 export function TransactionList() {
+  const { state: authState } = useAuth();
   const ctx = useTransactionContext();
   const { hideAmounts } = ctx;
   const searchParams = useSearchParams();
@@ -65,6 +67,7 @@ export function TransactionList() {
   // A query already in the URL is explicit and wins over the saved one.
   // Otherwise the plain `/transactions` tab link restores the last query.
   useEffect(() => {
+    if (authState !== 'authenticated' && authState !== 'disabled') return;
     const query = searchParams.toString();
     if (!filtersInitialized.current) {
       filtersInitialized.current = true;
@@ -83,7 +86,7 @@ export function TransactionList() {
       if (filters) localStorage.setItem(FILTERS_STORAGE_KEY, filters);
       else localStorage.removeItem(FILTERS_STORAGE_KEY);
     } catch {}
-  }, [searchParams, router]);
+  }, [searchParams, router, authState]);
 
   // ==================================================================
   // Search input draft. The URL q is the committed value.

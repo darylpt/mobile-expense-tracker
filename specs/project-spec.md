@@ -7,7 +7,7 @@
 
 ## 1. What This Is
 
-A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.17.4**, actively used since June 2026.
+A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.17.5**, actively used since June 2026.
 
 ---
 

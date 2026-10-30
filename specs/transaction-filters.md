@@ -1,6 +1,6 @@
 # Spec: Transaction Filter Persistence
 
-**Status:** ✅ Done (v0.17.4, 2026-10-30)
+**Status:** ✅ Done (v0.17.5, 2026-10-30)
 **Scope:** Keep `/transactions` filter selections across tab navigation while preserving URL-driven filtering.
 
 ---
@@ -18,7 +18,8 @@ Filter state on `/transactions` lives in URL search params. The header tab links
 5. `Clear all` / `Clear filters` deletes the mirror, so a later return starts from defaults.
 6. Removing the last remaining filter individually also deletes the mirror.
 7. Sign-out and user switches clear saved filters before the next identity can restore them; same-user reload retains filters.
-8. Storage access is wrapped in `try`/`catch`; browsers that block storage fall back to URL-only behavior.
+8. Mirror reads and writes wait until auth is authenticated or offline-disabled; loading and unauthenticated remounts cannot restore or save filters, including PIN sign-out.
+9. Storage access is wrapped in `try`/`catch`; browsers that block storage fall back to URL-only behavior.
 
 ## 3. Implementation
 
@@ -61,4 +62,4 @@ Browser smoke on `/transactions`:
 4. Paste an explicit filtered URL and confirm it overrides the stored selection.
 5. Click `Clear all`, leave the tab, return, and confirm default filters.
 
-Focused regression tests cover filter selection and authentication cleanup.
+Focused regression tests cover filter selection, authentication cleanup, the real list remount after PIN sign-out, blocked loading/unauthenticated persistence, and offline URL restore/precedence.
