@@ -375,4 +375,6 @@ Supabase API schema cache in Dashboard → API.
 
 ### Import sync correction (0.18.3)
 
+The sync test harness models remote rows as records with unknown field values, so readback and queued-edit assertions remain type-checked without changing mock behavior.
+
 Managed pulls validate the applied generation inside the IndexedDB write transaction; stale cycles stop before processing newer queue entries. Replacement completion rebases queued edits above cloud snapshot timestamps in FIFO order, including explicit conflict resolution. Managed writes require a persisted-row readback before acknowledgement; rejected writes remain queued and enter the existing actionable conflict state, including same-generation LWW conflicts across accounts, categories, transactions, payouts, and budget targets. Explicit resolution rebuilds the local snapshot and replaces the cloud dataset at a newer generation. Network failures retain the queue for retry. Pulls preserve records with queued changes. Settings status and repair behavior is documented in [CSV import](csv-import.md#marker-lifecycle-and-status).

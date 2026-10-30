@@ -68,6 +68,8 @@ Query-only filter updates, clearing, page normalization, and restore use Next.js
 
 ## 6. Verification
 
+Hydration coverage queries Expense buttons by their exact accessible name using Testing Library's supported role-query options.
+
 Browser smoke on `/transactions`:
 
 1. Select a month and type filter; note the URL query.

@@ -467,4 +467,6 @@ Local Express API (`server/index.ts`) for AI assistant integration. See [`server
 
 ### Import sync correction (0.18.3)
 
+CI test typing uses record-shaped remote mock rows and supported accessible-name role queries; application behavior and release version are unchanged.
+
 See the [sync contract](local-first-sync-supabase.md#import-sync-correction-0183) for stale-cycle fencing, queued-edit replay, and actionable LWW conflicts, and the [Settings import contract](csv-import.md#import-sync-correction-0183) for live status, recovery explanations, and missing-account review.

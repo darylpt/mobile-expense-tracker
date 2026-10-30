@@ -47,7 +47,7 @@ async function importOffline(userId: string): Promise<void> {
 
 interface MockState {
   remoteGeneration: number;
-  pulls: Record<string, unknown[]>;
+  pulls: Record<string, Record<string, unknown>[]>;
   selects: string[];
   upserts: Array<{ table: string; payload: Record<string, unknown>; options: unknown }>;
   updates: Array<{ table: string; payload: Record<string, unknown>; id: unknown }>;

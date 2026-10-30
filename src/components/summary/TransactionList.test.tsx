@@ -364,7 +364,7 @@ describe('TransactionList saved filters during hydration', () => {
 
     expect(localStorage.getItem(FILTERS_STORAGE_KEY)).toBe(saved);
     expect(window.location.search).toBe(`?${saved}`);
-    for (const chip of screen.getAllByRole('button', { name: 'Expense', exact: true })) {
+    for (const chip of screen.getAllByRole('button', { name: 'Expense' })) {
       expect(chip.getAttribute('aria-pressed')).toBe('false');
     }
   });
