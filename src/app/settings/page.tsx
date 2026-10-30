@@ -1272,6 +1272,13 @@ function BackupSection() {
 // CSV Import Section
 // ============================================================
 
+function replacementConflictMessage(marker: DatasetReplacementMarker): string {
+  const condition = marker.remoteGeneration !== null && marker.remoteGeneration > marker.generation
+    ? 'The cloud dataset was replaced by another device.'
+    : 'Cloud records conflict with local edits.';
+  return `${condition}${marker.lastError ? ` ${marker.lastError}` : ''}`;
+}
+
 function replacementStatusMessage(marker: DatasetReplacementMarker | null, cloudEnabled: boolean): string {
   if (!marker) return 'Saved locally.';
   if (!cloudEnabled) return 'Saved locally. Cloud sync is not configured.';
@@ -1283,7 +1290,7 @@ function replacementStatusMessage(marker: DatasetReplacementMarker | null, cloud
     case 'failed':
       return `Saved locally. Cloud replacement is blocked${marker.lastError ? `: ${marker.lastError}` : ''}. Retry from Cloud Sync.`;
     case 'conflict':
-      return 'Saved locally. Another device replaced the cloud dataset first, so the cloud copy was not changed.';
+      return `Saved locally. ${replacementConflictMessage(marker)}`;
   }
 }
 
@@ -1484,9 +1491,8 @@ Date,Amount,Description,Type,Category,From Account,To Account
       {marker?.status === 'conflict' && (
         <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
           <p>
-            Another device replaced the cloud dataset after this import. Nothing
-            was guessed. Replace the cloud copy with this snapshot only if it is
-            the one you want to keep.
+            {replacementConflictMessage(marker)} Replace the entire cloud dataset
+            with this local snapshot only if it is the copy you want to keep.
           </p>
           <Button variant="danger" size="sm" className="mt-2" onClick={forceCloudReplacement}>
             Replace cloud data with this snapshot

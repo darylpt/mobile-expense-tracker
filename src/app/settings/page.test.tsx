@@ -54,7 +54,19 @@ it.each(['Data Tools', 'Import / Export Data'])(
     });
     await screen.findByRole('button', { name: 'Replace cloud data with this snapshot' });
     expect(screen.queryByText('Saved locally and replaced in the cloud.')).toBeNull();
-    expect(panel.getByRole('status').textContent).toContain('cloud copy was not changed');
+    expect(panel.getByRole('status').textContent).toContain('Cloud records conflict with local edits.');
+    expect(panel.getByRole('status').textContent).toContain('Local edits waiting.');
+    expect(panel.queryByText(/another device/i)).toBeNull();
+    expect(panel.getByText(/Replace the entire cloud dataset/).textContent).toContain('Cloud records conflict with local edits.');
+
+    await act(async () => {
+      mockMarker = { ...mockMarker!, remoteGeneration: 3, lastError: 'Cloud generation 3. Local edits waiting.' };
+      window.dispatchEvent(new CustomEvent('sync-complete'));
+    });
+    await waitFor(() => expect(panel.getByRole('status').textContent).toContain('The cloud dataset was replaced by another device.'));
+    expect(panel.getByRole('status').textContent).toContain('Cloud generation 3.');
+    expect(panel.getByText(/Replace the entire cloud dataset/).textContent).toContain('The cloud dataset was replaced by another device.');
+    expect(panel.queryByText(/after this import/)).toBeNull();
 
     await act(async () => {
       mockMarker = { ...mockMarker!, status: 'failed', lastError: 'Permission denied' };
