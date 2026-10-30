@@ -13,6 +13,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { formatMonthYear, getPreviousMonthYear, getNextMonthYear, getCurrentMonthYear } from '@/lib/utils';
 import { Button } from '@/components/common/Button';
 import { EditTransactionModal } from '@/components/forms/EditTransactionModal';
+import { AddTransactionButton } from '@/components/summary/AddTransactionButton';
 import type { Transaction, TransactionType } from '@/types';
 
 export function TransactionList() {
@@ -25,7 +26,6 @@ export function TransactionList() {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
 
   // ==================================================================
   // URL search param helpers
@@ -51,14 +51,16 @@ export function TransactionList() {
   // Search input — local state to avoid re-render on every keystroke
   // ==================================================================
 
-  const [searchValue, setSearchValue] = useState(() => searchParams.get('q') ?? '');
+  const urlQ = searchParams.get('q') ?? '';
+  const [searchValue, setSearchValue] = useState(urlQ);
+  // Remember which URL value the draft was synced to, so an external q change
+  // (e.g. filter pill × clicked) resets the draft while typing stays local.
+  const [syncedQ, setSyncedQ] = useState(urlQ);
 
-  // Sync from URL when param changes externally (e.g. filter pill × clicked)
-  useEffect(() => {
-    setSearchValue(searchParams.get('q') ?? '');
-    // ponytail: only the q param matters for search sync
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams.get('q')]);
+  if (urlQ !== syncedQ) {
+    setSyncedQ(urlQ);
+    setSearchValue(urlQ);
+  }
 
   const commitSearch = (value: string) => {
     setParam('q', value || null);
@@ -338,9 +340,7 @@ export function TransactionList() {
         <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
           Transactions
         </h2>
-        <Button variant="primary" size="sm" onClick={() => setShowAddModal(true)}>
-          + Add
-        </Button>
+        <AddTransactionButton />
       </div>
 
       {ctx.error && (
@@ -367,9 +367,7 @@ export function TransactionList() {
           </span>
         </h2>
         <div className="flex items-center gap-2">
-          <Button variant="primary" size="sm" onClick={() => setShowAddModal(true)} className="whitespace-nowrap">
-            + Add
-          </Button>
+          <AddTransactionButton className="whitespace-nowrap" />
           <button onClick={goToPrevMonth} className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200" aria-label="Previous month">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
@@ -961,14 +959,6 @@ export function TransactionList() {
         mode="edit"
       />
 
-      {/* Add transaction modal */}
-      {showAddModal && (
-        <EditTransactionModal
-          transaction={null}
-          mode="create"
-          onClose={() => setShowAddModal(false)}
-        />
-      )}
     </div>
   );
 }

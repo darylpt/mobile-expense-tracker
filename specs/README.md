@@ -9,7 +9,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | [`local-first-sync-supabase.md`](./local-first-sync-supabase.md) | ✅ Done | Local-first sync with Supabase. Outbox pattern, soft-delete ghost-record prevention, LWW DB trigger, offline-first. Per-user isolation via user_id. 3-phase processSyncQueue (read/network/write). Monotonic counter for FIFO ordering. resyncAll recovery. Auto-sync debounced after every CRUD. |
 | [`budget-target-persistence.md`](./budget-target-persistence.md) | ✅ Done | Hybrid (global defaults + per-month overrides). Store added to IndexedDB, in-memory store removed. |
 | Settings page accessibility/coding-standards retrofit | ✅ Done | Error handling, aria-labels, aria-live, scope="col". PASS on re-review. |
-| [`transaction-editing.md`](./transaction-editing.md) | ✅ Done | Edit modal with shared TransactionFormFields. Critic PASS. |
+| [`transaction-editing.md`](./transaction-editing.md) | ✅ Done | Edit modal and Transactions Add isolation; see the feature spec for the render contract and regression coverage. |
 | [`e2e-testing-playwright.md`](./e2e-testing-playwright.md) | ✅ Done | Full Playwright setup: 66 tests, 6 projects (Chromium/Firefox/WebKit × mobile/tablet/desktop). |
 | Show all categories in breakdowns | ✅ Done | Income/Expense tables now include zero-amount rows. |
 | Ponytail-audit cleanup | ✅ Done | Shared validation (`validateTransactionForm`), shared test fixture (`tx()`), removed `totalTransfers` dead field, inlined `toLocaleString` → `formatCurrency`. Net -50 lines. |

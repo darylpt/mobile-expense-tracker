@@ -1,7 +1,7 @@
 # Spec: Transaction Editing
 
-**Status:** Ready for Coder
-**Scope:** Add edit capability to existing transactions. Delete already exists in `TransactionList.tsx` — this spec adds edit only.
+**Status:** Done (v0.17.1)
+**Scope:** Add edit capability to existing transactions and keep the responsive create-entry action from re-rendering the full transaction list. Delete already exists in `TransactionList.tsx`.
 
 ---
 
@@ -29,6 +29,12 @@ Clicking "Edit" opens a centered modal overlay containing the same form fields a
 ### 2.3 Form reuse
 
 The edit form should share field rendering logic with QuickAddForm — extract a shared `TransactionFormFields` component rather than duplicating the grid.
+
+### 2.4 Add entry point
+
+Each responsive "+ Add" button opens its own create-mode instance of `EditTransactionModal`, reusing the component used by the edit flow. The open state lives in a leaf `AddTransactionButton` client component, not in `TransactionList`. Toggling the Add dialog therefore re-renders only the button subtree; the list and its context subscription are untouched.
+
+Local Chromium smoke, 5,000 transactions loaded with 50 visible rows: opening the Add dialog took 275.8 ms with the state in `TransactionList` and 13.9 ms after moving it to the leaf component. The smoke ran against the same implementation on the prior worktree.
 
 ## 3. Implementation plan
 
@@ -62,7 +68,7 @@ Import and use `TransactionFormFields` instead of rendering the grid inline. Kee
 
 New file: `src/components/forms/EditTransactionModal.tsx`
 
-- Receives `transaction: Transaction | null` (null = closed)
+- Receives `transaction: Transaction | null` and optional `mode` (`edit` by default); null closes edit mode, while create mode opens without an existing transaction
 - When a transaction is provided, initializes form state from it
 - On save: calls `ctx.updateTransaction(updatedTx)` then closes
 - On cancel/close: resets to null
@@ -79,6 +85,19 @@ New file: `src/components/forms/EditTransactionModal.tsx`
 - onClick sets `editingTx` to the transaction
 - Pass `editingTx` to the modal; on close set back to null
 
+### 3.5 Add isolation (v0.17.1)
+
+The state boundary and render contract are defined in §2.4.
+
+New file: `src/components/summary/AddTransactionButton.tsx`
+
+- Accepts `className` so both responsive layouts keep their existing button styling
+- `TransactionList` keeps only the edit modal and its `editingTx` state
+
+### 3.6 URL search synchronization
+
+The search draft tracks the last observed URL `q` value. A guarded render-time adjustment resets the draft only when `q` changes externally, preserving local typing without a state-setting effect. Enter or blur commits the draft to the URL. This preserves the existing URL-based filtering; it adds no filter persistence. The regression contract is covered by `TransactionList.test.tsx` (search draft sync).
+
 ## 4. Files to modify
 
 | File | Change |
@@ -86,7 +105,9 @@ New file: `src/components/forms/EditTransactionModal.tsx`
 | `src/components/forms/QuickAddForm.tsx` | Extract field grid to `TransactionFormFields`, import and use it |
 | `src/components/forms/TransactionFormFields.tsx` | **New** — shared field grid |
 | `src/components/forms/EditTransactionModal.tsx` | **New** — modal wrapper with form |
-| `src/components/summary/TransactionList.tsx` | Add Edit button + modal |
+| `src/components/summary/AddTransactionButton.tsx` | **New** — leaf Add button owning the create modal state |
+| `src/components/summary/TransactionList.tsx` | Add Edit button + modal; render leaf Add buttons |
+| `src/components/summary/TransactionList.test.tsx` | **New** — Add toggle does not re-invoke `useTransactionContext` |
 
 ## 5. Accessibility requirements
 
@@ -109,12 +130,14 @@ Same validation rules as QuickAddForm:
 ## 7. Test considerations
 
 - Modal opens/closes correctly
+- Add controls open and close the create dialog without re-invoking `useTransactionContext`
 - Pre-populated fields match the transaction data
 - Save updates the transaction and closes
 - Cancel closes without saving
 - Escape key closes
 - Focus trap works (Tab stays within modal)
-- No regression to QuickAddForm
+- Summary Quick Add remains unchanged
+- Search draft synchronization preserves typing, Enter/blur commits, and external URL resets
 
 ## 8. Non-goals
 

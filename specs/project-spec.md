@@ -7,7 +7,7 @@
 
 ## 1. What This Is
 
-A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.17.0**, actively used since June 2026.
+A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.17.1**, actively used since June 2026.
 
 ---
 
@@ -276,6 +276,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `src/hooks/useTransactions.test.ts` | Derived view hooks |
 | `src/lib/dividends.test.ts` | Legacy/expanded dividend sync compatibility |
 | `src/components/summary/PortfolioSummaryCard.test.tsx` | Portfolio summary rerender behavior and empty-state handling |
+| `src/components/summary/TransactionList.test.tsx` | Add dialog toggle does not re-render `TransactionList` |
 
 ### E2E Tests (Playwright)
 
@@ -286,7 +287,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence |
 
-**114/114 unit tests passing. 0 ESLint errors, 0 TS errors.**
+Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 
 ---
 
@@ -301,6 +302,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | Local-First Sync (Supabase) | ✅ Outbox pattern, LWW, per-user isolation |
 | Budget Target Persistence | ✅ Hybrid global defaults + per-month overrides |
 | Transaction Editing | ✅ Edit modal with shared TransactionFormFields |
+| Transactions Add Isolation | ✅ See [Transaction Editing §2.4](./transaction-editing.md#24-add-entry-point) for the render contract and performance evidence |
 | E2E Testing (Playwright) | ✅ 66 tests, 6 projects |
 | Magic-Link Auth | ✅ Invite-only, useEffect-based route guard |
 | User Data Isolation | ✅ user_id on all tables, RLS, cache wipe on user switch |
