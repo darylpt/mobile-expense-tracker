@@ -1,13 +1,13 @@
 # Unified Project Spec — mobile-expense-tracker v2.0
 
-> Merged from 13 individual spec files. Single source of truth.
+> Project overview; detailed feature contracts are linked from the [specs index](README.md).
 > Compiled: 2026-10-30. Status: all Phase 1 and Phase 2 features done.
 
 ---
 
 ## 1. What This Is
 
-A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.17.6**, actively used since June 2026.
+A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. Actively used since June 2026; current release: [`APP_VERSION`](../src/lib/version.ts).
 
 ---
 
@@ -22,7 +22,7 @@ A **local-first personal finance PWA** that replaces a Google Sheets budget trac
 | Auth | Supabase Auth (Google OAuth + magic link, invite-only) + local PIN app lock |
 | Language | TypeScript strict |
 | Unit Tests | Jest 30 + ts-jest + jsdom + fake-indexeddb |
-| E2E Tests | Playwright 1.61 (3 browsers × 3 viewports = 6 projects) |
+| E2E Tests | Playwright 1.61 (6 dev projects: 3 cross-browser desktop runs plus Chromium mobile/tablet/desktop; separate production-static-export Chromium config) |
 | Linting | ESLint 9 + eslint-config-next |
 
 **Zero server-side code.** Every component is `'use client'`. No API routes, no server components, no server actions.
@@ -205,7 +205,7 @@ Invite-only model — no sign-up form. Users invited via Supabase dashboard.
 |---|---|---|
 | `/login` | Sign-in (Google OAuth + magic link) | Google primary, magic link fallback, invite-only, disabled when Supabase not configured |
 | `/` | Summary / Dashboard | Month nav, 4 metric cards, Accounts table, Income/Expenses breakdowns with budget targets, Category/Account breakdown charts. Mobile: grouped CategoryBreakdown with progress bars, collapsed Quick Add |
-| `/transactions` | Transaction List | URL search-param filtering (type, month, account, category, text), date grouping toggle, pagination (50/page), edit modal, inline delete. Only month/type/account/category/search are mirrored to `localStorage` and restored when returning via the plain tab link; an explicit URL query wins. `Clear all`, sign-out, and user switches clear the mirror; grouping and pagination remain URL-only. Mobile: card layout. Desktop: table layout |
+| `/transactions` | Transaction List | URL search-param filtering (type, month, account, category, text), date grouping toggle, pagination (50/page), edit modal, inline delete. Persistence and account isolation follow the [transaction filter contract](transaction-filters.md). Mobile: card layout. Desktop: table layout |
 | `/available-balance` | Cash Reconciliation | Per-account expected balance to user-selected date. **Current** field computable from sub-split amounts (toggle via layers icon). Cash: denomination breakdown grid (₱1000→₱1). Difference column. Read-only |
 | `/payout` | Payout Calculator | Standalone calc (no ledger writes). Percentage/flat-amount mode. Savings sub-split. Validated saves are atomic, guarded against concurrent submissions, and expose pending/success/failure state. |
 | `/settings` | Settings | Accounts CRUD + reorder, Categories CRUD + reorder, Tab Visibility toggle, App Lock (PIN), Cloud Sync controls, Sign-out, Backup & Restore (JSON export/import, CSV export, CSV import from Google Sheets) |
@@ -273,10 +273,17 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `src/lib/idb.test.ts` | IDB CRUD operations, sync queue, migrations |
 | `src/lib/csv-import.test.ts` | CSV parsing, date detection, amount parsing, carry-over logic |
 | `src/lib/reconciliation.test.ts` | Expected balance computation |
-| `src/hooks/useTransactions.test.ts` | Derived view hooks |
+| `src/hooks/useTransactions.test.ts` | Transaction add/delete through the hook |
+| `src/lib/holdings.test.ts` | Share cost basis, realized/unrealized gains, dividend totals, and aggregates |
+| `src/lib/stock-prices.test.ts` | Price response parsing, HTTP/network failures, and ticker normalization |
+| `src/lib/utils.test.ts` | Category breakdown aggregation, percentages, and ordering |
 | `src/lib/dividends.test.ts` | Legacy/expanded dividend sync compatibility |
 | `src/components/summary/PortfolioSummaryCard.test.tsx` | Portfolio summary rerender behavior and empty-state handling |
-| `src/components/summary/TransactionList.test.tsx` | Add dialog toggle does not re-render `TransactionList` |
+| `src/context/AuthContext.test.tsx` | Auth lifecycle, identity isolation, sign-out cleanup, PIN remount, and filter mirror gates |
+| `src/lib/transaction-filters.test.ts` | Persistable filter allowlist and query canonicalization |
+| `src/components/summary/TransactionList.test.tsx` | Add dialog toggle render isolation; StrictMode restore/settlement; empty-URL/stale-router settlement; stale-router and view-only URL projection; consecutive filter updates and stale-page normalization; auth-gated persistence and identity-switch provenance |
+| `src/components/forms/DividendForm.test.tsx` | Dividend fields, validation, computed amounts, and loading state |
+| `src/components/stocks/DividendLog.test.tsx` | Dividend table, legacy amounts, yields, and edit/delete actions |
 
 ### E2E Tests (Playwright)
 
@@ -286,6 +293,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `e2e/settings-delete-blocked.spec.ts` | Delete-blocked-if-in-use |
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence |
+| `e2e/transaction-filter-persistence.spec.ts` | Filter selection, direct-URL selection/clearing, and tab restore against dev and the static export |
 
 Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 
@@ -303,9 +311,9 @@ Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 | Budget Target Persistence | ✅ Hybrid global defaults + per-month overrides |
 | Transaction Editing | ✅ Edit modal with shared TransactionFormFields |
 | Transactions Add Isolation | ✅ See [Transaction Editing §2.4](./transaction-editing.md#24-add-entry-point) for the render contract and performance evidence |
-| E2E Testing (Playwright) | ✅ 66 tests, 6 projects |
+| E2E Testing (Playwright) | ✅ See [`e2e/`](../e2e/) for coverage, [`playwright.config.ts`](../playwright.config.ts) for projects, and [`playwright.prod.config.ts`](../playwright.prod.config.ts) for the static-export filter run |
 | Magic-Link Auth | ✅ Invite-only, useEffect-based route guard |
-| Transaction Filter Persistence | ✅ Last filter query restored across tab switches; explicit URL wins |
+| Transaction Filter Persistence | ✅ See [feature contract](transaction-filters.md) |
 | User Data Isolation | ✅ user_id on all tables, RLS, cache wipe on user switch |
 | Backup & Restore | ✅ JSON export/import, CSV export/import |
 | CSV Import | ✅ Google Sheets format, carry-over→starting balance |
@@ -419,5 +427,3 @@ Local Express API (`server/index.ts`) for AI assistant integration. See [`server
 ## 14. What's Left
 
 - **Dividend → expense tracker integration** — auto-create income transactions from dividend records (deferred — separate tracking layer for now)
-
-Transaction filter query updates use Next.js-integrated native history so production static exports clear direct-URL selections without replaying cached query state. Transactions tabs use document navigation to ensure plain entry restores only saved filters.

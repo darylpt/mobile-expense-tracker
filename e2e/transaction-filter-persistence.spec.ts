@@ -1,6 +1,32 @@
 import { test, expect } from '@playwright/test';
 
-// Run against the production static export as well as the development server.
+// `playwright.config.ts` runs this suite against `next dev`.
+// `playwright.prod.config.ts` builds `out/` and serves the static export
+// (`npm run test:e2e:prod`).
+
+test('selecting a type filter mirrors to storage and restores after tab navigation', async ({ page }) => {
+  const mobile = (page.viewportSize()?.width ?? 1280) < 768;
+  await page.goto('/transactions/');
+  const expenseChip = page.getByRole('button', { name: 'Expense', exact: true }).filter({ visible: true });
+  await expect(expenseChip).toHaveAttribute('aria-pressed', 'true');
+
+  await expenseChip.click();
+  await expect(expenseChip).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => new URL(page.url()).searchParams.get('type')).toBe('income,transaction');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('transactions_filters'))).toBe('type=income%2Ctransaction');
+
+  await page.getByRole(mobile ? 'button' : 'link', { name: 'Settings', exact: true }).filter({ visible: true }).click();
+  await expect.poll(() => new URL(page.url()).pathname.replace(/\/+$/, '')).toBe('/settings');
+
+  await page.getByRole(mobile ? 'button' : 'link', { name: 'Transactions', exact: true }).filter({ visible: true }).click();
+  await expect.poll(() => new URL(page.url()).pathname.replace(/\/+$/, '')).toBe('/transactions');
+  await expect.poll(() => new URL(page.url()).searchParams.get('type')).toBe('income,transaction');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('transactions_filters'))).toBe('type=income%2Ctransaction');
+  await expect(page.getByRole('button', { name: 'Expense', exact: true }).filter({ visible: true })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByRole('button', { name: 'Income', exact: true }).filter({ visible: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Transfer', exact: true }).filter({ visible: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('clears direct URL filters and keeps them cleared after reload', async ({ page }) => {
   await page.goto('/transactions/?month=2026-06&q=direct');
   const search = page.getByRole('textbox', { name: 'Search transactions' }).filter({ visible: true });

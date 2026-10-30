@@ -124,6 +124,7 @@ test('offline-disabled mode restores filters and keeps explicit URLs authoritati
   view.rerender(tree('plain'));
   expect((screen.getAllByLabelText('Search transactions')[0] as HTMLInputElement).value).toBe('saved');
   mockQuery = new URLSearchParams('q=explicit&group=date&page=3');
+  window.history.replaceState(null, '', '/transactions?q=explicit&group=date&page=3');
   mockReplace.mockClear();
   view.rerender(tree('explicit'));
   expect(window.location.search).toBe('?q=explicit&group=date');

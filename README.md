@@ -4,7 +4,7 @@ A local-first personal finance tracker with optional Supabase cloud sync.
 Data lives in IndexedDB on your device — the app works fully offline.
 When Supabase is configured, changes sync across devices automatically.
 
-**Status:** Phase 1 complete. Active use since June 2026. **v0.17.3**
+**Status:** Phase 1 and Phase 2 complete. Active use since June 2026. Current release: [`APP_VERSION`](src/lib/version.ts).
 
 ---
 
@@ -120,7 +120,10 @@ progress bars. Quick Add form is collapsed by default — tap to expand.
 Full list with URL search-param filtering: type chips (income/expense/transfer),
 month range, account, category, text search. Date grouping toggle, pagination
 (50/page) when no filters active. Mobile card layout, desktop table layout.
-Edit modal and inline delete. The last filter query is mirrored to `localStorage` and restored when returning via the plain Transactions tab; an explicit URL query wins and `Clear all` forgets the mirror.
+Edit modal and inline delete. Selected filters persist when you leave and return
+via the Transactions tab. Shared URL queries take precedence; `Clear all` forgets
+the selection. See the [filter persistence contract](specs/transaction-filters.md)
+for storage scope and account isolation.
 
 ### `/available-balance` — Cash Reconciliation
 
@@ -214,7 +217,8 @@ Import CSV) or restore a JSON backup.
 | `npm run start` | Serve production build |
 | `npm run lint` | ESLint |
 | `npm test` | Unit tests (Jest) |
-| `npm run test:e2e` | E2E tests (Playwright) |
+| `npm run test:e2e` | E2E tests (Playwright, `next dev`) |
+| `npm run test:e2e:prod` | Filter E2E suite against the built static export |
 | `npm run server` | Portfolio API Server (port 4000, requires Supabase service_role key) |
 
 ---

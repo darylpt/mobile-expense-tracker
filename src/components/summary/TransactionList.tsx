@@ -7,7 +7,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { useTransactionContext, formatAmount } from '@/context/TransactionContext';
@@ -20,8 +20,74 @@ import type { Transaction, TransactionType } from '@/types';
 
 import { FILTERS_STORAGE_KEY, filterQuery } from '@/lib/transaction-filters';
 
+// The mount-time restore moves from no read yet, to either not restored or
+// backing the controls until the browser URL carries the restored query.
+// `settled` records the allowlisted projection of that explicit or published
+// browser query, together with the identity that owned it, so a later identity
+// switch can keep that query out of the new user's mirror. The shared idle
+// value keeps a repeated clear from scheduling another render.
+type Restore =
+  | { status: 'undecided' }
+  | { status: 'idle' }
+  | { status: 'active'; filters: string; userId: string | null; pathname: string }
+  | { status: 'settled'; filters: string; userId: string | null };
+
+const RESTORE_UNDECIDED: Restore = { status: 'undecided' };
+const RESTORE_IDLE: Restore = { status: 'idle' };
+
+// A never-changing store used only to learn when React has hydrated:
+// `useSyncExternalStore` reports the server snapshot during hydration and the
+// client snapshot right after it, keeping the mirror read off the server.
+const subscribeNothing = () => () => {};
+const hydratedSnapshot = () => true;
+const serverHydratedSnapshot = () => false;
+
+function readSavedFilters(): string | null {
+  try {
+    return localStorage.getItem(FILTERS_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+// The canonical query is the whole browser URL query, including view-only
+// params such as `group` and `page` that the mirror projection drops.
+function readBrowserQuery(): string {
+  return window.location.search.replace(/^\?/, '');
+}
+
+// The browser URL is canonical once hydrated: an explicit write replaces it
+// synchronously, while Next's router can keep projecting the query it had
+// before. A pending restore still owns the projection. Before hydration the
+// router value is the only source, and callers pass an empty browser query so
+// the server path never reads `window`.
+function canonicalFilterParams(
+  hydrated: boolean,
+  routerParams: URLSearchParams,
+  browserQuery: string,
+  restoreFilters: string | null
+): URLSearchParams {
+  if (restoreFilters !== null) return new URLSearchParams(restoreFilters);
+  if (hydrated) {
+    const browserParams = new URLSearchParams(browserQuery);
+    if (browserParams.toString() !== routerParams.toString()) return browserParams;
+  }
+  return routerParams;
+}
+
+// A query already in the browser URL is explicit and wins over the saved one,
+// so only a query-less URL may become the mount-time restore. The router's
+// projection is ignored here: on the first render it can still report the
+// query it had before, which would turn this plain-link restore into an idle.
+function captureRestore(userId: string | null): Restore {
+  const filters = readBrowserQuery() ? '' : filterQuery(readSavedFilters() ?? '');
+  if (!filters) return RESTORE_IDLE;
+  return { status: 'active', filters, userId, pathname: window.location.pathname };
+}
+
 export function TransactionList() {
-  const { state: authState } = useAuth();
+  const { state: authState, user } = useAuth();
+  const userId = user?.id ?? null;
   const ctx = useTransactionContext();
   const { hideAmounts } = ctx;
   const searchParams = useSearchParams();
@@ -31,67 +97,203 @@ export function TransactionList() {
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
-  // Initialize once so React StrictMode's double effect can't clobber a pending restore.
-  const filtersInitialized = useRef(false);
+  // `specs/transaction-filters.md` allows mirror reads and writes only once
+  // auth is authenticated or offline-disabled.
+  const canMirrorFilters = authState === 'authenticated' || authState === 'disabled';
+
+  // Reading the mirror during render is what makes the first paint after
+  // hydration show the restored selection. `isHydrated` keeps that read off
+  // the server.
+  const isHydrated = useSyncExternalStore(subscribeNothing, hydratedSnapshot, serverHydratedSnapshot);
+
+  // The saved query is captured once per page load, and only when the URL has
+  // no query of its own, so an explicit link keeps winning over the mirror.
+  // `undecided` is the pre-capture state; it also keeps a later clear from
+  // restoring the mirror again.
+  const [restore, setRestore] = useState<Restore>(
+    () => (isHydrated && canMirrorFilters ? captureRestore(userId) : RESTORE_UNDECIDED)
+  );
+
+  // Hydration or auth can finish after mount; make the one-time decision then.
+  if (restore.status === 'undecided' && isHydrated && canMirrorFilters) {
+    setRestore(captureRestore(userId));
+  }
+
+  // Any explicit filter write owns the URL from then on. The deferred publish
+  // must not overwrite it or undo a clear that lands before the timer fires.
+  const explicitUrlWrite = useRef(false);
+
+  // The restore ends once the browser query diverges from the restored query
+  // (a newer explicit choice wins), or once the browser URL carries a query and
+  // the router reports the restored allowlisted query. The browser query is the
+  // whole canonical query, not its allowlisted projection: a view-only URL such
+  // as `group=date&page=3` is still explicit and replaces the restore. An empty
+  // browser URL is the pre-publish window, so the router projection cannot
+  // settle it: the router can still project the saved filters alongside a
+  // view-only page from before, and settling on that would hand the controls an
+  // empty URL and let the mirror effect clear the saved query. The settled state
+  // keeps the query's owner so an identity switch cannot save it as the new
+  // user's mirror.
+  if (restore.status === 'active') {
+    const currentQuery = readBrowserQuery();
+    if (currentQuery && currentQuery !== restore.filters) {
+      setRestore({ status: 'settled', filters: filterQuery(currentQuery), userId: restore.userId });
+    } else if (currentQuery && filterQuery(searchParams.toString()) === restore.filters) {
+      setRestore({ status: 'settled', filters: restore.filters, userId: restore.userId });
+    }
+  }
+
+  // A restore only backs the controls while the same user's publish is still
+  // pending. Auth and identity changes drop it without another render.
+  const activeRestore =
+    restore.status === 'active' && canMirrorFilters && userId === restore.userId
+      ? restore
+      : null;
 
   // ==================================================================
   // URL search param helpers
   // ==================================================================
 
+  // Local writes replace the URL synchronously, but the router's params may stay
+  // stale until Next catches up, and an idle clear or repeat write schedules no
+  // other state change. Bumping a render makes the projection re-read the
+  // browser URL after each write.
+  const [, bumpUrlRevision] = useState(0);
+
+  const clearFilters = () => {
+    setRestore(RESTORE_IDLE);
+    if (canMirrorFilters) {
+      try { localStorage.removeItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
+    }
+    explicitUrlWrite.current = true;
+    window.history.replaceState(null, '', window.location.pathname);
+    bumpUrlRevision(n => n + 1);
+  };
+
+  // ==================================================================
+  // Restore publish
+  // ==================================================================
+
+  // Publish the restored query so the URL is correct right away. Keep the
+  // current history state so Next's router internals survive the write when
+  // the patch is not installed yet.
+  useEffect(() => {
+    if (!activeRestore) return;
+    window.history.replaceState(window.history.state, '', `?${activeRestore.filters}`);
+  }, [activeRestore]);
+
+  // Next patches `window.history` in an effect that runs after this component's
+  // effects on a full page load, so the publish above never reaches
+  // `useSearchParams`. Re-publish once that patch is live so Next copies its
+  // own internals into the entry and dispatches the URL restore. Passing the
+  // current history state would hit Next's internal-state bypass and leave the
+  // params stale, which is what the production static export did.
+  useEffect(() => {
+    if (!activeRestore) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      if (
+        explicitUrlWrite.current ||
+        window.location.pathname !== activeRestore.pathname ||
+        (window.location.search !== '' && window.location.search !== `?${activeRestore.filters}`)
+      ) {
+        return;
+      }
+      window.history.replaceState(null, '', `?${activeRestore.filters}`);
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [activeRestore]);
+
+  // A query already in the URL is explicit and wins over the saved one.
+  // Otherwise the plain `/transactions` tab link restores the last query.
+  useEffect(() => {
+    if (!canMirrorFilters) return;
+    // An identity change abandons the restore instead of saving its query back.
+    if (restore.status === 'active' && userId !== restore.userId) return;
+    // The browser URL is canonical: explicit filter writes and clears replace it
+    // synchronously, while `useSearchParams` can still report the query it had
+    // before. Reading the router first would let that stale query overwrite the
+    // new mirror, or resurrect a cleared one on the next visit.
+    const query = readBrowserQuery();
+    const filters = filterQuery(query);
+    // The settled query belongs to the identity that restored it. Any other
+    // query is a new explicit choice and still becomes the current user's
+    // mirror.
+    if (restore.status === 'settled' && userId !== restore.userId && filters === restore.filters) {
+      return;
+    }
+    if (!filters && activeRestore) return;
+    try {
+      if (filters) localStorage.setItem(FILTERS_STORAGE_KEY, filters);
+      else localStorage.removeItem(FILTERS_STORAGE_KEY);
+    } catch {}
+    // `searchParams` is a re-run trigger only: Next can project a query the URL
+    // has already replaced, so its value must not decide the mirror.
+  }, [searchParams, canMirrorFilters, userId, restore, activeRestore]);
+
+  // `useSearchParams` can keep reporting the pre-restore query through the whole
+  // static-export restore window. The URL is still canonical; read the controls
+  // from the published query until the router catches up. The same holds after
+  // an explicit write drops the restore to idle and the router stays stale, so
+  // the whole browser query, view-only params included, backs the controls.
+  // Reading the URL each render puts it in the memo deps, so a forced render
+  // after a local write re-reads it even when the router's params do not change.
+  const browserQuery = isHydrated ? readBrowserQuery() : '';
+  const filterParams = useMemo(
+    () =>
+      canonicalFilterParams(
+        isHydrated,
+        searchParams,
+        browserQuery,
+        activeRestore ? activeRestore.filters : null
+      ),
+    [activeRestore, isHydrated, searchParams, browserQuery]
+  );
+
+  // The canonical projection already resolves a pending restore and a newer
+  // browser URL the router has not caught up to. Resolving it again here keeps
+  // a second write from rebuilding the query out of a memo the first write has
+  // outdated. Building from the router's query instead would resurrect its
+  // stale filters and drop the view-only params the URL has.
   const setParam = (name: string, value: string | null) => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(
+      canonicalFilterParams(
+        isHydrated,
+        searchParams,
+        isHydrated ? readBrowserQuery() : '',
+        activeRestore ? activeRestore.filters : null
+      )
+    );
     if (value === null || value === '') {
       params.delete(name);
     } else {
       params.set(name, value);
     }
     const query = params.toString();
-    if (!filterQuery(query)) {
-      try { localStorage.removeItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
+    if (canMirrorFilters) {
+      const filters = filterQuery(query);
+      try {
+        if (filters) localStorage.setItem(FILTERS_STORAGE_KEY, filters);
+        else localStorage.removeItem(FILTERS_STORAGE_KEY);
+      } catch { /* ignore storage failures */ }
     }
+    setRestore(RESTORE_IDLE);
+    explicitUrlWrite.current = true;
     window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname);
+    bumpUrlRevision(n => n + 1);
   };
 
   const removeParam = (name: string) => setParam(name, null);
-
-  const clearFilters = () => {
-    try { localStorage.removeItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
-    window.history.replaceState(null, '', window.location.pathname);
-  };
-
-  // ==================================================================
-  // Filter persistence
-  // ==================================================================
-
-  // A query already in the URL is explicit and wins over the saved one.
-  // Otherwise the plain `/transactions` tab link restores the last query.
-  useEffect(() => {
-    if (authState !== 'authenticated' && authState !== 'disabled') return;
-    const query = searchParams.toString();
-    if (!filtersInitialized.current) {
-      filtersInitialized.current = true;
-      if (!query) {
-        let saved: string | null = null;
-        try { saved = localStorage.getItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
-        const filters = filterQuery(saved ?? '');
-        if (filters) {
-          window.history.replaceState(null, '', `?${filters}`);
-          return;
-        }
-      }
-    }
-    const filters = filterQuery(query);
-    try {
-      if (filters) localStorage.setItem(FILTERS_STORAGE_KEY, filters);
-      else localStorage.removeItem(FILTERS_STORAGE_KEY);
-    } catch {}
-  }, [searchParams, authState]);
 
   // ==================================================================
   // Search input draft. The URL q is the committed value.
   // ==================================================================
 
-  const urlQ = searchParams.get('q') ?? '';
+  const urlQ = filterParams.get('q') ?? '';
 
   // Reset the draft when q changes externally (filter pill ×, back/forward,
   // pasted URL). Comparing against the last q seen keeps the reset
@@ -107,19 +309,19 @@ export function TransactionList() {
     setParam('q', value || null);
   };
 
-  const getMonthParam = () => searchParams.get('month');
-  const isAllMode = searchParams.get('month') === 'all';
+  const getMonthParam = () => filterParams.get('month');
+  const isAllMode = filterParams.get('month') === 'all';
   const getTypeParam = (): TransactionType[] => {
-    const p = searchParams.get('type');
+    const p = filterParams.get('type');
     return p ? (p.split(',').filter(Boolean) as TransactionType[]) : ['income', 'expense', 'transaction'];
   };
-  const getAccountParam = () => searchParams.get('account');
-  const getCatParam = () => searchParams.get('cat');
-  const getQParam = () => searchParams.get('q');
-  const getGroupParam = () => searchParams.get('group');
+  const getAccountParam = () => filterParams.get('account');
+  const getCatParam = () => filterParams.get('cat');
+  const getQParam = () => filterParams.get('q');
+  const getGroupParam = () => filterParams.get('group');
   const PAGE_SIZE = 50;
   const getPageParam = () => {
-    const p = searchParams.get('page');
+    const p = filterParams.get('page');
     return p ? Math.max(1, parseInt(p, 10)) : 1;
   };
 
@@ -138,13 +340,13 @@ export function TransactionList() {
 
   // Current month displayed in the month selector
   const displayMonthYear = useMemo(() => {
-    const monthParam = searchParams.get('month');
+    const monthParam = filterParams.get('month');
     if (monthParam && monthParam !== 'all') {
       const [yearStr, monthStr] = monthParam.split('-');
       return { year: parseInt(yearStr, 10), month: parseInt(monthStr, 10) - 1 };
     }
     return getCurrentMonthYear();
-  }, [searchParams]);
+  }, [filterParams]);
 
   // Unique categories derived from transactions (for desktop category filter)
   const uniqueCategories = useMemo(
@@ -190,7 +392,7 @@ export function TransactionList() {
     let result = ctx.transactions;
 
     // Month filter
-    const monthParam = searchParams.get('month');
+    const monthParam = filterParams.get('month');
     if (monthParam === 'all') {
       // no month filter — show all
     } else if (monthParam) {
@@ -211,14 +413,14 @@ export function TransactionList() {
     }
 
     // Type filter
-    const typeRaw = searchParams.get('type');
+    const typeRaw = filterParams.get('type');
     const selectedTypes = typeRaw ? (typeRaw.split(',').filter(Boolean) as TransactionType[]) : ['income', 'expense', 'transaction'];
     if (selectedTypes.length < 3) {
       result = result.filter(tx => selectedTypes.includes(tx.type));
     }
 
     // Account filter
-    const accountParam = searchParams.get('account');
+    const accountParam = filterParams.get('account');
     if (accountParam) {
       const selectedAccounts = accountParam.split(',');
       result = result.filter(tx =>
@@ -228,13 +430,13 @@ export function TransactionList() {
     }
 
     // Category filter
-    const catParam = searchParams.get('cat');
+    const catParam = filterParams.get('cat');
     if (catParam) {
       result = result.filter(tx => tx.category === catParam);
     }
 
     // Search text filter
-    const qParam = searchParams.get('q');
+    const qParam = filterParams.get('q');
     if (qParam) {
       const lower = qParam.toLowerCase();
       result = result.filter(tx =>
@@ -245,19 +447,19 @@ export function TransactionList() {
 
     // Sort by date descending (newest first)
     return [...result].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [ctx.transactions, searchParams]);
+  }, [ctx.transactions, filterParams]);
 
   // ==================================================================
   // Pagination & grouping state
   // ==================================================================
 
   const hasActiveFilters = useMemo(() => {
-    const typeRaw = searchParams.get('type');
+    const typeRaw = filterParams.get('type');
     const selectedTypes = typeRaw ? (typeRaw.split(',').filter(Boolean) as TransactionType[]) : ['income', 'expense', 'transaction'];
-    const monthParam = searchParams.get('month');
+    const monthParam = filterParams.get('month');
     const monthActive = monthParam !== null && monthParam !== 'all';
-    return monthActive || !!searchParams.get('account') || !!searchParams.get('cat') || !!searchParams.get('q') || selectedTypes.length < 3;
-  }, [searchParams]);
+    return monthActive || !!filterParams.get('account') || !!filterParams.get('cat') || !!filterParams.get('q') || selectedTypes.length < 3;
+  }, [filterParams]);
 
   const totalPages = hasActiveFilters ? 1 : Math.max(1, Math.ceil(filteredTransactions.length / PAGE_SIZE));
   const page = hasActiveFilters ? 1 : Math.min(getPageParam(), totalPages);
@@ -269,7 +471,7 @@ export function TransactionList() {
   }, [filteredTransactions, hasActiveFilters, page]);
 
   const grouped = useMemo(() => {
-    if (!searchParams.get('group')) return null;
+    if (!filterParams.get('group')) return null;
     const groups: { date: string; displayDate: string; txs: Transaction[] }[] = [];
     let currentDate = '';
     let currentGroup: Transaction[] = [];
@@ -288,16 +490,18 @@ export function TransactionList() {
       groups.push({ date: currentDate, displayDate: new Date(currentDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }), txs: currentGroup });
     }
     return groups;
-  }, [pageTransactions, searchParams]);
+  }, [pageTransactions, filterParams]);
 
-  // Reset page param when filters change
+  // Reset page param when filters change. The canonical projection is the URL
+  // the controls and writers use, so a stale router query cannot drop a
+  // pending restore's published URL or keep a page param it never carried.
   useEffect(() => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(filterParams);
     if (params.has('page') && hasActiveFilters) {
       params.delete('page');
       window.history.replaceState(null, '', `?${params.toString()}`);
     }
-  }, [hasActiveFilters, searchParams]);
+  }, [hasActiveFilters, filterParams]);
 
   // Summary stats for desktop metric cards (must be after filteredTransactions)
   const summaryStats = useMemo(() => {

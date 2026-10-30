@@ -132,7 +132,7 @@ Used by the auth lifecycle in TransactionContext (step 4). Separate from the mig
 
 ---
 
-Saved transaction filters are also removed synchronously in `AuthContext` before publishing an unauthenticated session or a different user (including a persisted `lastUserId` mismatch on reload). Same-user session refresh preserves them.
+For saved transaction filter isolation, see the [filter persistence contract](transaction-filters.md#2-behavior-contract).
 
 ## 4. Auth lifecycle (`TransactionContext.tsx`)
 

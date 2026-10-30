@@ -1,10 +1,10 @@
 project: "mobile-expense-tracker"
-version: "0.17.6"
+version: "0.17.8"
 phase: "build"
 current_epic: "auth-and-security"
-current_story: "oauth-and-app-lock"
-last_action: "2026-10-30 — Transactions Add lag fix; see specs/transaction-editing.md for the state boundary and regression contract."
-story_end: "2026-09-18T00:00:00Z"
+current_story: "transaction-filter-persistence"
+last_action: "2026-10-30 — Transaction filter persistence; see specs/transaction-filters.md for restore, auth, and tab-navigation coverage."
+story_end: "2026-10-30T00:00:00Z"
 stories:
   - "stock-schema"
   - "stock-crud"
@@ -15,10 +15,11 @@ stories:
   - "stock-supabase-sync"
   - "dividend-expansion"
   - "oauth-and-app-lock"
+  - "transaction-filter-persistence"
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
-  tests_passing: 116
+  tests_passing: 147
   eslint_errors: 0
   eslint_warnings: 3
   ts_errors: 0
