@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.18.1"
+version: "0.18.2"
 phase: "build"
 current_epic: "auth-and-security"
 current_story: "oauth-and-app-lock"
-last_action: "2026-10-30 — CSV import now commits a durable replacement snapshot per user, applies it through idempotent Supabase RPCs with a generation fence, routes managed writes through apply_managed_write, reconciles newer remote snapshots with pagination, adopts local-only markers on sign-in, and replaces automatic orphan guessing with explicit Missing Account Review. Fenced managed pushes keep their queue entry and surface a conflict marker; local marker adoption and authenticated import cleanup are atomic; conflict preparation re-reads the marker and derives the next generation in its transaction. DB v14, migration 007 deploy prerequisite, version 0.18.1."
+last_action: "2026-10-30 — The legacy-ID to UUID migration now deletes each old account and category primary key before writing its replacement inside one readwrite transaction, so the unique account-name index no longer aborts the migration, and the same transaction remaps transaction account references, balance snapshot id/accountId, queue recordId and payload identity fields, and every persisted replacement-marker snapshot. The completion guard is versioned: uuid_migration_v2_done is written only after commit, and the legacy uuid_migration_done key is ignored so existing installs run the corrected migration once without repeated DB scans. Covered by idb-import-uuid-snapshot.test.ts: a CSV import that retains a legacy account ID, a legacy category with multi-user marker snapshots, a preexisting legacy flag that must not suppress the rerun, and a forced failure that must leave the versioned flag unset. DB v14, migration 007 deploy prerequisite, version 0.18.2."
 story_end: "2026-10-30T00:00:00Z"
 stories:
   - "stock-schema"
@@ -19,7 +19,7 @@ stories:
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
-  tests_passing: "183/183 unit tests in 18 suites; legacy TransactionList suite excluded due to the existing filter mock/source mismatch (full run: one suite failure)"
+  tests_passing: "188/188 unit tests in 20 suites (excluding E2E and known TransactionList filter mock/source mismatch; unfiltered run previously had one suite failure); orphan-review deep-link E2E 1/1 Chromium"
   eslint_errors: 0
   eslint_warnings: 5 # pre-existing warnings
   ts_errors: 0

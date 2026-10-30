@@ -16,6 +16,7 @@ import {
   nextDatasetGeneration,
   retainExistingAccountIds,
   type DatasetReplacementMarker,
+  type DatasetSnapshot,
 } from './dataset-replacement';
 import {
   affectedTransactionIds,
@@ -134,18 +135,29 @@ export interface ExpenseTrackerDB {
   };
 }
 
-/** Singleton database instance */
-let dbInstance: IDBPDatabase<ExpenseTrackerDB> | null = null;
+/**
+ * Single in-flight open. Every caller awaits this promise, so none of them can
+ * use the database before the persisted dataset generation is hydrated.
+ */
+let dbPromise: Promise<IDBPDatabase<ExpenseTrackerDB>> | null = null;
 
 let activeDatasetGeneration = 0;
-let generationInitialized = false;
 
 /**
  * Open (or create) the IndexedDB database and initialize stores/indexes.
+ * Resolves only after dataset markers have hydrated the active generation.
  */
 export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
-  if (dbInstance) return dbInstance;
+  if (!dbPromise) {
+    dbPromise = openHydratedDB().catch((error: unknown) => {
+      dbPromise = null;
+      throw error;
+    });
+  }
+  return dbPromise;
+}
 
+async function openHydratedDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
   const db = await openDB<ExpenseTrackerDB>(DB_NAME, DB_VERSION, {
     // ponytail: no automated migration test. If a user reports data loss on upgrade,
     // write a test that opens an old-version DB fixture, runs the upgrade path,
@@ -395,16 +407,17 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
 
     },
   });
-  dbInstance = db;
 
-  if (!generationInitialized) {
-    generationInitialized = true;
+  try {
     const markers = await db.getAll(STORES.DATASET_MARKERS);
     for (const marker of markers) {
       if (marker.generation > activeDatasetGeneration) {
         activeDatasetGeneration = marker.generation;
       }
     }
+  } catch (error) {
+    db.close();
+    throw error;
   }
 
   return db;
@@ -1444,105 +1457,209 @@ function isUuid(s: string): boolean {
   return UUID_RE.test(s);
 }
 
+function remapAccountRef(id: string | null, acctMap: Map<string, string>): string | null {
+  if (!id) return null;
+  return acctMap.get(id) ?? id;
+}
+
+/**
+ * Rewrite only the identity fields of a replacement snapshot. Everything else
+ * in the snapshot stays byte-for-byte what the import committed.
+ */
+function remapSnapshot(
+  snapshot: DatasetSnapshot,
+  acctMap: Map<string, string>,
+  catMap: Map<string, string>
+): DatasetSnapshot {
+  return {
+    ...snapshot,
+    accounts: snapshot.accounts.map((account) => {
+      const id = acctMap.get(account.id);
+      return id ? { ...account, id } : account;
+    }),
+    categories: snapshot.categories.map((category) => {
+      const id = catMap.get(category.id);
+      return id ? { ...category, id } : category;
+    }),
+    transactions: snapshot.transactions.map((transaction) => ({
+      ...transaction,
+      fromAccount: remapAccountRef(transaction.fromAccount, acctMap),
+      toAccount: remapAccountRef(transaction.toAccount, acctMap),
+    })),
+  };
+}
+
+// Bumped from `uuid_migration_done`: installations that ran the earlier
+// migration still run this corrected one once, then this key suppresses scans.
+const UUID_MIGRATION_DONE_KEY = 'uuid_migration_v2_done';
+
 /**
  * One-shot migration: find all accounts and categories whose IDs are not
  * valid UUIDs (e.g. from an old CSV import that used slugId()), generate
- * new UUIDs for them, and update every cross-reference:
+ * new UUIDs for them, and rewrite every persisted reference in the same
+ * readwrite transaction:
  *
- *   - accounts store (new ID)
- *   - categories store (new ID)
+ *   - accounts store (old key removed, new key written)
+ *   - categories store (old key removed, new key written)
  *   - transactions store (fromAccount / toAccount)
- *   - sync queue (recordId + payload fields)
+ *   - balanceSnapshots store (id / accountId, one snapshot per account)
+ *   - sync queue (recordId + payload id / accountId / account refs)
+ *   - datasetMarkers snapshots (account IDs, category IDs, transaction refs)
  *
- * Safe to call repeatedly — only touches records with non-UUID IDs.
+ * Deleting the old primary key before the new one is written is required:
+ * `accounts.name` is a unique index, so leaving the old record behind makes
+ * the insert fail with a ConstraintError.
+ *
+ * The completion flag is written only after the transaction commits. A failed
+ * transaction rolls back every store, so a retry starts from a clean state.
+ *
+ * The flag is versioned: `uuid_migration_v2_done` guards this corrected
+ * migration. The earlier `uuid_migration_done` key is deliberately ignored,
+ * so an installation that ran the first migration still runs this one once
+ * instead of trusting a marker from code that left snapshot references stale.
  */
 export async function ensureUuids(): Promise<void> {
-  const db = await getDB();
-
-  // ponytail: one-shot migration guard — skip if already completed
+  // ponytail: one-shot guard for this migration version — skip once it committed
   try {
-    if (localStorage.getItem('uuid_migration_done')) return;
+    if (localStorage.getItem(UUID_MIGRATION_DONE_KEY)) return;
   } catch { /* localStorage unavailable */ }
 
-  // ── 1. Accounts ──
-  const accounts = await db.getAll(STORES.ACCOUNTS);
-  const acctMap = new Map<string, string>(); // old slug → new UUID
-  for (const a of accounts) {
-    if (!isUuid(a.id)) {
-      const newId = crypto.randomUUID();
-      acctMap.set(a.id, newId);
-      a.id = newId;
-      await db.put(STORES.ACCOUNTS, a);
-    }
+  const db = await getDB();
+  const [existingAccounts, existingCategories] = await Promise.all([
+    db.getAll(STORES.ACCOUNTS),
+    db.getAll(STORES.CATEGORIES),
+  ]);
+
+  // Cheap pre-check so an already-migrated database does not open a six-store
+  // readwrite transaction on every sync cycle.
+  if (
+    !existingAccounts.some((account) => !isUuid(account.id)) &&
+    !existingCategories.some((category) => !isUuid(category.id))
+  ) {
+    return;
   }
 
-  // ── 2. Categories ──
-  const categories = await db.getAll(STORES.CATEGORIES);
-  const catMap = new Map<string, string>(); // old slug → new UUID
-  for (const c of categories) {
-    if (!isUuid(c.id)) {
-      const newId = crypto.randomUUID();
-      catMap.set(c.id, newId);
-      c.id = newId;
-      await db.put(STORES.CATEGORIES, c);
-    }
-  }
+  const tx = db.transaction(
+    [
+      STORES.ACCOUNTS,
+      STORES.CATEGORIES,
+      STORES.TRANSACTIONS,
+      STORES.BALANCE_SNAPSHOTS,
+      STORES.SYNC_QUEUE,
+      STORES.DATASET_MARKERS,
+    ],
+    'readwrite'
+  );
 
-  if (acctMap.size === 0 && catMap.size === 0) return; // nothing to migrate
+  // Observe the abort from the start so a failed write never surfaces as an
+  // unhandled rejection; the caller still receives the write error.
+  const settlement = tx.done.catch(() => undefined);
 
-  // ── 3. Transactions — remap fromAccount / toAccount ──
-  const transactions = await db.getAll(STORES.TRANSACTIONS);
-  for (const tx of transactions) {
-    let changed = false;
-    if (tx.fromAccount && acctMap.has(tx.fromAccount)) {
-      tx.fromAccount = acctMap.get(tx.fromAccount)!;
-      changed = true;
-    }
-    if (tx.toAccount && acctMap.has(tx.toAccount)) {
-      tx.toAccount = acctMap.get(tx.toAccount)!;
-      changed = true;
-    }
-    if (changed) {
-      await db.put(STORES.TRANSACTIONS, tx);
-    }
-  }
+  try {
+    const acctStore = tx.objectStore(STORES.ACCOUNTS);
+    const catStore = tx.objectStore(STORES.CATEGORIES);
 
-  // ── 4. Sync queue — remap IDs in recordId and payload ──
-  const entries = await db.getAll(STORES.SYNC_QUEUE);
-  for (const entry of entries) {
-    let changed = false;
+    const accounts = await acctStore.getAll();
+    const categories = await catStore.getAll();
 
-    // Remap recordId
-    if (acctMap.has(entry.recordId)) {
-      entry.recordId = acctMap.get(entry.recordId)!;
-      changed = true;
-    } else if (catMap.has(entry.recordId)) {
-      entry.recordId = catMap.get(entry.recordId)!;
-      changed = true;
+    const acctMap = new Map<string, string>(); // old slug → new UUID
+    for (const account of accounts) {
+      if (!isUuid(account.id)) acctMap.set(account.id, crypto.randomUUID());
+    }
+    const catMap = new Map<string, string>(); // old slug → new UUID
+    for (const category of categories) {
+      if (!isUuid(category.id)) catMap.set(category.id, crypto.randomUUID());
     }
 
-    // Remap payload fields
-    if (entry.payload) {
-      const p = entry.payload as Record<string, unknown>;
-      if (typeof p.id === 'string') {
-        if (acctMap.has(p.id)) { p.id = acctMap.get(p.id)!; changed = true; }
-        else if (catMap.has(p.id)) { p.id = catMap.get(p.id)!; changed = true; }
+    if (acctMap.size === 0 && catMap.size === 0) {
+      await tx.done;
+      return;
+    }
+
+    for (const account of accounts) {
+      const id = acctMap.get(account.id);
+      if (!id) continue;
+      await acctStore.delete(account.id);
+      await acctStore.put({ ...account, id });
+    }
+
+    for (const category of categories) {
+      const id = catMap.get(category.id);
+      if (!id) continue;
+      await catStore.delete(category.id);
+      await catStore.put({ ...category, id });
+    }
+
+    const txStore = tx.objectStore(STORES.TRANSACTIONS);
+    for (const transaction of await txStore.getAll()) {
+      const fromAccount = remapAccountRef(transaction.fromAccount, acctMap);
+      const toAccount = remapAccountRef(transaction.toAccount, acctMap);
+      if (fromAccount !== transaction.fromAccount || toAccount !== transaction.toAccount) {
+        await txStore.put({ ...transaction, fromAccount, toAccount });
       }
-      if (typeof p.fromAccount === 'string' && acctMap.has(p.fromAccount)) {
-        p.fromAccount = acctMap.get(p.fromAccount)!;
+    }
+
+    const snapshotStore = tx.objectStore(STORES.BALANCE_SNAPSHOTS);
+    for (const snapshot of await snapshotStore.getAll()) {
+      const accountId = acctMap.get(snapshot.accountId) ?? acctMap.get(snapshot.id);
+      if (!accountId) continue;
+      await snapshotStore.delete(snapshot.id);
+      if (snapshot.accountId !== snapshot.id) await snapshotStore.delete(snapshot.accountId);
+      await snapshotStore.put({ ...snapshot, id: accountId, accountId });
+    }
+
+    const queueStore = tx.objectStore(STORES.SYNC_QUEUE);
+    for (const entry of await queueStore.getAll()) {
+      let changed = false;
+      const remapped = { ...entry };
+
+      if (acctMap.has(remapped.recordId)) {
+        remapped.recordId = acctMap.get(remapped.recordId)!;
+        changed = true;
+      } else if (catMap.has(remapped.recordId)) {
+        remapped.recordId = catMap.get(remapped.recordId)!;
         changed = true;
       }
-      if (typeof p.toAccount === 'string' && acctMap.has(p.toAccount)) {
-        p.toAccount = acctMap.get(p.toAccount)!;
-        changed = true;
+
+      if (remapped.payload) {
+        const p = remapped.payload as Record<string, unknown>;
+        if (typeof p.id === 'string') {
+          if (acctMap.has(p.id)) { p.id = acctMap.get(p.id)!; changed = true; }
+          else if (catMap.has(p.id)) { p.id = catMap.get(p.id)!; changed = true; }
+        }
+        if (typeof p.accountId === 'string' && acctMap.has(p.accountId)) {
+          p.accountId = acctMap.get(p.accountId)!;
+          changed = true;
+        }
+        if (typeof p.fromAccount === 'string') {
+          const fromAccount = remapAccountRef(p.fromAccount, acctMap);
+          if (fromAccount !== p.fromAccount) { p.fromAccount = fromAccount; changed = true; }
+        }
+        if (typeof p.toAccount === 'string') {
+          const toAccount = remapAccountRef(p.toAccount, acctMap);
+          if (toAccount !== p.toAccount) { p.toAccount = toAccount; changed = true; }
+        }
       }
+
+      if (changed) await queueStore.put(remapped);
     }
 
-    if (changed) {
-      await db.put(STORES.SYNC_QUEUE, entry);
+    const markerStore = tx.objectStore(STORES.DATASET_MARKERS);
+    for (const marker of await markerStore.getAll()) {
+      if (!marker.snapshot) continue;
+      await markerStore.put({
+        ...marker,
+        snapshot: remapSnapshot(marker.snapshot, acctMap, catMap),
+      });
     }
+
+    await tx.done;
+  } catch (error) {
+    await settlement;
+    throw error;
   }
-  try { localStorage.setItem('uuid_migration_done', '1'); } catch { /* ignore */ }
+
+  try { localStorage.setItem(UUID_MIGRATION_DONE_KEY, '1'); } catch { /* ignore */ }
 }
 
 /**

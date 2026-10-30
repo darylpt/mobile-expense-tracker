@@ -234,9 +234,18 @@ async function processSyncQueue(generation: number): Promise<void> {
 
 ### ensureUuids()
 
-Called at the start of `backgroundSync()`. Scans all stores for legacy slug IDs
-(non-UUID strings) and replaces them with `crypto.randomUUID()`. This smooths
-the migration from the old slug-based ID scheme.
+Called at the start of `backgroundSync()`. Scans every account and category for
+legacy slug IDs (non-UUID strings) and replaces them with
+`crypto.randomUUID()`. The old primary key is deleted before the new one is
+written, so the unique account-name index never holds both rows. One
+`readwrite` transaction covers accounts, categories, transactions,
+balanceSnapshots, syncQueue, and datasetMarkers: transaction refs, a balance
+snapshot's `id`/`accountId`, queue identity fields, and every persisted
+replacement-marker snapshot follow the new IDs. The completion flag is
+versioned. `uuid_migration_v2_done` is set only after the transaction commits.
+The earlier `uuid_migration_done` key is ignored, so an installation that
+completed the first migration still runs this corrected one once; after that
+commit the versioned flag suppresses the scan on later syncs.
 
 ### resyncAll() recovery
 

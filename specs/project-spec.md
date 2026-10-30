@@ -165,7 +165,7 @@ $$;
 5. Conflict resolution: Last-Writer-Wins by `updated_at` (LWW trigger on Supabase)
 6. Soft-delete: "Delete" sets `deleted_at`, never hard-deletes from REST API
 7. `resyncAll()` recovery: clears queue, re-enqueues in dependency order
-8. `ensureUuids()`: one-shot migration from legacy slug IDs to `crypto.randomUUID()`
+8. `ensureUuids()`: one-shot migration from legacy slug IDs to `crypto.randomUUID()`. One readwrite transaction deletes the old account/category keys, writes the new ones, and remaps transaction refs, balance snapshot `id`/`accountId`, queue identity fields, and every replacement-marker snapshot; the versioned `uuid_migration_v2_done` flag is set only after commit, and the legacy `uuid_migration_done` key is ignored so a prior migration never suppresses this corrected run
 9. `syncInFlight` guard prevents concurrent sync cycles
 10. Durable `datasetMarkers` snapshot gates managed push/pull until `replace_user_dataset` applies it
 11. Managed single-record writes use `apply_managed_write`; direct managed INSERT/UPDATE/DELETE policies are removed
@@ -174,6 +174,7 @@ $$;
 14. A managed push fenced by `conflict` keeps its queue entry, stops the cycle, and records a conflict marker instead of retrying or pulling
 15. Conflict resolution re-reads and validates the marker inside its snapshot transaction and derives the next generation there
 16. A pending `local` marker is adopted under the authenticated user ID in one `datasetMarkers` transaction; an authenticated import deletes the obsolete local marker
+17. On first open, `getDB()` shares one initialization promise and resolves it only after `datasetMarkers` hydrates the active generation; a failed open or hydration clears the promise so a later call retries without exposing a partially initialized singleton
 
 ---
 
@@ -241,7 +242,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 
 - **Carry Over rows** → account starting balances (one-time, first month only)
 - **Regular rows** → transactions (type mapped from CSV Type column)
-- **Account creation** from unique names; exactly one normalized-name match retains the existing ID, otherwise a new UUID is generated. Transaction references are remapped
+- **Account creation** from unique names; an unambiguous normalized-name match on both sides retains the existing ID, otherwise a new UUID is generated. Transaction references are remapped
 - **Category creation** with auto-detected type from CSV Type values
 - **Failure reporting** shows the caught error name and message
 
@@ -252,6 +253,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 - Status distinguishes local pending, cloud applied, failed, and conflicted replacement
 - A managed push fenced by `conflict` preserves its queue entry and local rows in a conflict marker instead of retry-dropping or pulling
 - An older-generation queue entry is a post-snapshot edit from a tab with a stale in-memory generation, so it also becomes a conflict marker instead of being dropped
+- Writes wait until the persisted generation is loaded. The first `getDB()` call shares one initialization promise across all callers and resolves only after marker hydration, so a queue entry started during that open carries the persisted generation rather than `0`
 - Reconciliation and replacement RPC outcomes commit only while the durable marker identity is unchanged; a concurrent import always wins
 - Re-importing the same CSV converges to one latest snapshot; retrying the same snapshot is idempotent
 - Missing references stay inspectable with exact IDs; repair requires an explicit target account and deletes nothing
@@ -291,6 +293,8 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `src/lib/aggregations.test.ts` | Account balance computation, income/expense breakdowns |
 | `src/lib/idb.test.ts` | IDB CRUD operations, sync queue, migrations |
 | `src/lib/idb-import.test.ts` | Atomic replacement, marker snapshot, obsolete local-marker removal, re-import convergence, failure rollback, explicit relinking |
+| `src/lib/idb-first-open-generation.test.ts` | First-open hydration barrier: a queue entry started during initialization carries the persisted generation |
+| `src/lib/idb-import-uuid-snapshot.test.ts` | UUID migration after an import: no duplicate account, local references and balance snapshot follow, every persisted marker snapshot is remapped, a preexisting `uuid_migration_done` key does not suppress the correctly versioned rerun, and a failed migration leaves `uuid_migration_v2_done` unset |
 | `src/lib/dataset-replacement.test.ts` | Account identity, ID retention, generation sequencing |
 | `src/lib/orphans.test.ts` | Missing-account grouping, safe labels, reference-only relinking |
 | `src/lib/sync.test.ts` | Replacement retry/idempotency, managed-write RPC, generation gate, fenced-push conflict retention, atomic local marker adoption, marker-transition-safe resolution, paginated reconciliation |
@@ -317,6 +321,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence |
 | `e2e/transaction-filter-persistence.spec.ts` | Filter selection, direct-URL selection/clearing, and tab restore against dev and the static export |
+| `e2e/settings-orphan-review-deeplink.spec.ts` | Orphan-review deep link hydration and scroll |
 
 Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 
@@ -341,7 +346,7 @@ Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 | Backup & Restore | ✅ JSON export/import, CSV export/import |
 | CSV Import | ✅ Google Sheets format, carry-over→starting balance, retained account IDs |
 | Dataset Replacement Sync | ✅ Durable marker, generation fence, managed-write RPC, idempotent replacement |
-| Missing Account Review | ✅ Exact missing IDs, explicit relinking, no guessing/deletion |
+| Missing Account Review | ✅ Exact missing IDs, explicit relinking, no guessing/deletion; `#orphan-review` deep link hydrates after mount and scrolls to the review |
 | Codebase Audit | ✅ 21 findings resolved |
 | Empty State / Onboarding | ✅ All pages show import guidance when empty |
 | Seed Data Removal | ✅ App starts clean |

@@ -47,17 +47,19 @@ export function isManagedStore(storeName: string): storeName is ManagedStore {
  * Deterministic account-name identity rule: Unicode NFKC, trim, collapse
  * internal whitespace to one space, lowercase.
  *
- * Matching only happens when exactly one existing account normalizes to the
- * imported name. Duplicate normalized names are ambiguous and never matched.
+ * Matching only happens when exactly one imported account and exactly one
+ * existing account share the normalized name. Duplicate normalized names on
+ * either side are ambiguous and never matched.
  */
 export function normalizeAccountName(name: string): string {
   return name.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 /**
- * Reuse existing local account IDs for imported accounts whose names match
- * exactly one existing account, then remap transaction account references to
- * those retained IDs. Unmatched accounts keep the parser-generated ID.
+ * Reuse existing local account IDs for imported accounts whose normalized
+ * names are unambiguous on both sides, then remap transaction account
+ * references to those retained IDs. Unmatched accounts keep the
+ * parser-generated ID.
  */
 export function retainExistingAccountIds(parsed: ParsedCsv, existingAccounts: Account[]): ParsedCsv {
   const accountsByNormalized = new Map<string, Account[]>();
@@ -68,10 +70,17 @@ export function retainExistingAccountIds(parsed: ParsedCsv, existingAccounts: Ac
     accountsByNormalized.set(key, matches);
   }
 
+  const parsedKeyCounts = new Map<string, number>();
+  for (const account of parsed.accounts) {
+    const key = normalizeAccountName(account.name);
+    parsedKeyCounts.set(key, (parsedKeyCounts.get(key) ?? 0) + 1);
+  }
+
   const oldToNewId = new Map<string, string>();
   const accounts = parsed.accounts.map((account) => {
-    const matches = accountsByNormalized.get(normalizeAccountName(account.name)) ?? [];
-    const retained = matches.length === 1 ? matches[0] : null;
+    const key = normalizeAccountName(account.name);
+    const matches = accountsByNormalized.get(key) ?? [];
+    const retained = parsedKeyCounts.get(key) === 1 && matches.length === 1 ? matches[0] : null;
     const id = retained?.id ?? account.id;
     oldToNewId.set(account.id, id);
     return retained ? { ...account, id, createdAt: retained.createdAt } : account;

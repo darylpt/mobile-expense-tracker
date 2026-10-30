@@ -79,15 +79,28 @@ export default function SettingsPage() {
     await Promise.all([refreshAccounts(), refreshCategories(), refreshTransactions()]);
   }, [refreshAccounts, refreshCategories, refreshTransactions]);
 
-  const openedOnOrphanReview =
-    typeof window !== 'undefined' && window.location.hash === '#orphan-review';
-
+  // Server and first client render must agree, so the hash is applied after mount.
   const [activeTab, setActiveTab] = useState<'accounts' | 'categories' | 'stocks' | 'preferences' | 'data' | 'applock'>(
-    openedOnOrphanReview ? 'data' : 'accounts'
+    'accounts'
   );
-  const [mobilePage, setMobilePage] = useState<string | null>(
-    openedOnOrphanReview ? 'data' : null
-  );
+  const [mobilePage, setMobilePage] = useState<string | null>(null);
+  const [pendingOrphanScroll, setPendingOrphanScroll] = useState(false);
+  const isLoading = accountsLoading || categoriesLoading || stocksLoading;
+
+  /* eslint-disable react-hooks/set-state-in-effect -- the fragment is external state read after hydration */
+  useEffect(() => {
+    if (window.location.hash !== '#orphan-review') return;
+    setActiveTab('data');
+    setMobilePage('data');
+    setPendingOrphanScroll(true);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingOrphanScroll || isLoading) return;
+    document.getElementById('orphan-review')?.scrollIntoView({ block: 'start' });
+    setPendingOrphanScroll(false);
+  }, [pendingOrphanScroll, isLoading]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // ── Mobile drill-down sub-page ──
   if (mobilePage) {
@@ -1674,7 +1687,7 @@ function OrphanReviewSection({
   return (
     <section
       id="orphan-review"
-      className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6"
+      className="scroll-mt-24 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6"
     >
       <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
         Missing Account Review

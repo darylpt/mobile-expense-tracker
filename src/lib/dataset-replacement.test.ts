@@ -125,6 +125,39 @@ describe('retainExistingAccountIds', () => {
     expect(result.transactions[0].fromAccount).toBe('parsed-cash');
   });
 
+  it('does not reuse one existing id for two parsed names that normalize alike', () => {
+    const result = retainExistingAccountIds(
+      parsed({
+        accounts: [
+          account({ id: 'parsed-cash', name: 'Cash', createdAt: 10, updatedAt: 10 }),
+          account({ id: 'parsed-cash-upper', name: 'CASH', createdAt: 10, updatedAt: 10 }),
+        ],
+        transactions: [
+          {
+            id: 'tx-1',
+            amount: 100,
+            date: '2026-01-05',
+            type: 'transaction',
+            category: 'Transfer',
+            fromAccount: 'parsed-cash',
+            toAccount: 'parsed-cash-upper',
+            description: 'Move money',
+            createdAt: 10,
+            updatedAt: 10,
+          },
+        ],
+      }),
+      [account({ id: 'existing-cash', name: ' cash ' })]
+    );
+
+    const ids = result.accounts.map((a) => a.id);
+    expect(ids).toEqual(['parsed-cash', 'parsed-cash-upper']);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).not.toContain('existing-cash');
+    expect(result.transactions[0].fromAccount).toBe('parsed-cash');
+    expect(result.transactions[0].toAccount).toBe('parsed-cash-upper');
+  });
+
   it('leaves unmatched accounts with their parser-generated ids', () => {
     const result = retainExistingAccountIds(parsed(), []);
     expect(result.accounts.map((a) => a.id)).toEqual(['parsed-cash', 'parsed-bank']);

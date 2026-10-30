@@ -102,7 +102,7 @@ The per-row transaction type comes from the CSV's `Type` column directly, not fr
 
 1. Collect all unique account names from `From Account` and `To Account` columns (excluding Carry Over — those only reference one account)
 2. Match each name to an existing local account using the deterministic normalized-name rule: Unicode NFKC, trim, collapse internal whitespace to one space, lowercase
-3. If exactly one existing account matches, the imported account **keeps that account's ID**. Duplicate normalized names are ambiguous and never match
+3. Retain an existing ID only for an unambiguous match on both sides: exactly one imported account and exactly one existing account share the normalized name. Duplicate normalized names on either side are ambiguous and never match — including two imported names like `Cash` and `CASH`, which keep their distinct parser-generated IDs so transaction references stay distinct
 4. Otherwise generate a new UUID for the account
 5. For Carry Over accounts: set `startingBalance` from the Carry Over row amount
 6. For all other accounts: set `startingBalance: 0`
@@ -192,7 +192,7 @@ interface CsvError {
 ### Import flow (`idb.ts` — `importFromCsv`)
 
 1. Parse the CSV and read existing accounts inside one `readwrite` transaction over the six managed stores, `syncQueue`, and `datasetMarkers`
-2. Retain IDs for accounts with exactly one normalized-name match and remap transaction references
+2. Retain IDs only for accounts whose normalized name is unambiguous on both sides, then remap transaction references
 3. Clear the six managed stores and write the snapshot
 4. Write the durable marker with a new snapshot UUID and the next generation, status `pending`
 5. Delete managed queue entries in the same transaction
@@ -200,6 +200,16 @@ interface CsvError {
 7. Commit, activate the pending generation, refresh visible context, then attempt cloud replacement
 
 A failure at any step aborts the transaction, leaving the previous data and marker intact.
+
+### First-open generation hydration
+
+`getDB()` keeps one initialization promise per module instance and resolves it only after `datasetMarkers` hydrates the active generation. Every concurrent caller awaits that same promise, so a write enqueued during the first open is stamped with the persisted generation instead of `0`. A failed open or hydration closes the connection and clears the promise, so a later call retries with no partially initialized singleton left behind. The sync queue enqueue paths read the active generation only after `getDB()` resolves, so no entry is written while hydration is pending.
+
+### UUID identity migration
+
+`ensureUuids()` runs at the start of `backgroundSync()`. It collects every account and category whose primary key is not a UUID, generates replacements with `crypto.randomUUID()`, and applies the remap in one `readwrite` transaction over `accounts`, `categories`, `transactions`, `balanceSnapshots`, `syncQueue`, and `datasetMarkers`. Each old record is deleted before the new key is written, so the unique `accounts.name` index never holds the old and new rows at once. The same transaction rewrites transaction `fromAccount`/`toAccount`, a balance snapshot's `id`/`accountId`, queue `recordId` and payload identity fields, and every persisted replacement-marker snapshot (account IDs, category IDs, and transaction account references). Snapshot fields outside those identities keep their committed values. The completion flag is versioned. `uuid_migration_v2_done` is set only after the transaction commits, and an abort rolls back every store, so the next sync retries from a clean state. The earlier `uuid_migration_done` key is ignored, so an installation that completed the first migration still runs this corrected one on its next sync, then skips the scan once the versioned flag is written.
+
+`src/lib/idb-import-uuid-snapshot.test.ts` covers the path: an import that retains a legacy account ID migrates without leaving a duplicate account, the local transaction and balance snapshot point at the migrated ID, and the persisted marker snapshot agrees with local state. A second case migrates a legacy category ID and remaps markers for both the local owner and an authenticated user. A third case sets only the legacy `uuid_migration_done` key and asserts the corrected migration still runs and writes `uuid_migration_v2_done`. A fourth case forces UUID generation to fail and asserts the versioned flag is absent afterwards.
 
 ### Marker lifecycle and status
 
@@ -215,6 +225,8 @@ Settings distinguishes saved-locally-pending, cloud-applied, failed, and conflic
 ### Missing account review
 
 The `Deleted accounts` catch-all keeps totals correct. Missing Account Review lists each missing ID with its transactions and requires an explicit existing target account. Target existence, the reviewed transaction ID set, and self-transfer validity are checked inside the same readwrite transaction before any write. A changed set is rejected and refreshed. Transfers that would end up with the same account on both sides are rejected and must be edited individually. Only matching from/to references change, and nothing is deleted or guessed.
+
+Settings exposes the review at `/settings#orphan-review`. The first client render uses the same `accounts`/hub state as the server, then an effect applies the fragment after mount, so hydration never sees two different trees. Once the store loading placeholders clear and the `#orphan-review` section exists, a second effect scrolls it into view with `scroll-mt-24` keeping the heading clear of the sticky header. `e2e/settings-orphan-review-deeplink.spec.ts` covers the direct navigation: the section is visible and in the viewport, the page scrolled, and no hydration error reached the console.
 
 ### Empty-state handling
 
@@ -256,7 +268,7 @@ The app **should still render** — just show the empty state instead of tables/
 2. A crash or write failure during import leaves the previous stores and marker intact
 3. Re-importing the same CSV produces one latest local snapshot and one latest cloud snapshot after sync
 4. Offline import commits locally and the marker remains actionable when online
-5. Exactly one normalized-name account match retains the account ID and remaps transaction references
+5. A normalized name shared by exactly one imported account and exactly one existing account retains the existing account ID and remaps transaction references; duplicate normalized names in the import keep their distinct parser-generated IDs with transaction references unchanged
 6. The UI refreshes transactions/accounts/categories immediately after the local commit
 7. Status distinguishes local pending, cloud applied, failed, and conflicted replacement
 8. Cloud replacement is idempotent for the same snapshot and reports generation conflicts
@@ -264,6 +276,8 @@ The app **should still render** — just show the empty state instead of tables/
 10. Missing account references stay visible with exact IDs; explicit relinking changes only selected references and deletes nothing
 11. No automatic orphan guessing or duplicate deletion remains
 12. A failed import shows the underlying error name and message
+13. On the first open, every concurrent caller awaits one shared initialization that hydrates the persisted generation before any sync entry is stamped; a failed open or hydration leaves no usable singleton and a later call retries
+14. The UUID migration replaces account and category primary keys without leaving duplicate rows, and every persisted replacement-marker snapshot, transaction reference, balance snapshot, and queue entry follows the new IDs in the same transaction; the versioned completion flag `uuid_migration_v2_done` is written only after it commits, and a leftover `uuid_migration_done` key never suppresses this migration
 
 ## Key Decisions
 
@@ -273,9 +287,9 @@ The app **should still render** — just show the empty state instead of tables/
 | Per-user generation with managed-write RPC | Direct table writes cannot require a generation argument, so legacy clients could overwrite current rows. Revoking direct writes and routing managed changes through `apply_managed_write` makes the generation mandatory |
 | Snapshot UUID idempotency | A retry after a lost response applies once |
 | Generation conflict surfaced | Another device's replacement is a user decision |
-| Account IDs retained on unambiguous normalized match | Keeps references stable; ambiguity falls back to a new UUID |
+| Account IDs retained on an unambiguous normalized match on both sides | Keeps references stable; ambiguity on either side falls back to the parser-generated ID |
 | Explicit orphan relinking only | Guessing corrupts financial data |
-| `balance_snapshots` excluded | Outside the six-store scope; accounts are soft-deleted |
+| `balance_snapshots` excluded from import replacement | Outside the six-store scope; accounts are soft-deleted. The UUID identity migration still remaps a snapshot's `id`/`accountId` when its account key changes |
 
 ## Future (not building now)
 

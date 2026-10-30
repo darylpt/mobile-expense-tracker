@@ -83,6 +83,7 @@ e2e/                              # Playwright tests
 ├── quick-add-summary.spec.ts     # Quick Add → Summary sync
 ├── settings-delete-blocked.spec.ts # Delete-blocked-if-in-use
 ├── payout-calculator.spec.ts     # Payout calculator flows
+├── settings-orphan-review-deeplink.spec.ts # Deep-link hydration + scroll
 └── budget-target-persistence.spec.ts # Budget target reload persistence
 
 specs/                            # Feature specs (all done except Phase 2)
@@ -203,6 +204,7 @@ Config: `playwright.config.ts` — 6 projects (Chromium/Firefox/WebKit × deskto
 | `e2e/settings-delete-blocked.spec.ts` | Delete-blocked-if-in-use | Settings CRUD guard |
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows | Split mode, validation, save |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence | IDB round-trip |
+| `e2e/settings-orphan-review-deeplink.spec.ts` | `#orphan-review` deep link | Hydration safety, scroll to review |
 | `e2e/fixtures.ts` | Shared helpers | IDB clear, page navigation |
 
 **Run:** `npm run test:e2e`
