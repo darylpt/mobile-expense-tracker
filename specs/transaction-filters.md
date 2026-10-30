@@ -1,6 +1,6 @@
 # Spec: Transaction Filter Persistence
 
-**Status:** ✅ Done (v0.17.5, 2026-10-30)
+**Status:** ✅ Done (v0.17.6, 2026-10-30)
 **Scope:** Keep `/transactions` filter selections across tab navigation while preserving URL-driven filtering.
 
 ---
@@ -33,7 +33,7 @@ The list owns restore/save behavior, `src/lib/transaction-filters.ts` selects pe
 | `setParam` | Deletes the stored query when the last filter is removed, even if view parameters remain |
 | `clearFilters` | Deletes the stored query before navigating to plain `/transactions` |
 
-Restore uses `router.replace(..., { scroll: false })`, matching the existing filter navigation and keeping the back stack clean.
+Query-only filter updates, clearing, page normalization, and restore use Next.js-integrated `history.replaceState`, keeping the back stack clean without fetching static route payloads that can replay the original direct URL query.
 
 ## 4. Key decisions
 
@@ -41,7 +41,7 @@ Restore uses `router.replace(..., { scroll: false })`, matching the existing fil
 |---|---|
 | URL stays authoritative | Shareable links and explicit navigation must not be overridden by device state. |
 | Mirror filters only | Grouping (`group`), pagination (`page`), and unrelated parameters remain URL-only. |
-| Restore inside `TransactionList` | Keeps filter logic in one file; header links stay plain and route-agnostic. |
+| Restore inside `TransactionList` | Keeps filter logic in one file; Transactions tabs use plain document navigation so the static router cannot replay a previous direct query. |
 | Delete on clear, not on empty effect | A mount at plain `/transactions` must not erase the state it is about to restore; explicit clears own deletion. |
 
 ## 5. Files
@@ -49,7 +49,9 @@ Restore uses `router.replace(..., { scroll: false })`, matching the existing fil
 | File | Change |
 |---|---|
 | `src/components/summary/TransactionList.tsx` | localStorage mirror, mount restore, clear-on-empty behavior |
-| `specs/transaction-filters.md` | **New** — this spec |
+| `src/components/layout/Header.tsx` | Plain document navigation to Transactions on desktop and mobile |
+| `e2e/transaction-filter-persistence.spec.ts` | Production navigation regression tests |
+| `specs/transaction-filters.md` | This spec |
 | `specs/project-spec.md`, `specs/README.md` | Route description, decisions, index entry |
 
 ## 6. Verification
@@ -63,3 +65,5 @@ Browser smoke on `/transactions`:
 5. Click `Clear all`, leave the tab, return, and confirm default filters.
 
 Focused regression tests cover filter selection, authentication cleanup, the real list remount after PIN sign-out, blocked loading/unauthenticated persistence, and offline URL restore/precedence.
+
+Production-export regressions in `e2e/transaction-filter-persistence.spec.ts` cover direct-URL clearing, removing the last search pill, reload, and tab returns with view-only parameters excluded.

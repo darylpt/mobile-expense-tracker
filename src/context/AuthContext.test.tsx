@@ -34,6 +34,7 @@ jest.mock('@/components/forms/EditTransactionModal', () => ({ EditTransactionMod
 
 beforeEach(() => {
   localStorage.clear();
+  window.history.replaceState(null, '', '/transactions');
   mockReplace.mockClear();
   mockQuery = new URLSearchParams();
   mockPath = '/transactions';
@@ -97,6 +98,7 @@ test('PIN sign-out remount cannot recreate private filters or restore them for B
   mockReplace.mockClear();
   view.rerender(tree('b'));
   expect(mockReplace).not.toHaveBeenCalled();
+  expect(window.location.search).toBe('');
   expect(localStorage.getItem(FILTERS_STORAGE_KEY)).toBeNull();
 });
 
@@ -106,6 +108,7 @@ test.each(['loading', 'unauthenticated'] as const)('%s does not read or write th
   const tree = (key: string) => <AuthContext.Provider value={defaults as React.ContextType<typeof AuthContext>}><TransactionList key={key} /></AuthContext.Provider>;
   const view = render(tree('plain'));
   expect(mockReplace).not.toHaveBeenCalled();
+  expect(window.location.search).toBe('');
   mockQuery = new URLSearchParams('q=another');
   view.rerender(tree('explicit'));
   expect(localStorage.getItem(FILTERS_STORAGE_KEY)).toBe('q=private');
@@ -116,13 +119,13 @@ test('offline-disabled mode restores filters and keeps explicit URLs authoritati
   const tree = (key: string) => <AuthContext.Provider value={value}><TransactionList key={key} /></AuthContext.Provider>;
   localStorage.setItem(FILTERS_STORAGE_KEY, 'q=saved&page=3');
   const view = render(tree('plain'));
-  expect(mockReplace).toHaveBeenCalledWith('/transactions?q=saved', { scroll: false });
+  expect(window.location.search).toBe('?q=saved');
   mockQuery = new URLSearchParams('q=saved');
   view.rerender(tree('plain'));
   expect((screen.getAllByLabelText('Search transactions')[0] as HTMLInputElement).value).toBe('saved');
   mockQuery = new URLSearchParams('q=explicit&group=date&page=3');
   mockReplace.mockClear();
   view.rerender(tree('explicit'));
-  expect(mockReplace).toHaveBeenCalledWith('/transactions?q=explicit&group=date', { scroll: false });
+  expect(window.location.search).toBe('?q=explicit&group=date');
   expect(localStorage.getItem(FILTERS_STORAGE_KEY)).toBe('q=explicit');
 });

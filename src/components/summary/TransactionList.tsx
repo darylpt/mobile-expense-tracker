@@ -11,7 +11,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { useTransactionContext, formatAmount } from '@/context/TransactionContext';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { formatMonthYear, getPreviousMonthYear, getNextMonthYear, getCurrentMonthYear } from '@/lib/utils';
 import { Button } from '@/components/common/Button';
 import { EditTransactionModal } from '@/components/forms/EditTransactionModal';
@@ -25,7 +25,6 @@ export function TransactionList() {
   const ctx = useTransactionContext();
   const { hideAmounts } = ctx;
   const searchParams = useSearchParams();
-  const router = useRouter();
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
@@ -50,14 +49,14 @@ export function TransactionList() {
     if (!filterQuery(query)) {
       try { localStorage.removeItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
     }
-    router.replace(`/transactions?${query}`, { scroll: false });
+    window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname);
   };
 
   const removeParam = (name: string) => setParam(name, null);
 
   const clearFilters = () => {
     try { localStorage.removeItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
-    router.replace('/transactions', { scroll: false });
+    window.history.replaceState(null, '', window.location.pathname);
   };
 
   // ==================================================================
@@ -76,7 +75,7 @@ export function TransactionList() {
         try { saved = localStorage.getItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
         const filters = filterQuery(saved ?? '');
         if (filters) {
-          router.replace(`/transactions?${filters}`, { scroll: false });
+          window.history.replaceState(null, '', `?${filters}`);
           return;
         }
       }
@@ -86,7 +85,7 @@ export function TransactionList() {
       if (filters) localStorage.setItem(FILTERS_STORAGE_KEY, filters);
       else localStorage.removeItem(FILTERS_STORAGE_KEY);
     } catch {}
-  }, [searchParams, router, authState]);
+  }, [searchParams, authState]);
 
   // ==================================================================
   // Search input draft. The URL q is the committed value.
@@ -296,9 +295,9 @@ export function TransactionList() {
     const params = new URLSearchParams(searchParams.toString());
     if (params.has('page') && hasActiveFilters) {
       params.delete('page');
-      router.replace(`/transactions?${params.toString()}`, { scroll: false });
+      window.history.replaceState(null, '', `?${params.toString()}`);
     }
-  }, [hasActiveFilters, router, searchParams]);
+  }, [hasActiveFilters, searchParams]);
 
   // Summary stats for desktop metric cards (must be after filteredTransactions)
   const summaryStats = useMemo(() => {

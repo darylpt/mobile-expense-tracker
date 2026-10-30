@@ -7,7 +7,7 @@
 
 ## 1. What This Is
 
-A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.17.5**, actively used since June 2026.
+A **local-first personal finance PWA** that replaces a Google Sheets budget tracker. Data lives in IndexedDB on-device (works fully offline). Optional Supabase cloud sync for cross-device use. **v0.17.6**, actively used since June 2026.
 
 ---
 
@@ -419,3 +419,5 @@ Local Express API (`server/index.ts`) for AI assistant integration. See [`server
 ## 14. What's Left
 
 - **Dividend → expense tracker integration** — auto-create income transactions from dividend records (deferred — separate tracking layer for now)
+
+Transaction filter query updates use Next.js-integrated native history so production static exports clear direct-URL selections without replaying cached query state. Transactions tabs use document navigation to ensure plain entry restores only saved filters.
