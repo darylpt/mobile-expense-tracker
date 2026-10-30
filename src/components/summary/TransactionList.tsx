@@ -17,7 +17,7 @@ import { EditTransactionModal } from '@/components/forms/EditTransactionModal';
 import { AddTransactionButton } from '@/components/summary/AddTransactionButton';
 import type { Transaction, TransactionType } from '@/types';
 
-const FILTERS_STORAGE_KEY = 'transactions_filters';
+import { FILTERS_STORAGE_KEY, filterQuery } from '@/lib/transaction-filters';
 
 export function TransactionList() {
   const ctx = useTransactionContext();
@@ -45,7 +45,7 @@ export function TransactionList() {
       params.set(name, value);
     }
     const query = params.toString();
-    if (!query) {
+    if (!filterQuery(query)) {
       try { localStorage.removeItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
     }
     router.replace(`/transactions?${query}`, { scroll: false });
@@ -71,14 +71,18 @@ export function TransactionList() {
       if (!query) {
         let saved: string | null = null;
         try { saved = localStorage.getItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
-        if (saved) {
-          router.replace(`/transactions?${saved}`, { scroll: false });
+        const filters = filterQuery(saved ?? '');
+        if (filters) {
+          router.replace(`/transactions?${filters}`, { scroll: false });
           return;
         }
       }
     }
-    if (!query) return;
-    try { localStorage.setItem(FILTERS_STORAGE_KEY, query); } catch { /* ignore storage failures */ }
+    const filters = filterQuery(query);
+    try {
+      if (filters) localStorage.setItem(FILTERS_STORAGE_KEY, filters);
+      else localStorage.removeItem(FILTERS_STORAGE_KEY);
+    } catch {}
   }, [searchParams, router]);
 
   // ==================================================================

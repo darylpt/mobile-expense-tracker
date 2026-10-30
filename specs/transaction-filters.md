@@ -1,6 +1,6 @@
 # Spec: Transaction Filter Persistence
 
-**Status:** ✅ Done (v0.17.3, 2026-10-30)
+**Status:** ✅ Done (v0.17.4, 2026-10-30)
 **Scope:** Keep `/transactions` filter selections across tab navigation while preserving URL-driven filtering.
 
 ---
@@ -12,23 +12,24 @@ Filter state on `/transactions` lives in URL search params. The header tab links
 ## 2. Behavior contract
 
 1. Changing any filter updates the URL search params, as before.
-2. Every non-empty filter query is mirrored to `localStorage['transactions_filters']`.
+2. Only month, type, account, category (`cat`), and search (`q`) is mirrored to `localStorage['transactions_filters']`.
 3. Navigating to another tab and back to plain `/transactions` restores the mirrored query and the visible selection.
 4. A direct URL that already carries a query (`/transactions?month=2026-09&type=expense`) wins over the mirror and replaces it as the new saved state.
 5. `Clear all` / `Clear filters` deletes the mirror, so a later return starts from defaults.
 6. Removing the last remaining filter individually also deletes the mirror.
-7. Storage access is wrapped in `try`/`catch`; browsers that block storage fall back to URL-only behavior.
+7. Sign-out and user switches clear saved filters before the next identity can restore them; same-user reload retains filters.
+8. Storage access is wrapped in `try`/`catch`; browsers that block storage fall back to URL-only behavior.
 
 ## 3. Implementation
 
-All behavior lives in `src/components/summary/TransactionList.tsx`.
+The list owns restore/save behavior, `src/lib/transaction-filters.ts` selects persistable parameters, and `AuthContext` clears the mirror before publishing sign-out or a changed identity.
 
 | Piece | Role |
 |---|---|
 | `FILTERS_STORAGE_KEY = 'transactions_filters'` | localStorage key, alongside existing `tab_prefs` / `last_sync_time` keys |
 | `filtersInitialized` ref | Runs restore-on-mount once, so React StrictMode's double effect cannot drop a pending restore |
-| Persistence effect | Reads `searchParams.toString()`; restores the stored query when the mount URL is empty, otherwise stores the current query |
-| `setParam` | Deletes the stored query when the last param is removed |
+| Persistence effect | Allowlist applied to both saved and restored queries; explicit URL query remains authoritative, even with only view parameters |
+| `setParam` | Deletes the stored query when the last filter is removed, even if view parameters remain |
 | `clearFilters` | Deletes the stored query before navigating to plain `/transactions` |
 
 Restore uses `router.replace(..., { scroll: false })`, matching the existing filter navigation and keeping the back stack clean.
@@ -38,7 +39,7 @@ Restore uses `router.replace(..., { scroll: false })`, matching the existing fil
 | Decision | Rationale |
 |---|---|
 | URL stays authoritative | Shareable links and explicit navigation must not be overridden by device state. |
-| Mirror whole query string | One key, no per-filter schema, no migration. View flags (`group`, `page`) ride along. |
+| Mirror filters only | Grouping (`group`), pagination (`page`), and unrelated parameters remain URL-only. |
 | Restore inside `TransactionList` | Keeps filter logic in one file; header links stay plain and route-agnostic. |
 | Delete on clear, not on empty effect | A mount at plain `/transactions` must not erase the state it is about to restore; explicit clears own deletion. |
 
@@ -60,4 +61,4 @@ Browser smoke on `/transactions`:
 4. Paste an explicit filtered URL and confirm it overrides the stored selection.
 5. Click `Clear all`, leave the tab, return, and confirm default filters.
 
-No dedicated unit test: the behavior is a route-transition effect over `useSearchParams`/`router`, not a pure function. The existing behavior seam is browser navigation.
+Focused regression tests cover filter selection and authentication cleanup.

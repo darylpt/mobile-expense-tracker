@@ -19,6 +19,7 @@ import {
   type ReactNode,
 } from 'react';
 import { supabase } from '@/lib/supabase';
+import { FILTERS_STORAGE_KEY } from '@/lib/transaction-filters';
 import type { User } from '@supabase/supabase-js';
 
 // ============================================================
@@ -148,6 +149,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) return;
 
     const applyAuth = (user: User | null) => {
+      try {
+        const previousUser = prevUserIdRef.current ?? localStorage.getItem('lastUserId');
+        if (!user || (previousUser && previousUser !== user.id)) {
+          localStorage.removeItem(FILTERS_STORAGE_KEY);
+        }
+      } catch {}
       setUser(user);
       if (user) {
         const identityChanged =

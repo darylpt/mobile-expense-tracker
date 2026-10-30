@@ -1,5 +1,5 @@
 project: "mobile-expense-tracker"
-version: "0.17.3"
+version: "0.17.4"
 phase: "build"
 current_epic: "auth-and-security"
 current_story: "oauth-and-app-lock"
