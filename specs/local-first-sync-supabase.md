@@ -382,3 +382,7 @@ Supabase API schema cache in Dashboard → API.
 | A fenced push keeps its queue entry | Retry counting would drop the user's write after five attempts even though only an explicit resolution can fix the generation |
 | Local marker adoption is one transaction | Separate check, copy, and delete can overwrite a user marker or delete a newer local marker |
 | Conflict preparation re-reads the marker | Reading before the transaction can rebuild and overwrite a marker changed by a concurrent import |
+
+### Import sync correction (0.18.3)
+
+Managed pulls validate the applied generation inside the IndexedDB write transaction; stale cycles stop before processing newer queue entries. Replacement completion rebases queued edits above cloud snapshot timestamps in FIFO order, including explicit conflict resolution. Managed writes require a persisted-row readback before acknowledgement; failed writes remain queued and prevent the cycle from pulling. Pulls preserve records with queued changes. Missing Account Review reloads on account/transaction changes and sync completion in both Settings layouts. Migration 007 remains unchanged.

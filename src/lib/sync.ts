@@ -122,6 +122,14 @@ class ManagedWriteConflictError extends Error {
   }
 }
 
+function samePersistedValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  const entries = Object.entries(left);
+  return entries.length === Object.keys(right).length && entries.every(([key, value]) =>
+    Object.hasOwn(right, key) && samePersistedValue(value, (right as Record<string, unknown>)[key]));
+}
+
 function assertManagedWriteApplied(data: unknown, action: 'write' | 'delete'): void {
   const response = readManagedWriteResponse(data);
   if (response?.status === 'conflict') {
@@ -129,6 +137,15 @@ function assertManagedWriteApplied(data: unknown, action: 'write' | 'delete'): v
   }
   if (response?.status !== 'applied') {
     throw new Error(`Cloud dataset generation changed during ${action}.`);
+  }
+}
+
+class StaleSyncCycleError extends Error {}
+
+async function requireAppliedGeneration(userId: string, generation: number): Promise<void> {
+  const current = await getDatasetReplacementMarker(userId);
+  if (!current || current.status !== 'applied' || current.generation !== generation) {
+    throw new StaleSyncCycleError('Local dataset changed during sync.');
   }
 }
 
@@ -153,6 +170,7 @@ export async function processSyncQueue(generation: number): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
 
+  await requireAppliedGeneration(user.id, generation);
   const db = await getDB();
 
   // Read — single read-only transaction  (ponytail: getAllFromIndex preserves FIFO order from the index)
@@ -164,10 +182,9 @@ export async function processSyncQueue(generation: number): Promise<void> {
   // whose in-memory generation is stale. It is a post-snapshot edit, not a
   // superseded write, so preserve it and let explicit resolution decide.
   if (
-    generation > 0 &&
     allEntries.some(
       (entry) =>
-        isManagedStore(entry.storeName) && (entry.datasetGeneration ?? 0) < generation
+        isManagedStore(entry.storeName) && (entry.datasetGeneration ?? 0) !== generation
     )
   ) {
     throw new ManagedWriteConflictError(generation);
@@ -180,11 +197,13 @@ export async function processSyncQueue(generation: number): Promise<void> {
   const drops: IDBValidKey[] = [];
   const retries: Array<typeof allEntries[number]> = [];
   let conflict: ManagedWriteConflictError | null = null;
+  let managedFailure: unknown = null;
 
   for (const entry of allEntries) {
     try {
       const tableName = storeNameToTable(entry.storeName);
       const managed = isManagedStore(entry.storeName);
+      await requireAppliedGeneration(user.id, generation);
 
       switch (entry.operation) {
         case 'create':
@@ -194,7 +213,11 @@ export async function processSyncQueue(generation: number): Promise<void> {
             ...(entry.payload as Record<string, unknown>),
             userId: user.id,
           };
-          if (managed) payload.dataset_generation = generation;
+          if (managed) {
+            payload.dataset_generation = generation;
+            if (entry.storeName !== STORES.CASH_DENOMINATIONS &&
+              typeof payload.updatedAt !== 'number') payload.updatedAt = Date.now();
+          }
           // Cast dates from ms-number to ISO string for Postgres
           const remotePayload = preparePayloadForRemote(payload);
           if (managed) {
@@ -207,6 +230,19 @@ export async function processSyncQueue(generation: number): Promise<void> {
             });
             if (error) throw error;
             assertManagedWriteApplied(data, 'write');
+            const { data: persisted, error: readError } = await supabase.from(tableName)
+              .select('*').eq('user_id', user.id).eq('id', entry.recordId);
+            if (readError) throw readError;
+            const row = persisted?.find((record) => record.id === entry.recordId);
+            if (!row || row.deleted_at ||
+              (entry.storeName !== STORES.CASH_DENOMINATIONS &&
+                new Date(row.updated_at).getTime() !== new Date(remotePayload.updated_at as string).getTime()) ||
+              Object.entries(remotePayload).some(([key, value]) =>
+                key !== 'created_at' && key !== 'updated_at' && value !== undefined &&
+                Object.hasOwn(row, key) &&
+                !samePersistedValue(row[key], value))) {
+              throw new Error('Managed write was not persisted; local edit remains queued.');
+            }
           } else {
             const { error: upsertError } = await supabase.from(tableName).upsert(remotePayload, {
               onConflict: 'id',
@@ -244,8 +280,13 @@ export async function processSyncQueue(generation: number): Promise<void> {
       // Success — will drop from queue
       drops.push(entry.id);
     } catch (err) {
+      if (err instanceof StaleSyncCycleError) throw err;
       if (err instanceof ManagedWriteConflictError) {
         conflict = err;
+        break;
+      }
+      if (isManagedStore(entry.storeName)) {
+        managedFailure = err;
         break;
       }
       console.warn('[Sync] Failed to sync entry, retrying later:', entry.id, err);
@@ -264,19 +305,26 @@ export async function processSyncQueue(generation: number): Promise<void> {
   }
 
   // ── 3. Write — fresh readwrite transaction (no network calls) ──
-  const tx = db.transaction(STORES.SYNC_QUEUE, 'readwrite');
+  const tx = db.transaction([STORES.SYNC_QUEUE, STORES.DATASET_MARKERS], 'readwrite');
+  const currentMarker = await tx.objectStore(STORES.DATASET_MARKERS).get(user.id);
+  if (!currentMarker || currentMarker.status !== 'applied' || currentMarker.generation !== generation) {
+    await tx.done;
+    throw new StaleSyncCycleError('Local dataset changed during sync.');
+  }
+  const queue = tx.objectStore(STORES.SYNC_QUEUE);
   for (const id of drops) {
-    await tx.store.delete(id);
+    await queue.delete(id);
   }
   for (const entry of retries) {
     // A dataset replacement may have deleted this entry while the network
     // call was in flight. Only re-put entries that still exist.
-    const current = await tx.store.get(entry.id);
-    if (current) await tx.store.put(entry);
+    const current = await queue.get(entry.id);
+    if (current) await queue.put(entry);
   }
   await tx.done;
 
   if (conflict) throw conflict;
+  if (managedFailure) throw managedFailure;
 }
 
 /**
@@ -317,7 +365,18 @@ export async function pullStore(
   };
 
   const db = await getDB();
-  const tx = db.transaction(storeName, 'readwrite');
+  const tx = db.transaction(managed ? [storeName, STORES.DATASET_MARKERS, STORES.SYNC_QUEUE] : [storeName], 'readwrite');
+  if (managed) {
+    const current = await tx.objectStore(STORES.DATASET_MARKERS).get(userId);
+    if (!current || current.status !== 'applied' || current.generation !== generation) {
+      await tx.done;
+      throw new StaleSyncCycleError('Local dataset changed during pull.');
+    }
+  }
+  const pendingIds = new Set(managed
+    ? (await tx.objectStore(STORES.SYNC_QUEUE).getAll())
+      .filter((entry) => entry.storeName === storeName).map((entry) => entry.recordId)
+    : []);
   const localStore = tx.objectStore(storeName);
   const localRecords = await localStore.getAll();
 
@@ -331,7 +390,7 @@ export async function pullStore(
 
   for (const local of localRecords) {
     const remote = remoteMap.get(local.id as string);
-    if (!remote) {
+    if (pendingIds.has(local.id as string) || !remote) {
       // Local-only — may not yet be synced. Keep it.
       toWrite.push(local as unknown as Record<string, unknown>);
     } else if (remote.deleted_at || isStale(remote)) {
@@ -352,7 +411,7 @@ export async function pullStore(
 
   // Remaining in remoteMap are new remote-only records (skip deleted and stale)
   for (const [, remote] of remoteMap.entries()) {
-    if (!remote.deleted_at && !isStale(remote)) {
+    if (!pendingIds.has(remote.id as string) && !remote.deleted_at && !isStale(remote)) {
       toWrite.push(remoteToLocalRecord(storeName, remote));
     }
   }
@@ -511,12 +570,30 @@ async function commitReplacementMarker(
   next: DatasetReplacementMarker
 ): Promise<ReplacementCommit> {
   const db = await getDB();
-  const tx = db.transaction(STORES.DATASET_MARKERS, 'readwrite');
+  let replayTime = 0;
+  if (next.status === 'applied' && expected.status !== 'applied') {
+    for (const store of MANAGED_STORES) {
+      for (const row of await fetchAllRemoteRows(storeNameToTable(store), expected.userId)) {
+        replayTime = Math.max(replayTime, new Date(row.updated_at as string).getTime() || 0);
+      }
+    }
+  }
+  const tx = db.transaction([STORES.DATASET_MARKERS, STORES.SYNC_QUEUE], 'readwrite');
   const markers = tx.objectStore(STORES.DATASET_MARKERS);
   const current = (await markers.get(expected.userId)) ?? null;
   if (!isSameReplacementMarker(current, expected)) {
     await tx.done;
     return { marker: current, committed: false };
+  }
+  if (next.status === 'applied' && expected.status !== 'applied') {
+    const queue = tx.objectStore(STORES.SYNC_QUEUE);
+    const entries = await queue.index('byTimestamp').getAll();
+    for (const entry of entries) {
+      const payload = asRecord(entry.payload);
+      if (!isManagedStore(entry.storeName) || entry.storeName === STORES.CASH_DENOMINATIONS || !payload) continue;
+      replayTime = Math.max(replayTime + 1, Number(payload.updatedAt) || 0);
+      await queue.put({ ...entry, payload: { ...payload, updatedAt: replayTime } });
+    }
   }
   await markers.put(next);
   await tx.done;
@@ -934,6 +1011,7 @@ export async function backgroundSync(): Promise<void> {
 
     // Sequential to avoid concurrent IDB transactions
     for (const store of allStores) {
+      await requireAppliedGeneration(user.id, active.generation);
       await pullStore(store, user.id, active.generation);
     }
 

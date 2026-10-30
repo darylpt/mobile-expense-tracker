@@ -1626,6 +1626,13 @@ function OrphanReviewSection({
   accounts: Account[];
   onRelinked: () => Promise<void>;
 }) {
+  const { transactions } = useTransactionContext();
+  const [syncRevision, setSyncRevision] = useState(0);
+  useEffect(() => {
+    const refresh = () => setSyncRevision((value) => value + 1);
+    window.addEventListener('sync-complete', refresh);
+    return () => window.removeEventListener('sync-complete', refresh);
+  }, []);
   const [groups, setGroups] = useState<MissingAccountGroup[] | null>(null);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -1650,7 +1657,7 @@ function OrphanReviewSection({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [accounts, transactions, syncRevision]);
 
   const handleRelink = async (sourceAccountId: string, expectedTransactionIds: string[]) => {
     const targetAccountId = targets[sourceAccountId];

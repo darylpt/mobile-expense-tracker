@@ -9,6 +9,7 @@ import {
   applyDatasetReplacement,
   backgroundSync,
   pullStore,
+  processSyncQueue,
   resolveReplacementConflict,
 } from './sync';
 import {
@@ -149,6 +150,9 @@ jest.mock('./supabase', () => {
       state.rpcCalls.push({ name, params });
       if (state.rpc) return await state.rpc(params);
       if (name === 'apply_managed_write') {
+        const table = params.p_store as string;
+        const row = params.p_record as Record<string, unknown> | null;
+        if (row) state.pulls[table] = [...(state.pulls[table] ?? []).filter((item) => item.id !== row.id), row];
         return {
           data: { status: 'applied', generation: params.p_generation },
           error: null,
@@ -573,7 +577,6 @@ describe('backgroundSync replacement gate', () => {
   });
 });
 
-describe('remote generation refresh', () => {
   function remoteAccount(id: string, generation: number, updatedAt: number) {
     return {
       id,
@@ -588,6 +591,7 @@ describe('remote generation refresh', () => {
     };
   }
 
+describe('remote generation refresh', () => {
   it('keeps an import marker committed while the initial marker is created', async () => {
     await importOffline(USER);
     const imported = await getDatasetReplacementMarker(USER);
@@ -1025,6 +1029,7 @@ describe('conflict resolution', () => {
 
 describe('pullStore generation fence', () => {
   it('drops rows from superseded generations instead of resurrecting them', async () => {
+    await putDatasetReplacementMarker(marker({ status: 'applied', generation: 3, snapshot: null }));
     const db = await getDB();
     await db.put(STORES.ACCOUNTS, {
       id: 'stale-local',
@@ -1074,5 +1079,120 @@ describe('pullStore generation fence', () => {
 
     const accounts = await db.getAll(STORES.ACCOUNTS);
     expect(accounts.map((account) => account.id)).toEqual(['current']);
+  });
+});
+
+
+describe('import sync interleavings', () => {
+  it('rejects an old pull after an import commits during SELECT', async () => {
+    await putDatasetReplacementMarker(marker({ status: 'applied', generation: 1, snapshot: null }));
+    state.pulls.accounts = [remoteAccount('obsolete', 1, 10)];
+    state.onSelect = async () => {
+      state.onSelect = null;
+      await importOffline(USER);
+    };
+    await expect(pullStore(STORES.ACCOUNTS, USER, 1)).rejects.toThrow('Local dataset changed');
+    const db = await getDB();
+    expect(await db.get(STORES.ACCOUNTS, 'obsolete')).toBeUndefined();
+    expect(await db.count(STORES.ACCOUNTS)).toBe(2);
+  });
+
+  it('does not consume a newer generation queue from an old cycle', async () => {
+    await putDatasetReplacementMarker(marker({ status: 'applied', generation: 1, snapshot: null }));
+    const db = await getDB();
+    await db.put(STORES.SYNC_QUEUE, { id: 'newer', recordId: ACCOUNT.id, storeName: STORES.ACCOUNTS,
+      operation: 'update', payload: ACCOUNT, timestamp: 1, retryCount: 0, datasetGeneration: 2 });
+    await expect(processSyncQueue(1)).rejects.toThrow();
+    expect(state.rpcCalls).toHaveLength(0);
+    expect(await getSyncQueueCount()).toBe(1);
+  });
+
+  it('rebases and persists a post-snapshot edit after replacement server timestamps', async () => {
+    await putDatasetReplacementMarker(marker());
+    const db = await getDB();
+    await db.put(STORES.ACCOUNTS, { ...ACCOUNT, name: 'Edited', updatedAt: 2 });
+    await db.put(STORES.SYNC_QUEUE, { id: 'edit', recordId: ACCOUNT.id, storeName: STORES.ACCOUNTS,
+      operation: 'update', payload: { ...ACCOUNT, name: 'Edited', updatedAt: 2 }, timestamp: 2,
+      retryCount: 0, datasetGeneration: 2 });
+    state.rpc = (params) => {
+      if ('p_snapshot_id' in params) {
+        state.pulls.accounts = [{ ...remoteAccount(ACCOUNT.id, 2, 10000), name: 'Original' }];
+      } else {
+        const incoming = params.p_record as Record<string, unknown>;
+        const existing = state.pulls.accounts[0];
+        if (new Date(incoming.updated_at as string).getTime() > new Date(existing.updated_at as string).getTime()) {
+          state.pulls.accounts = [incoming];
+        }
+      }
+      return { data: { status: 'applied', generation: 2 }, error: null };
+    };
+    await applyDatasetReplacement(USER);
+    await processSyncQueue(2);
+    await pullStore(STORES.ACCOUNTS, USER, 2);
+    expect(await getSyncQueueCount()).toBe(0);
+    expect((await db.get(STORES.ACCOUNTS, ACCOUNT.id))?.name).toBe('Edited');
+  });
+
+  it('acknowledges cash writes without requiring an absent updated_at column', async () => {
+    await putDatasetReplacementMarker(marker({ status: 'applied', generation: 2, snapshot: null }));
+    const db = await getDB();
+    const payload = { id: 'cash-row', date: '2026-01-01', denomination: 100, count: 2, createdAt: 1 };
+    await db.put(STORES.SYNC_QUEUE, { id: 'cash-edit', recordId: payload.id,
+      storeName: STORES.CASH_DENOMINATIONS, operation: 'create', payload, timestamp: 2,
+      retryCount: 0, datasetGeneration: 2 });
+    await processSyncQueue(2);
+    expect(await getSyncQueueCount()).toBe(0);
+    expect(state.pulls.cash_denominations[0].count).toBe(2);
+  });
+
+  it.each([STORES.PAYOUTS, STORES.BUDGET_TARGETS, STORES.CATEGORIES])(
+    'verifies %s writes with omitted local timestamps and client-only fields', async (store) => {
+      await putDatasetReplacementMarker(marker({ status: 'applied', generation: 2, snapshot: null }));
+      const db = await getDB();
+      await db.put(STORES.SYNC_QUEUE, { id: 'edit', recordId: 'record', storeName: store,
+        operation: 'update', payload: { id: 'record', name: 'Edited', hasDestinationAccount: true },
+        timestamp: 1, retryCount: 0, datasetGeneration: 2 });
+      state.rpc = (params) => {
+        const row = { ...(params.p_record as Record<string, unknown>) };
+        delete row.hasDestinationAccount;
+        state.pulls[params.p_store as string] = [row];
+        return { data: { status: 'applied', generation: 2 }, error: null };
+      };
+      await processSyncQueue(2);
+      expect(await getSyncQueueCount()).toBe(0);
+      expect((state.rpcCalls[0].params.p_record as Record<string, unknown>).updated_at).toBeDefined();
+    }
+  );
+
+  it('acknowledges earlier persisted entries when a later managed write fails', async () => {
+    await putDatasetReplacementMarker(marker({ status: 'applied', generation: 2, snapshot: null }));
+    const db = await getDB();
+    for (const [index, name] of ['First', 'Second'].entries()) {
+      await db.put(STORES.SYNC_QUEUE, { id: name, recordId: ACCOUNT.id, storeName: STORES.ACCOUNTS,
+        operation: 'update', payload: { ...ACCOUNT, name, updatedAt: index + 2 }, timestamp: index,
+        retryCount: 0, datasetGeneration: 2 });
+    }
+    state.rpc = (params) => {
+      const incoming = params.p_record as Record<string, unknown>;
+      if (incoming.name === 'First') state.pulls.accounts = [incoming];
+      return { data: { status: 'applied', generation: 2 }, error: null };
+    };
+    await expect(processSyncQueue(2)).rejects.toThrow('not persisted');
+    expect((await db.getAll(STORES.SYNC_QUEUE)).map((entry) => entry.id)).toEqual(['Second']);
+  });
+
+  it('retains an LWW-rejected edit without exhausting retries or overwriting it on pull', async () => {
+    await putDatasetReplacementMarker(marker({ status: 'applied', generation: 2, snapshot: null }));
+    const db = await getDB();
+    await db.put(STORES.ACCOUNTS, { ...ACCOUNT, name: 'Edited', updatedAt: 2 });
+    await db.put(STORES.SYNC_QUEUE, { id: 'edit', recordId: ACCOUNT.id, storeName: STORES.ACCOUNTS,
+      operation: 'update', payload: { ...ACCOUNT, name: 'Edited', updatedAt: 2 }, timestamp: 2,
+      retryCount: 4, datasetGeneration: 2 });
+    state.pulls.accounts = [remoteAccount(ACCOUNT.id, 2, 10000)];
+    state.rpc = () => ({ data: { status: 'applied', generation: 2 }, error: null });
+    await expect(processSyncQueue(2)).rejects.toThrow('not persisted');
+    await pullStore(STORES.ACCOUNTS, USER, 2);
+    expect((await db.get(STORES.SYNC_QUEUE, 'edit'))?.retryCount).toBe(4);
+    expect((await db.get(STORES.ACCOUNTS, ACCOUNT.id))?.name).toBe('Edited');
   });
 });
