@@ -93,28 +93,7 @@ specs/                            # Feature specs (all done except Phase 2)
 
 ## 4. Data Model
 
-### IndexedDB Stores (7 total)
-
-| Store | Key | Purpose |
-|---|---|---|
-| `transactions` | UUID | Income, expense, and transfer records |
-| `accounts` | UUID | Named accounts with starting balance + sort order |
-| `categories` | UUID | Categorized by type (income/expense/transaction) + sort order |
-| `cashDenominations` | UUID | Per-date snapshots of cash on hand by denomination |
-| `payouts` | UUID | Saved payout calculations |
-| `budgetTargets` | UUID | Per-category planned amounts (global default or per-month override) |
-| `syncQueue` | auto-increment | Pending outbound sync entries (FIFO by monotonic counter) |
-
-**DB version:** 9 (current). Migrations v2→v9 handled in `idb.ts` upgrade callback.
-
-### Supabase Tables (6 data + RLS)
-
-All 6 data stores map 1:1 to Supabase Postgres tables. Each has:
-- `user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE`
-- `created_at TIMESTAMPTZ`
-- `updated_at TIMESTAMPTZ` (with LWW trigger)
-- `deleted_at TIMESTAMPTZ` (soft-delete)
-- Per-user RLS policies (SELECT/INSERT/UPDATE/DELETE all gated on `auth.uid() = user_id`)
+The authoritative store inventory, database version, and remote schema are in [the project spec](specs/project-spec.md#3-data-model).
 
 ### Key Types (`src/types/index.d.ts`)
 
@@ -137,15 +116,7 @@ UI Components → hooks → TransactionContext (in-memory cache, memoized value)
 
 ### Sync Architecture (Outbox Pattern)
 
-1. Every local CRUD **atomically** enqueues a sync entry inside the same IDB transaction
-2. Monotonic counter (`syncSeqCounter`) ensures strict FIFO ordering
-3. Background sync runs in 3 phases: Read → Network → Write
-4. Auto-sync fires 2 seconds after every CRUD (debounced `requestSync()`)
-5. Conflict resolution: Last-Writer-Wins by `updated_at` (LWW trigger on Supabase)
-6. Soft-delete: "Delete" sets `deleted_at`, never hard-deletes from REST API
-7. `resyncAll()` recovery: clears queue, re-enqueues in dependency order (accounts → categories → … → transactions)
-8. `ensureUuids()`: one-shot migration from legacy slug IDs to `crypto.randomUUID()`
-9. `syncInFlight` guard prevents concurrent sync cycles
+See the [sync spec](specs/local-first-sync-supabase.md) for queue processing, generation fencing, conflict recovery, and UUID migration.
 
 ### Auth Lifecycle
 

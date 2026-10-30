@@ -28,7 +28,7 @@ broker for cross-device syncing.
 
 ## 1. PostgreSQL Schema
 
-All 6 IndexedDB stores map 1:1 to Supabase tables. UUID primary keys match the
+The six CSV-managed stores below map to Supabase tables. The full store inventory is in [the project data model](project-spec.md#3-data-model). UUID primary keys match the
 `crypto.randomUUID()` format. Timestamps are `TIMESTAMPTZ` — conversion between
 `Date.now()` ms and Postgres happens in the sync layer.
 
@@ -171,6 +171,7 @@ syncQueue {
     payload: object | null;
     timestamp: number;       // monotonic counter (syncSeqCounter)
     retryCount: number;
+    datasetGeneration?: number; // managed writes carry the hydrated generation
   }
   indexes: { byTimestamp: number }
 }
@@ -207,24 +208,11 @@ async-boundary leaks:
 2. **Network** — non-managed entries upsert directly. Managed entries call `apply_managed_write` with the applied generation; a `conflict` response stops the phase and keeps the entry and the rest of the queue untouched. An entry stamped below the current generation is not dropped: replacement transactions clear managed entries atomically, so a surviving older-generation entry is a post-snapshot edit from a tab with a stale in-memory generation. It raises a managed conflict before any write or pull so the queue and local rows are preserved for explicit resolution
 3. **Write** — fresh readwrite transaction to delete successes and update retry counts; a retry is only re-put if the entry still exists. A managed conflict rethrows after this phase so `backgroundSync` can record the conflict marker instead of pulling
 
-```typescript
-async function processSyncQueue(generation: number): Promise<void> {
-  const allEntries = await db.getAllFromIndex('syncQueue', 'byTimestamp');
-  for (const entry of allEntries) {
-    const { data } = await supabase.rpc('apply_managed_write', { p_generation: generation, ... });
-    if (data?.status === 'conflict') throw new ManagedWriteConflictError(data.generation);
-  }
-  const tx = db.transaction('syncQueue', 'readwrite');
-  for (const id of drops) await tx.store.delete(id);
-  // commits drops/retries, then rethrows so backgroundSync records the conflict marker
-}
-```
-
 ### Conflict Resolution: Last-Writer-Wins
 
-- **Push (local→remote):** Supabase upsert with `?on_conflict=id`. The LWW
-  trigger silently rejects updates where incoming `updated_at` ≤ existing.
-- **Pull (remote→local):** Per-record `updated_at` comparison — newer wins.
+Non-managed pushes use direct upserts; managed pushes use the generation-fenced RPC and verify the persisted row before acknowledging a queued create or update. A rejected managed edit remains queued and enters actionable conflict state, including when the generation is unchanged. Explicit resolution replaces the entire cloud managed dataset with the current local snapshot at a newer generation.
+
+Pulls compare per-record timestamps, preserve queued local edits, and validate the applied marker inside the managed-store write transaction. See the correction details below for replacement-time replay and stale-cycle fencing.
 
 ### Soft-delete strategy
 
@@ -342,8 +330,8 @@ async function pullStore(storeName, userId):
 |---|---|
 | **Offline launch** | IDB loads instantly. Sync queue accumulates. No crash. |
 | **Online→offline mid-sync** | Current queue entry fails (warn, retry later). No partial data. |
-| **Same record edited on 2 devices offline** | LWW by `updated_at`. Second device to sync loses that edit. |
-| **Sync queue overflow** | Max 5 retries per entry, then dropped with console warning. Managed generation conflicts never count as a retry; the entry is kept for explicit resolution. |
+| **Same record edited on 2 devices offline** | See [Conflict Resolution](#conflict-resolution-last-writer-wins); rejected managed edits remain available for explicit resolution. |
+| **Sync queue overflow** | Non-managed failures are dropped after 5 retries with a console warning. Managed network failures remain queued for retry; managed write conflicts remain queued for explicit resolution. |
 | **FK violation (23503)** | Dependency ordering ensures accounts → categories → … → transactions. resyncAll re-enqueues in correct order. |
 | **First-time setup** | App works fully offline. Sync silently no-ops until Supabase configured. |
 | **Sign-out with pending sync** | backgroundSync() runs first; if it fails and queue non-empty, user is warned before proceeding. |
@@ -387,4 +375,4 @@ Supabase API schema cache in Dashboard → API.
 
 ### Import sync correction (0.18.3)
 
-Managed pulls validate the applied generation inside the IndexedDB write transaction; stale cycles stop before processing newer queue entries. Replacement completion rebases queued edits above cloud snapshot timestamps in FIFO order, including explicit conflict resolution. Managed writes require a persisted-row readback before acknowledgement; rejected writes remain queued and enter the existing actionable conflict state, including same-generation LWW conflicts across accounts, categories, transactions, payouts, and budget targets. Explicit resolution rebuilds the local snapshot and replaces the cloud dataset at a newer generation. Network failures retain the queue for retry. Pulls preserve records with queued changes. Missing Account Review reloads on account/transaction changes and sync completion in both Settings layouts. Migration 007 remains unchanged.
+Managed pulls validate the applied generation inside the IndexedDB write transaction; stale cycles stop before processing newer queue entries. Replacement completion rebases queued edits above cloud snapshot timestamps in FIFO order, including explicit conflict resolution. Managed writes require a persisted-row readback before acknowledgement; rejected writes remain queued and enter the existing actionable conflict state, including same-generation LWW conflicts across accounts, categories, transactions, payouts, and budget targets. Explicit resolution rebuilds the local snapshot and replaces the cloud dataset at a newer generation. Network failures retain the queue for retry. Pulls preserve records with queued changes. Settings status and repair behavior is documented in [CSV import](csv-import.md#marker-lifecycle-and-status).

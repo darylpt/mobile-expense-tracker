@@ -81,17 +81,7 @@ UI Components → hooks → TransactionContext (in-memory cache)
 
 ### Sync architecture (outbox pattern)
 
-Every local CRUD enqueues a sync entry **inside the same IndexedDB transaction**
-as the data write (atomic by construction). A background sync loop:
-
-1. Reads pending entries FIFO (monotonic counter orders them)
-2. Upserts to Supabase (user_id-stamped for per-user isolation)
-3. Pulls remote changes and merges via LWW (Last-Writer-Wins by `updated_at`)
-4. Auto-sync triggers 2 seconds after every CRUD (debounced)
-5. Last sync time saved to `localStorage('last_sync_time')` — displayed as relative time in header
-
-Soft-delete strategy: "Delete" sets `deleted_at` on Supabase (never hard-delete).
-During pull, soft-deleted records are purged from local IDB.
+Local changes are saved immediately in IndexedDB and queued for background sync. See the [sync contract](specs/local-first-sync-supabase.md) for generation-fenced managed writes, timestamp merging, and conflict recovery.
 
 ---
 
@@ -149,6 +139,7 @@ PIN is hashed with PBKDF2 and stored only in localStorage.
 **Cloud Sync:** sync status, last sync time, Sync Now, Re-sync All buttons.
 **Sign out** (visible when authenticated). **Backup & Restore:** export all data
 as JSON, export transactions as CSV, import from JSON or CSV (Google Sheets format).
+CSV re-import replaces the managed dataset; Settings shows local/cloud progress and offers explicit conflict recovery. Missing Account Review lets you inspect unknown account IDs and choose a replacement account. See the [CSV import contract](specs/csv-import.md) for replacement scope and repair safeguards.
 
 ---
 
@@ -156,17 +147,7 @@ as JSON, export transactions as CSV, import from JSON or CSV (Google Sheets form
 
 ### Stores (IndexedDB)
 
-All 6 data stores plus sync queue are managed by `idb.ts`.
-
-| Store | Key | Records |
-|---|---|---|
-| `transactions` | `id` (UUID) | Income, expense, and transfer records |
-| `accounts` | `id` (UUID) | Named accounts with starting balance + sort order |
-| `categories` | `id` (UUID) | Categorized by type (expense/income/transaction) + sort order |
-| `cashDenominations` | `id` (UUID) | Per-date snapshots of cash on hand by denomination |
-| `payouts` | `id` (UUID) | Saved payout calculations |
-| `budgetTargets` | `id` (UUID) | Per-category planned amounts (global default or per-month) |
-| `syncQueue` | auto-key | Pending outbound sync entries (FIFO by timestamp) |
+The current store inventory and database version are owned by the [project data model](specs/project-spec.md#3-data-model).
 
 ### Key Types
 

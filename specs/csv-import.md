@@ -191,7 +191,7 @@ interface CsvError {
 
 ### Import flow (`idb.ts` — `importFromCsv`)
 
-1. Parse the CSV and read existing accounts inside one `readwrite` transaction over the six managed stores, `syncQueue`, and `datasetMarkers`
+1. Parse the CSV, then read existing accounts inside one `readwrite` transaction over the six managed stores, `syncQueue`, and `datasetMarkers`
 2. Retain IDs only for accounts whose normalized name is unambiguous on both sides, then remap transaction references
 3. Clear the six managed stores and write the snapshot
 4. Write the durable marker with a new snapshot UUID and the next generation, status `pending`
@@ -299,7 +299,7 @@ The app **should still render** — just show the empty state instead of tables/
 
 ### Import sync correction (0.18.3)
 
-Managed pulls validate the applied generation inside the IndexedDB write transaction; stale cycles stop before processing newer queue entries. Replacement completion rebases queued edits above cloud snapshot timestamps in FIFO order, including explicit conflict resolution. Managed writes require a persisted-row readback before acknowledgement; failed writes remain queued and prevent the cycle from pulling. Pulls preserve records with queued changes. Missing Account Review reloads on account/transaction changes and sync completion in both Settings layouts. Migration 007 remains unchanged.
+Sync fencing, queued-edit replay, and acknowledgement are owned by the [sync spec](local-first-sync-supabase.md#import-sync-correction-0183). Missing Account Review reloads on account/transaction changes and sync completion in both Settings layouts.
 
 The shared Settings import panel refreshes its persisted replacement marker and status text on `sync-complete` in both desktop and mobile layouts. Background conflicts and failed replacements expose resolution or retry controls without remounting the page; applied or cleared markers remove stale controls.
 
