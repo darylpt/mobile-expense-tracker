@@ -195,7 +195,7 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
         <div className="mx-auto flex max-w-4xl items-center justify-between px-4 pt-3 sm:px-6">
           <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
             {title}
-            <span className="ml-2 inline-block rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500">
+            <span className="ml-2 inline-block rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
               v{APP_VERSION}
             </span>
           </h1>
@@ -223,14 +223,14 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
             </span>
             {/* Sync status — desktop only */}
             {state === 'authenticated' && (
-              <span className="hidden items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500 md:inline-flex">
+              <span className="hidden items-center gap-1 text-xs text-zinc-600 dark:text-zinc-400 md:inline-flex">
                 {lastSync ? timeAgo(lastSync) : 'never'}
               </span>
             )}
             {failedSyncCount > 0 && (
               <button
                 onClick={handleRetrySync}
-                className="hidden items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 transition-colors hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50 md:inline-flex"
+                className="hidden items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 transition-colors hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50 md:inline-flex"
                 title={`${failedSyncCount} sync entries failed. Click to retry.`}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-3 w-3">
@@ -250,7 +250,7 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
                 >
                   <RefreshIcon className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
                 </button>
-                <span className="hidden text-xs text-zinc-400 dark:text-zinc-500 md:inline" title={user?.email ?? ''}>
+                <span className="hidden text-xs text-zinc-600 dark:text-zinc-400 md:inline" title={user?.email ?? ''}>
                   {user?.email ?? ''}
                 </span>
                 {/* Desktop: text sign-out button */}
@@ -261,13 +261,13 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
                   Sign out
                 </button>
                 {/* Mobile: sync status + button */}
-                <span className="truncate text-[10px] text-zinc-400 dark:text-zinc-500 md:hidden">
+                <span className="truncate text-[10px] text-zinc-600 dark:text-zinc-400 md:hidden">
                   {lastSync ? timeAgo(lastSync) : 'never'}
                 </span>
                 {failedSyncCount > 0 && (
                   <button
                     onClick={handleRetrySync}
-                    className="flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 md:hidden"
+                    className="flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 md:hidden"
                     title={`${failedSyncCount} sync entries failed. Click to retry.`}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-2.5 w-2.5">
@@ -374,7 +374,7 @@ function MobileBottomNav({ tabs, pathname }: { tabs: TabDef[]; pathname: string 
               className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
                 isActive
                   ? 'text-blue-600 dark:text-blue-400'
-                  : 'text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300'
+                  : 'text-zinc-600 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200'
               }`}
             >
               <tab.icon className={`h-6 w-6 ${isActive ? 'stroke-[2.5]' : 'stroke-2'}`} />

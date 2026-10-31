@@ -44,8 +44,13 @@ setForm((prev) => ({
 
 The form also auto-collapses on mobile after submit.
 
+## Mobile disclosure
+
+See the [mobile disclosure contract](ui-accessibility-onboarding.md#quick-add-disclosure-mobile-768px) for collapsed-panel accessibility, focus return, and desktop behavior.
+
 ## Files
 
 | File | Role |
 |------|------|
-| `src/components/forms/QuickAddForm.tsx` | Sticky defaults on form reset after submit |
+| `src/components/forms/QuickAddForm.tsx` | Sticky defaults on form reset after submit; mobile disclosure semantics and focus return |
+| `e2e/quick-add-summary.spec.ts` | Sticky-default sync flows plus mobile disclosure regression |
