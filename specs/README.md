@@ -10,7 +10,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | [`budget-target-persistence.md`](./budget-target-persistence.md) | ✅ Done | Hybrid (global defaults + per-month overrides). Store added to IndexedDB, in-memory store removed. |
 | Settings page accessibility/coding-standards retrofit | ✅ Done | Error handling, aria-labels, aria-live, scope="col". PASS on re-review. |
 | [`transaction-editing.md`](./transaction-editing.md) | ✅ Done | Edit modal and Transactions Add isolation; see the feature spec for the render contract and regression coverage. |
-| [`transaction-filters.md`](./transaction-filters.md) | ✅ Done | Filter persistence contract, hydration-safe mirror restoration, and dev plus production-export regression coverage. |
+| [`transaction-filters.md`](./transaction-filters.md) | ✅ Done | Transaction filter persistence, private controller, and hydration-safe reload restoration. |
 | [`e2e-testing-playwright.md`](./e2e-testing-playwright.md) | ✅ Done | Coverage lives in [`e2e/`](../e2e/); browser and viewport projects are defined in [`playwright.config.ts`](../playwright.config.ts), with the static-export filter run in [`playwright.prod.config.ts`](../playwright.prod.config.ts). |
 | Show all categories in breakdowns | ✅ Done | Income/Expense tables now include zero-amount rows. |
 | Ponytail-audit cleanup | ✅ Done | Shared validation (`validateTransactionForm`), shared test fixture (`tx()`), removed `totalTransfers` dead field, inlined `toLocaleString` → `formatCurrency`. Net -50 lines. |
@@ -21,7 +21,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | [`backup-restore.md`](./backup-restore.md) | ✅ Done | JSON export/import of all 6 stores + CSV transaction export. Settings UI. |
 | [`csv-import.md`](./csv-import.md) | ✅ Done | Atomic six-store replacement plus durable marker, retained account IDs, explicit missing-account review, local/cloud replacement status, and first-open generation hydration before any write is stamped. The `#orphan-review` deep link hydrates from a post-mount effect and scrolls the review into view. |
 | Dataset replacement generation fence | ✅ Done | Read-only generation RLS, managed-write RPC, exact generation fence, idempotent replacement, paginated reconciliation, conflict surfacing. Migration `007_dataset_generation.sql`. |
-| Empty state / onboarding flow | ✅ Done | All pages show "No data yet → Go to Settings → Import" when no transactions exist. Payout (standalone) excluded. |
+| Empty state / onboarding flow | ✅ Done | See the [onboarding contract](./ui-accessibility-onboarding.md#empty-states). |
 | Seed data removal | ✅ Done | `DEFAULT_ACCOUNTS`, `DEFAULT_CATEGORIES`, `SEED_TRANSACTIONS`, `DEFAULT_BUDGET_TARGETS` removed from constants. `seedTransactionsIfEmpty()` deleted. App starts clean — user imports their own data. |
 | README rewrite | ✅ Done | Boilerplate Next.js README replaced with full project docs: architecture, routes, data model, scripts, backup guidance, cloud sync setup. |
 | Category reordering | ✅ Done | `sortOrder` field on Category, DB v6 migration, up/down buttons in Settings. |
@@ -37,7 +37,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | `createdAt`/`updatedAt` on Account & Category | ✅ Done | Types extended, DB migration v8→9 backfills existing records, all mutations auto-stamp timestamps, csv-import & test fixtures updated. Fixes cross-device sync LWW ordering. |
 | Version badge + `npm run version:bump` | ✅ Done | `APP_VERSION` in `src/lib/version.ts`. Badge in header. Script auto-increments patch, stages the file. |
 | Sync status display | ✅ Done | `last_sync_time` in localStorage after `backgroundSync()`. Shown as relative time ("just now", "5m ago") on desktop header and mobile header. Sync button reordered before email. |
-| Collapsible Quick Add on mobile | ✅ Done | Quick Add form collapsed by default on <768px, expands in place, auto-collapses on submit. Desktop always expanded. |
+| Collapsible Quick Add on mobile | ✅ Done | See the [mobile disclosure contract](./ui-accessibility-onboarding.md#quick-add-disclosure-mobile-768px). |
 | Mobile-only breakdown views | ✅ Done | Income/Expense tables hidden on mobile (`hidden md:block`). CategoryBreakdown (grouped by type) shown on mobile only. Accounts table hidden on mobile. |
 | Category breakdown grouped by type | ✅ Done | Items grouped under Income/Expenses/Transfers section headers with colored dots/bars. Transfer section included. |
 | Category compound-key dedup fix | ✅ Done | `enrichedCategoryBreakdown` used `Set<string>` keyed by name only — same-name categories with different types silently dropped. Fixed by using compound key `"name|type"`. |
@@ -49,5 +49,6 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | [`balance-sub-splits.md`](./balance-sub-splits.md) | ✅ Done | Per-account Current balance broken into labeled sub-amounts. Toggle on Available Balance page. DB v13. |
 | [`auto-backup.md`](./auto-backup.md) | ✅ Done | Daily localStorage snapshot triggered on app load. Settings → Restore from auto-backup. |
 | [`codebase-audit-backlog.md`](./codebase-audit-backlog.md) | ✅ Done | Comprehensive 2026-07-10 audit. All P1 fixed 2026-07-10. All P2 resolved 2026-07-11. Full-codebase critic review: 18 fixes (sync correctness, React performance, a11y, CSV validation, a11y), 3 won't-fix. All 21 items resolved. |
+| [`ui-accessibility-onboarding.md`](./ui-accessibility-onboarding.md) | ✅ Done | Mobile disclosure accessibility, empty-state setup guidance, contrast, Settings icons, and Payout headings. |
 
 **Legend:** ✅ Done · 🟡 Ready to hand off · ⚪ Not yet scoped · 🔵 Deferred

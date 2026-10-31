@@ -1,7 +1,7 @@
 # Unified Project Spec — mobile-expense-tracker v2.0
 
 > Project overview; detailed feature contracts are linked from the [specs index](README.md).
-> Compiled: 2026-10-30. Status: all Phase 1 and Phase 2 features done.
+> Compiled: 2026-10-31. Status: all Phase 1 and Phase 2 features done.
 
 ---
 
@@ -212,11 +212,11 @@ Invite-only model — no sign-up form. Users invited via Supabase dashboard.
 | Route | Purpose | Key Features |
 |---|---|---|
 | `/login` | Sign-in (Google OAuth + magic link) | Google primary, magic link fallback, invite-only, disabled when Supabase not configured |
-| `/` | Summary / Dashboard | Month nav, 4 metric cards, Accounts table, Income/Expenses breakdowns with budget targets, Category/Account breakdown charts. Mobile: grouped CategoryBreakdown with progress bars, collapsed Quick Add |
-| `/transactions` | Transaction List | URL search-param filtering (type, month, account, category, text), date grouping toggle, pagination (50/page), edit modal, inline delete. Persistence and account isolation follow the [transaction filter contract](transaction-filters.md). Mobile: card layout. Desktop: table layout |
+| `/` | Summary / Dashboard | Month nav, 4 metric cards, Accounts table, Income/Expenses breakdowns with budget targets, Category/Account breakdown charts. Mobile: grouped CategoryBreakdown with progress bars, collapsed Quick Add whose closed panel is inert |
+| `/transactions` | Transaction List | URL search-param filtering (type, month, account, category, text), date grouping toggle, pagination (50/page), edit modal, inline delete. Query persistence is owned by the private `useTransactionFilterState` hook and follows the [transaction filter contract](transaction-filters.md). Mobile: card layout. Desktop: table layout |
 | `/available-balance` | Cash Reconciliation | Per-account expected balance to user-selected date. **Current** field computable from sub-split amounts (toggle via layers icon). Cash: denomination breakdown grid (₱1000→₱1). Difference column. Read-only |
 | `/payout` | Payout Calculator | Standalone calc (no ledger writes). Percentage/flat-amount mode. Savings sub-split. Validated saves are atomic, guarded against concurrent submissions, and expose pending/success/failure state. |
-| `/settings` | Settings | Accounts CRUD + reorder, Categories CRUD + reorder, Tab Visibility toggle, App Lock (PIN), Cloud Sync controls, Sign-out, Backup & Restore (JSON export/import, CSV export, CSV import from Google Sheets) |
+| `/settings` | Settings | Accounts CRUD + reorder, Categories CRUD + reorder, Tab Visibility toggle, App Lock (PIN), Cloud Sync controls, Sign-out, Backup & Restore (JSON export/import, CSV export, CSV import from Google Sheets). Navigation uses decorative SVG icons, not emoji. |
 
 ### Responsive Layout
 
@@ -316,12 +316,14 @@ Date,Amount,Description,Type,Category,From Account,To Account
 
 | File | Focus |
 |---|---|
-| `e2e/quick-add-summary.spec.ts` | Quick Add → Summary sync |
+| `e2e/quick-add-summary.spec.ts` | Quick Add → Summary sync with seeded category/account option waits, mobile disclosure keyboard/focus behavior, and empty-state setup guidance |
 | `e2e/settings-delete-blocked.spec.ts` | Delete-blocked-if-in-use |
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence |
-| `e2e/transaction-filter-persistence.spec.ts` | Filter selection, direct-URL selection/clearing, and tab restore against dev and the static export |
+| `e2e/transaction-filter-persistence.spec.ts` | Filter selection, direct-URL selection/clearing, tab restore, and full-load/reload restore against dev and the static export |
 | `e2e/settings-orphan-review-deeplink.spec.ts` | Orphan-review deep link hydration and scroll |
+
+`e2e/fixtures.ts` seeds through the running app: `seedIndexedDB` opens `/`, waits for the empty state so IndexedDB initializes at the current version, then writes fixtures without pinning an older version.
 
 Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 
@@ -348,7 +350,8 @@ Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 | Dataset Replacement Sync | ✅ Durable marker, generation fence, managed-write RPC, idempotent replacement |
 | Missing Account Review | ✅ Exact missing IDs, explicit relinking, no guessing/deletion; `#orphan-review` deep link hydrates after mount and scrolls to the review |
 | Codebase Audit | ✅ 21 findings resolved |
-| Empty State / Onboarding | ✅ All pages show import guidance when empty |
+| Empty State / Onboarding | ✅ Accurate manual setup guidance plus `Open Settings` on Dashboard, Transactions, and Available Balance. See [UI accessibility and onboarding](ui-accessibility-onboarding.md) |
+| UI Accessibility & Onboarding | ✅ Inert closed Quick Add, AA secondary text in both themes (including Settings empty accounts and no-categories messages, Input-owned peso and percent adornments in Quick Add, Settings, and Payout, the Stocks empty-state message in both themes, and the Payout selected mode and warning text), SVG Settings nav icons, hierarchical payout heading. See [feature contract](ui-accessibility-onboarding.md) |
 | Seed Data Removal | ✅ App starts clean |
 | Category Reordering | ✅ sortOrder field, DB v6 migration |
 | Bottom Tab Bar | ✅ Mobile fixed bottom nav |
@@ -381,6 +384,7 @@ Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 | A fenced push keeps its queue entry | Retry counting would drop the user's write even though only explicit resolution can fix the generation |
 | Local marker adoption is one transaction | Separate check, copy, and delete can overwrite a user marker or delete a newer local marker |
 | Conflict preparation re-reads the marker | Reading before the transaction can rebuild and overwrite a marker changed by a concurrent import |
+| Transaction filter query in a private hook | `useTransactionFilterState` owns URL/mirror precedence, one-time restore, and the two-stage Next history publish. The filter spec records the installed 16.2.9 restore-publish evidence and the upgrade recheck. The list keeps filter derivation and rendering; no generic URL hook without a second consumer. |
 
 ---
 

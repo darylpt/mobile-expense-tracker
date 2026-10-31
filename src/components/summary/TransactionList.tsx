@@ -1,305 +1,38 @@
-// ============================================================
-// TransactionList - Displays a filterable, scrollable list of
-// transactions with edit and delete capability.
-// Filter state lives in URL search params (shareable) and is
-// mirrored to localStorage so tab switches don't lose it.
-// ============================================================
-
 'use client';
 
-import React, { useState, useMemo, useEffect, useRef, useSyncExternalStore } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { useTransactionContext, formatAmount } from '@/context/TransactionContext';
-import { useSearchParams } from 'next/navigation';
 import { formatMonthYear, getPreviousMonthYear, getNextMonthYear, getCurrentMonthYear } from '@/lib/utils';
 import { Button } from '@/components/common/Button';
 import { EditTransactionModal } from '@/components/forms/EditTransactionModal';
 import { AddTransactionButton } from '@/components/summary/AddTransactionButton';
+import { useTransactionFilterState } from '@/components/summary/useTransactionFilterState';
 import type { Transaction, TransactionType } from '@/types';
 import { DELETED_ACCOUNT_LABEL } from '@/lib/orphans';
-
-import { FILTERS_STORAGE_KEY, filterQuery } from '@/lib/transaction-filters';
-
-// The mount-time restore moves from no read yet, to either not restored or
-// backing the controls until the browser URL carries the restored query.
-// `settled` records the allowlisted projection of that explicit or published
-// browser query, together with the identity that owned it, so a later identity
-// switch can keep that query out of the new user's mirror. The shared idle
-// value keeps a repeated clear from scheduling another render.
-type Restore =
-  | { status: 'undecided' }
-  | { status: 'idle' }
-  | { status: 'active'; filters: string; userId: string | null; pathname: string }
-  | { status: 'settled'; filters: string; userId: string | null };
-
-const RESTORE_UNDECIDED: Restore = { status: 'undecided' };
-const RESTORE_IDLE: Restore = { status: 'idle' };
-
-// A never-changing store used only to learn when React has hydrated:
-// `useSyncExternalStore` reports the server snapshot during hydration and the
-// client snapshot right after it, keeping the mirror read off the server.
-const subscribeNothing = () => () => {};
-const hydratedSnapshot = () => true;
-const serverHydratedSnapshot = () => false;
-
-function readSavedFilters(): string | null {
-  try {
-    return localStorage.getItem(FILTERS_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-// The canonical query is the whole browser URL query, including view-only
-// params such as `group` and `page` that the mirror projection drops.
-function readBrowserQuery(): string {
-  return window.location.search.replace(/^\?/, '');
-}
-
-// The browser URL is canonical once hydrated: an explicit write replaces it
-// synchronously, while Next's router can keep projecting the query it had
-// before. A pending restore still owns the projection. Before hydration the
-// router value is the only source, and callers pass an empty browser query so
-// the server path never reads `window`.
-function canonicalFilterParams(
-  hydrated: boolean,
-  routerParams: URLSearchParams,
-  browserQuery: string,
-  restoreFilters: string | null
-): URLSearchParams {
-  if (restoreFilters !== null) return new URLSearchParams(restoreFilters);
-  if (hydrated) {
-    const browserParams = new URLSearchParams(browserQuery);
-    if (browserParams.toString() !== routerParams.toString()) return browserParams;
-  }
-  return routerParams;
-}
-
-// A query already in the browser URL is explicit and wins over the saved one,
-// so only a query-less URL may become the mount-time restore. The router's
-// projection is ignored here: on the first render it can still report the
-// query it had before, which would turn this plain-link restore into an idle.
-function captureRestore(userId: string | null): Restore {
-  const filters = readBrowserQuery() ? '' : filterQuery(readSavedFilters() ?? '');
-  if (!filters) return RESTORE_IDLE;
-  return { status: 'active', filters, userId, pathname: window.location.pathname };
-}
 
 export function TransactionList() {
   const { state: authState, user } = useAuth();
   const userId = user?.id ?? null;
   const ctx = useTransactionContext();
   const { hideAmounts } = ctx;
-  const searchParams = useSearchParams();
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
-  // `specs/transaction-filters.md` allows mirror reads and writes only once
-  // auth is authenticated or offline-disabled.
   const canMirrorFilters = authState === 'authenticated' || authState === 'disabled';
-
-  // Reading the mirror during render is what makes the first paint after
-  // hydration show the restored selection. `isHydrated` keeps that read off
-  // the server.
-  const isHydrated = useSyncExternalStore(subscribeNothing, hydratedSnapshot, serverHydratedSnapshot);
-
-  // The saved query is captured once per page load, and only when the URL has
-  // no query of its own, so an explicit link keeps winning over the mirror.
-  // `undecided` is the pre-capture state; it also keeps a later clear from
-  // restoring the mirror again.
-  const [restore, setRestore] = useState<Restore>(
-    () => (isHydrated && canMirrorFilters ? captureRestore(userId) : RESTORE_UNDECIDED)
-  );
-
-  // Hydration or auth can finish after mount; make the one-time decision then.
-  if (restore.status === 'undecided' && isHydrated && canMirrorFilters) {
-    setRestore(captureRestore(userId));
-  }
-
-  // Any explicit filter write owns the URL from then on. The deferred publish
-  // must not overwrite it or undo a clear that lands before the timer fires.
-  const explicitUrlWrite = useRef(false);
-
-  // The restore ends once the browser query diverges from the restored query
-  // (a newer explicit choice wins), or once the browser URL carries a query and
-  // the router reports the restored allowlisted query. The browser query is the
-  // whole canonical query, not its allowlisted projection: a view-only URL such
-  // as `group=date&page=3` is still explicit and replaces the restore. An empty
-  // browser URL is the pre-publish window, so the router projection cannot
-  // settle it: the router can still project the saved filters alongside a
-  // view-only page from before, and settling on that would hand the controls an
-  // empty URL and let the mirror effect clear the saved query. The settled state
-  // keeps the query's owner so an identity switch cannot save it as the new
-  // user's mirror.
-  if (restore.status === 'active') {
-    const currentQuery = readBrowserQuery();
-    if (currentQuery && currentQuery !== restore.filters) {
-      setRestore({ status: 'settled', filters: filterQuery(currentQuery), userId: restore.userId });
-    } else if (currentQuery && filterQuery(searchParams.toString()) === restore.filters) {
-      setRestore({ status: 'settled', filters: restore.filters, userId: restore.userId });
-    }
-  }
-
-  // A restore only backs the controls while the same user's publish is still
-  // pending. Auth and identity changes drop it without another render.
-  const activeRestore =
-    restore.status === 'active' && canMirrorFilters && userId === restore.userId
-      ? restore
-      : null;
-
-  // ==================================================================
-  // URL search param helpers
-  // ==================================================================
-
-  // Local writes replace the URL synchronously, but the router's params may stay
-  // stale until Next catches up, and an idle clear or repeat write schedules no
-  // other state change. Bumping a render makes the projection re-read the
-  // browser URL after each write.
-  const [, bumpUrlRevision] = useState(0);
-
-  const clearFilters = () => {
-    setRestore(RESTORE_IDLE);
-    if (canMirrorFilters) {
-      try { localStorage.removeItem(FILTERS_STORAGE_KEY); } catch { /* ignore storage failures */ }
-    }
-    explicitUrlWrite.current = true;
-    window.history.replaceState(null, '', window.location.pathname);
-    bumpUrlRevision(n => n + 1);
-  };
-
-  // ==================================================================
-  // Restore publish
-  // ==================================================================
-
-  // Publish the restored query so the URL is correct right away. Keep the
-  // current history state so Next's router internals survive the write when
-  // the patch is not installed yet.
-  useEffect(() => {
-    if (!activeRestore) return;
-    window.history.replaceState(window.history.state, '', `?${activeRestore.filters}`);
-  }, [activeRestore]);
-
-  // Next patches `window.history` in an effect that runs after this component's
-  // effects on a full page load, so the publish above never reaches
-  // `useSearchParams`. Re-publish once that patch is live so Next copies its
-  // own internals into the entry and dispatches the URL restore. Passing the
-  // current history state would hit Next's internal-state bypass and leave the
-  // params stale, which is what the production static export did.
-  useEffect(() => {
-    if (!activeRestore) return;
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      if (cancelled) return;
-      if (
-        explicitUrlWrite.current ||
-        window.location.pathname !== activeRestore.pathname ||
-        (window.location.search !== '' && window.location.search !== `?${activeRestore.filters}`)
-      ) {
-        return;
-      }
-      window.history.replaceState(null, '', `?${activeRestore.filters}`);
-    }, 0);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [activeRestore]);
-
-  // A query already in the URL is explicit and wins over the saved one.
-  // Otherwise the plain `/transactions` tab link restores the last query.
-  useEffect(() => {
-    // Hydration must capture the saved query before an empty URL can clear it.
-    if (!isHydrated || !canMirrorFilters) return;
-    // An identity change abandons the restore instead of saving its query back.
-    if (restore.status === 'active' && userId !== restore.userId) return;
-    // The browser URL is canonical: explicit filter writes and clears replace it
-    // synchronously, while `useSearchParams` can still report the query it had
-    // before. Reading the router first would let that stale query overwrite the
-    // new mirror, or resurrect a cleared one on the next visit.
-    const query = readBrowserQuery();
-    const filters = filterQuery(query);
-    // The settled query belongs to the identity that restored it. Any other
-    // query is a new explicit choice and still becomes the current user's
-    // mirror.
-    if (restore.status === 'settled' && userId !== restore.userId && filters === restore.filters) {
-      return;
-    }
-    if (!filters && activeRestore) return;
-    try {
-      if (filters) localStorage.setItem(FILTERS_STORAGE_KEY, filters);
-      else localStorage.removeItem(FILTERS_STORAGE_KEY);
-    } catch {}
-    // `searchParams` is a re-run trigger only: Next can project a query the URL
-    // has already replaced, so its value must not decide the mirror.
-  }, [searchParams, isHydrated, canMirrorFilters, userId, restore, activeRestore]);
-
-  // `useSearchParams` can keep reporting the pre-restore query through the whole
-  // static-export restore window. The URL is still canonical; read the controls
-  // from the published query until the router catches up. The same holds after
-  // an explicit write drops the restore to idle and the router stays stale, so
-  // the whole browser query, view-only params included, backs the controls.
-  // Reading the URL each render puts it in the memo deps, so a forced render
-  // after a local write re-reads it even when the router's params do not change.
-  const browserQuery = isHydrated ? readBrowserQuery() : '';
-  const filterParams = useMemo(
-    () =>
-      canonicalFilterParams(
-        isHydrated,
-        searchParams,
-        browserQuery,
-        activeRestore ? activeRestore.filters : null
-      ),
-    [activeRestore, isHydrated, searchParams, browserQuery]
-  );
-
-  // The canonical projection already resolves a pending restore and a newer
-  // browser URL the router has not caught up to. Resolving it again here keeps
-  // a second write from rebuilding the query out of a memo the first write has
-  // outdated. Building from the router's query instead would resurrect its
-  // stale filters and drop the view-only params the URL has.
-  const setParam = (name: string, value: string | null) => {
-    const params = new URLSearchParams(
-      canonicalFilterParams(
-        isHydrated,
-        searchParams,
-        isHydrated ? readBrowserQuery() : '',
-        activeRestore ? activeRestore.filters : null
-      )
-    );
-    if (value === null || value === '') {
-      params.delete(name);
-    } else {
-      params.set(name, value);
-    }
-    const query = params.toString();
-    if (canMirrorFilters) {
-      const filters = filterQuery(query);
-      try {
-        if (filters) localStorage.setItem(FILTERS_STORAGE_KEY, filters);
-        else localStorage.removeItem(FILTERS_STORAGE_KEY);
-      } catch { /* ignore storage failures */ }
-    }
-    setRestore(RESTORE_IDLE);
-    explicitUrlWrite.current = true;
-    window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname);
-    bumpUrlRevision(n => n + 1);
-  };
+  const { params: filterParams, setParam, clearFilters, normalizePage } = useTransactionFilterState({
+    canMirror: canMirrorFilters,
+    userId,
+  });
 
   const removeParam = (name: string) => setParam(name, null);
 
-  // ==================================================================
-  // Search input draft. The URL q is the committed value.
-  // ==================================================================
-
   const urlQ = filterParams.get('q') ?? '';
 
-  // Reset the draft when q changes externally (filter pill ×, back/forward,
-  // pasted URL). Comparing against the last q seen keeps the reset
-  // conditional, and the input updates in the same render as the URL.
   const [searchValue, setSearchValue] = useState(urlQ);
   const [lastUrlQ, setLastUrlQ] = useState(urlQ);
   if (lastUrlQ !== urlQ) {
@@ -494,16 +227,9 @@ export function TransactionList() {
     return groups;
   }, [pageTransactions, filterParams]);
 
-  // Reset page param when filters change. The canonical projection is the URL
-  // the controls and writers use, so a stale router query cannot drop a
-  // pending restore's published URL or keep a page param it never carried.
   useEffect(() => {
-    const params = new URLSearchParams(filterParams);
-    if (params.has('page') && hasActiveFilters) {
-      params.delete('page');
-      window.history.replaceState(null, '', `?${params.toString()}`);
-    }
-  }, [hasActiveFilters, filterParams]);
+    normalizePage(hasActiveFilters);
+  }, [hasActiveFilters, normalizePage]);
 
   // Summary stats for desktop metric cards (must be after filteredTransactions)
   const summaryStats = useMemo(() => {
@@ -546,21 +272,21 @@ export function TransactionList() {
       label: 'Income',
       dotColor: 'bg-emerald-500',
       activeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-      inactiveClass: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400',
+      inactiveClass: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
     },
     {
       type: 'expense',
       label: 'Expense',
       dotColor: 'bg-red-500',
       activeClass: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-      inactiveClass: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400',
+      inactiveClass: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
     },
     {
       type: 'transaction',
       label: 'Transfer',
       dotColor: 'bg-blue-500',
       activeClass: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-      inactiveClass: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400',
+      inactiveClass: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
     },
   ];
 
@@ -609,7 +335,7 @@ export function TransactionList() {
       <div className="hidden lg:flex lg:items-center lg:justify-between lg:mb-4">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
           Transactions
-          <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-sm font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+          <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-sm font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
             {filteredTransactions.length}
           </span>
         </h2>
@@ -626,7 +352,7 @@ export function TransactionList() {
           </button>
           <button
             onClick={() => isAllMode ? removeParam('month') : setParam('month', 'all')}
-            className={`text-xs font-medium rounded px-2 py-1 transition-colors ${isAllMode ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
+            className={`text-xs font-medium rounded px-2 py-1 transition-colors ${isAllMode ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-zinc-600 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
           >
             All time
           </button>
@@ -678,7 +404,7 @@ export function TransactionList() {
             className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ring-1 ring-inset ${
               getGroupParam()
                 ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 ring-violet-300 dark:ring-violet-700'
-                : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400 ring-zinc-300 dark:ring-zinc-600'
+                : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 ring-zinc-300 dark:ring-zinc-600'
             }`}
           >
             {getGroupParam() ? 'Grouped' : 'Group by date'}
@@ -743,7 +469,7 @@ export function TransactionList() {
               </Button>
               <button
                 onClick={() => isAllMode ? removeParam('month') : setParam('month', 'all')}
-                className={`text-xs font-medium ${isAllMode ? 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300' : 'text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300'}`}
+                className={`text-xs font-medium ${isAllMode ? 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300' : 'text-zinc-600 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200'}`}
               >
                 All time
               </button>
@@ -792,7 +518,7 @@ export function TransactionList() {
           className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ring-1 ring-inset ${
             getGroupParam()
               ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 ring-violet-300 dark:ring-violet-700'
-              : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400 ring-zinc-300 dark:ring-zinc-600'
+              : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 ring-zinc-300 dark:ring-zinc-600'
           }`}
         >
           {getGroupParam() ? 'Grouped' : 'Group by date'}
@@ -868,18 +594,20 @@ export function TransactionList() {
       {/* ================================================================ */}
 
       {ctx.transactions.length === 0 ? (
-        <div className="py-8 text-center">
+        <div className="px-4 py-8 text-center">
           <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
             No data yet
           </p>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Import your Google Sheets data to get started.
+          <p className="mx-auto mt-1 max-w-md text-sm text-zinc-600 dark:text-zinc-400">
+            Add accounts and categories in Settings, then use Add to record your first transaction.
+            To import a Google Sheets export, open Settings and choose Data Tools (Import / Export
+            Data on mobile), then Import from Google Sheets.
           </p>
           <Link
             href="/settings"
             className="mt-3 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
-            Go to Settings → Import
+            Open Settings
           </Link>
         </div>
       ) : filteredTransactions.length === 0 ? (
@@ -916,7 +644,7 @@ export function TransactionList() {
                               tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
                             }`} />
                             <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                              {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
+                              {tx.description || <span className="italic text-zinc-500 dark:text-zinc-400">No description</span>}
                             </span>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
@@ -957,7 +685,7 @@ export function TransactionList() {
                         <div className="mt-0.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                           {tx.category}
                         </div>
-                    <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+                    <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
                       {tx.type === 'income'
                         ? `→ ${accountLabel(tx.toAccount)}`
                         : tx.type === 'expense'
@@ -983,7 +711,7 @@ export function TransactionList() {
                         tx.type === 'income' ? 'bg-emerald-500' : tx.type === 'expense' ? 'bg-red-500' : 'bg-blue-500'
                       }`} />
                       <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                        {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
+                        {tx.description || <span className="italic text-zinc-500 dark:text-zinc-400">No description</span>}
                       </span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -1026,7 +754,7 @@ export function TransactionList() {
                     <span className="mx-1">·</span>
                     <span className="font-semibold text-zinc-700 dark:text-zinc-300">{tx.category}</span>
                   </div>
-                  <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+                  <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
                     {tx.type === 'income'
                       ? `→ ${accountLabel(tx.toAccount)}`
                       : tx.type === 'expense'
@@ -1070,7 +798,7 @@ export function TransactionList() {
                         {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
                       <td className="py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
-                        {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
+                        {tx.description || <span className="italic text-zinc-500 dark:text-zinc-400">No description</span>}
                       </td>
                       <td className="py-2.5 pr-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
                         {tx.category}
@@ -1127,7 +855,7 @@ export function TransactionList() {
                       {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
                     <td className="py-2.5 pr-4 text-sm text-zinc-500 dark:text-zinc-400">
-                      {tx.description || <span className="italic text-zinc-300 dark:text-zinc-600">No description</span>}
+                      {tx.description || <span className="italic text-zinc-500 dark:text-zinc-400">No description</span>}
                     </td>
                     <td className="py-2.5 pr-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">
                       {tx.category}
