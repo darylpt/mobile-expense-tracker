@@ -1,10 +1,10 @@
 project: "mobile-expense-tracker"
-version: "0.18.4"
+version: "0.19.1"
 phase: "build"
 current_epic: "auth-and-security"
-current_story: "oauth-and-app-lock"
+current_story: "ui-accessibility-onboarding"
 last_action: "2026-11-04 — Fixed PWA sync lifecycle: visible online authenticated resumes now trigger sync, matching-user completion refreshes IDB-backed state, rejected auth lookups release the sync guard, and stale pulls cannot write after cache ownership changes. Verified 235/235 tests in 23 suites, TypeScript, zero lint errors with five existing warnings, and local mobile/desktop viewport smoke with no browser console errors. Live Supabase and iOS-device verification unavailable."
-story_end: "2026-10-30T00:00:00Z"
+story_end: "2026-10-31T00:00:00Z"
 stories:
   - "stock-schema"
   - "stock-crud"
@@ -16,10 +16,11 @@ stories:
   - "dividend-expansion"
   - "oauth-and-app-lock"
   - "transaction-filter-persistence"
+  - "ui-accessibility-onboarding"
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"
-  tests_passing: "235/235 unit tests in 23 suites (E2E not included); previous orphan-review deep-link E2E 1/1 Chromium"
+  tests_passing: "228/228 unit tests in 22 suites; dev E2E 96 passed with 4 expected Quick Add mobile skips across Chromium, Firefox, mobile, tablet, and desktop; production static-export E2E 6/6"
   eslint_errors: 0
   eslint_warnings: 5 # pre-existing warnings
   ts_errors: 0

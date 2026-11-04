@@ -103,7 +103,8 @@ Budgets" button. Category and Account breakdown charts via tabs.
 
 **Mobile (<768px):** Accounts table, Income table, and Expenses table are hidden.
 Replaced by a grouped CategoryBreakdown (Income/Expenses/Transfers sections) with
-progress bars. Quick Add form is collapsed by default — tap to expand.
+progress bars. Quick Add form is collapsed by default — tap to expand. While
+collapsed, the panel is inert for keyboard and assistive-technology users.
 
 ### `/transactions` — Transaction List
 
@@ -162,8 +163,10 @@ npm install
 npm run dev              # Start dev server at http://localhost:3000
 ```
 
-The app starts clean with no seed data. Import your data via CSV (Settings →
-Import CSV) or restore a JSON backup.
+The app starts clean with no seed data. Add accounts and categories in Settings,
+then record transactions using Quick Add or the Transactions page’s Add button.
+For CSV import or JSON backup restore, open Settings → Data Tools (Import / Export
+Data on mobile). Choose Import from Google Sheets for a CSV export.
 
 ### Optional: Supabase Cloud Sync
 

@@ -208,7 +208,7 @@ function CategoryBreakdownList({ items, hideAmounts }: BreakdownListProps) {
                     <div className="mb-1 flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
                         <span className={`inline-block h-2 w-2 rounded-full ${DOT_CLASS[type]}`} />
-                        <span className={`font-medium ${isZero ? 'text-zinc-500 dark:text-zinc-500' : 'text-zinc-800 dark:text-zinc-200'}`}>
+                        <span className={`font-medium ${isZero ? 'text-zinc-500 dark:text-zinc-400' : 'text-zinc-800 dark:text-zinc-200'}`}>
                           {item.category}
                         </span>
                       </div>
@@ -223,7 +223,7 @@ function CategoryBreakdownList({ items, hideAmounts }: BreakdownListProps) {
                         style={{ width: `${(item.totalAmount / maxAmount) * 100}%` }}
                       />
                     </div>
-                    <div className="mt-0.5 flex justify-between text-xs text-zinc-500 dark:text-zinc-500">
+                    <div className="mt-0.5 flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
                       <span>{item.count} {item.count === 1 ? 'entry' : 'entries'}</span>
                       <span>{item.percentage.toFixed(1)}% of total</span>
                     </div>

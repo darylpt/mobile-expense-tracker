@@ -31,7 +31,7 @@ The user's real transaction data lives in a Google Sheets budget tracker. The ap
 | Bulk import function | `src/lib/idb.ts` — `importFromCsv(data)` |
 | Import UI section | `src/app/settings/page.tsx` |
 | Import preview component | `src/components/forms/CsvImportPreview.tsx` |
-| Empty-state handling | All pages show "Import your data" when no transactions exist |
+| Empty-state handling | Dashboard, Transactions, and Available Balance show setup guidance with an `Open Settings` link; import path is described in copy |
 
 ---
 
@@ -159,6 +159,9 @@ Add below the existing Backup/Restore section. Paste CSV or upload `.csv` file.
 | `src/lib/orphans.ts` | Missing-account grouping, safe labels, explicit relinking |
 | `src/app/settings/page.tsx` | Import status, conflict actions, Missing Account Review |
 | `supabase/migrations/007_dataset_generation.sql` | Generation table, write fence, managed-write RPC, replacement RPC |
+| `src/components/summary/MonthlySummaryCard.tsx` | Handle empty state — manual setup guidance plus `Open Settings` when no transactions |
+| `src/app/available-balance/page.tsx` | Handle empty accounts with account-setup guidance plus `Open Settings` |
+| `src/app/transactions/page.tsx` | Handle empty state — setup guidance instead of "No transactions yet" |
 
 ### Parser (`csv-import.ts`)
 
@@ -230,19 +233,7 @@ Settings exposes the review at `/settings#orphan-review`. The first client rende
 
 ### Empty-state handling
 
-When no transactions exist in IndexedDB, every page shows a card:
-
-```
-┌────────────────────────────────────┐
-│  No data yet                       │
-│  Import your Google Sheets data    │
-│  to get started.                   │
-│                                    │
-│  [Go to Settings → Import]        │
-└────────────────────────────────────┘
-```
-
-The app **should still render** — just show the empty state instead of tables/graphs. Do not crash.
+The [empty-state onboarding contract](ui-accessibility-onboarding.md#empty-states) owns the route-specific setup guidance and Settings import path. Screens without data render that guidance instead of crashing.
 
 ---
 
@@ -278,6 +269,7 @@ The app **should still render** — just show the empty state instead of tables/
 12. A failed import shows the underlying error name and message
 13. On the first open, every concurrent caller awaits one shared initialization that hydrates the persisted generation before any sync entry is stamped; a failed open or hydration leaves no usable singleton and a later call retries
 14. The UUID migration replaces account and category primary keys without leaving duplicate rows, and every persisted replacement-marker snapshot, transaction reference, balance snapshot, and queue entry follows the new IDs in the same transaction; the versioned completion flag `uuid_migration_v2_done` is written only after it commits, and a leftover `uuid_migration_done` key never suppresses this migration
+15. Every empty screen shows accurate setup guidance with import reachable through the described Settings path, with no plain `/settings` link labelled as a direct Import route
 
 ## Key Decisions
 

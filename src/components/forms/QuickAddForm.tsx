@@ -6,7 +6,7 @@
 
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useSyncExternalStore } from 'react';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useCategories } from '@/hooks/useCategories';
 import { useAccounts } from '@/hooks/useAccounts';
@@ -29,6 +29,15 @@ const initialFormState: FormState = {
   description: '',
 };
 
+const PANEL_ID = 'quick-add-panel';
+const MOBILE_QUERY = '(max-width: 767px)';
+
+const subscribeMobile = (onChange: () => void) => {
+  const query = window.matchMedia(MOBILE_QUERY);
+  query.addEventListener('change', onChange);
+  return () => query.removeEventListener('change', onChange);
+};
+
 // ============================================================
 // QuickAddForm Component
 // ============================================================
@@ -42,6 +51,12 @@ export function QuickAddForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(true);
+  const isMobile = useSyncExternalStore(
+    subscribeMobile,
+    () => window.matchMedia(MOBILE_QUERY).matches,
+    () => false
+  );
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   // Update a single form field
   const updateField = useCallback(
@@ -105,6 +120,7 @@ export function QuickAddForm() {
         description: prev.description,
       }));
       setCollapsed(true);
+      if (isMobile) toggleRef.current?.focus();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to add transaction';
       setError(message);
@@ -126,12 +142,13 @@ export function QuickAddForm() {
       onKeyDown={handleKeyDown}
       className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50"
     >
-      {/* Collapsed: tap to expand (mobile) / always expanded (md+) */}
       <button
+        ref={toggleRef}
         type="button"
-        onClick={() => { if (window.innerWidth < 768) setCollapsed(!collapsed); }}
-        className="flex w-full items-center justify-between px-4 py-3 text-left sm:px-6 md:cursor-default"
+        onClick={() => { if (isMobile) setCollapsed(!collapsed); }}
+        className="flex w-full items-center justify-between px-4 py-3 text-left sm:px-6 md:hidden"
         aria-expanded={!collapsed}
+        aria-controls={PANEL_ID}
       >
         <span className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
           {collapsed ? (
@@ -143,14 +160,23 @@ export function QuickAddForm() {
             'Quick Add'
           )}
         </span>
-        {/* Collapse indicator — hide on desktop */}
-        <span className={`text-xs text-zinc-400 transition-transform md:hidden ${collapsed ? '' : 'rotate-180'}`}>
+        <span className={`text-xs text-zinc-500 transition-transform dark:text-zinc-400 ${collapsed ? '' : 'rotate-180'}`}>
           ▼
         </span>
       </button>
+      <div className="hidden w-full items-center px-4 py-3 sm:px-6 md:flex">
+        <span className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+          <span className="mr-1.5 inline-block text-blue-500">+</span>
+          Add Transaction
+        </span>
+      </div>
 
       {/* Expanded: form fields + submit */}
-      <div className={`overflow-hidden transition-all md:!max-h-full ${collapsed ? 'max-h-0' : 'max-h-[2000px]'}`}>
+      <div
+        id={PANEL_ID}
+        inert={collapsed && isMobile}
+        className={`overflow-hidden transition-all md:!max-h-full ${collapsed ? 'max-h-0' : 'max-h-[2000px]'}`}
+      >
         <div className="border-t border-zinc-200 px-4 pb-4 pt-3 dark:border-zinc-700 sm:px-6 sm:pb-6">
           <TransactionFormFields
             form={form}

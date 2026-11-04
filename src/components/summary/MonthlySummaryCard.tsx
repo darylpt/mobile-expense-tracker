@@ -125,18 +125,20 @@ export function MonthlySummaryCard() {
 
   if (ctx.transactions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16">
+      <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
         <p className="text-base font-medium text-zinc-900 dark:text-zinc-100">
           No data yet
         </p>
-        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          Import your Google Sheets data to get started.
+        <p className="mt-2 max-w-md text-sm text-zinc-600 dark:text-zinc-400">
+          Add accounts and categories in Settings, then record transactions with Quick Add. To
+          import a Google Sheets export, open Settings and choose Data Tools (Import / Export Data
+          on mobile), then Import from Google Sheets.
         </p>
         <Link
           href="/settings"
           className="mt-4 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
         >
-          Go to Settings → Import
+          Open Settings
         </Link>
       </div>
     );
@@ -305,7 +307,7 @@ function StatCard({ label, value, sub, color }: StatCardProps) {
     <div className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
       <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{label}</p>
       <p className={`mt-1 text-base font-semibold tabular-nums ${color}`}>{value}</p>
-      <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">{sub}</p>
+      <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{sub}</p>
     </div>
   );
 }
@@ -327,7 +329,7 @@ function AccountsTable({ rows, hideAmounts }: { rows: AccountRow[]; hideAmounts:
   if (rows.length === 0) {
     return (
       <SectionCard title="Accounts">
-        <p className="py-4 text-center text-sm text-zinc-500">No accounts configured.</p>
+        <p className="py-4 text-center text-sm text-zinc-500 dark:text-zinc-400">No accounts configured.</p>
       </SectionCard>
     );
   }

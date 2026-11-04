@@ -27,6 +27,24 @@ test('selecting a type filter mirrors to storage and restores after tab navigati
   await expect(page.getByRole('button', { name: 'Transfer', exact: true }).filter({ visible: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
+test('restores saved filters after a full page load and a plain-URL reload', async ({ page }) => {
+  await page.goto('/transactions/');
+  await page.evaluate(() => localStorage.setItem('transactions_filters', 'type=income%2Ctransaction'));
+  await page.reload();
+  await expect.poll(() => new URL(page.url()).searchParams.get('type')).toBe('income,transaction');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('transactions_filters'))).toBe('type=income%2Ctransaction');
+  await expect(page.getByRole('button', { name: 'Expense', exact: true }).filter({ visible: true })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByRole('button', { name: 'Income', exact: true }).filter({ visible: true })).toHaveAttribute('aria-pressed', 'true');
+
+  await page.evaluate(() => window.history.replaceState(window.history.state, '', '/transactions/'));
+  await expect.poll(() => new URL(page.url()).search).toBe('');
+  await page.reload();
+  await expect.poll(() => new URL(page.url()).searchParams.get('type')).toBe('income,transaction');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('transactions_filters'))).toBe('type=income%2Ctransaction');
+  await expect(page.getByRole('button', { name: 'Expense', exact: true }).filter({ visible: true })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByRole('button', { name: 'Income', exact: true }).filter({ visible: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('clears direct URL filters and keeps them cleared after reload', async ({ page }) => {
   await page.goto('/transactions/?month=2026-06&q=direct');
   const search = page.getByRole('textbox', { name: 'Search transactions' }).filter({ visible: true });
@@ -49,12 +67,15 @@ test('removes the last direct search pill without restoring it', async ({ page }
 
 for (const mobile of [false, true]) {
   test(`tab return restores only saved filters from a direct URL (${mobile ? 'mobile' : 'desktop'})`, async ({ page }) => {
-    if (mobile) await page.setViewportSize({ width: 375, height: 812 });
+    await page.setViewportSize(mobile ? { width: 375, height: 812 } : { width: 1280, height: 800 });
     await page.goto('/transactions/?month=2026-06&q=direct&group=date&page=3&unrelated=extra');
     await expect(page.getByRole('textbox', { name: 'Search transactions' }).filter({ visible: true })).toHaveValue('direct');
     await expect.poll(() => new URL(page.url()).search).toBe('?month=2026-06&q=direct&group=date&unrelated=extra');
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('transactions_filters'))).toBe('month=2026-06&q=direct');
     await page.getByRole(mobile ? 'button' : 'link', { name: 'Settings', exact: true }).filter({ visible: true }).click();
+    await expect.poll(() => new URL(page.url()).pathname.replace(/\/+$/, '')).toBe('/settings');
     await page.getByRole(mobile ? 'button' : 'link', { name: 'Transactions', exact: true }).filter({ visible: true }).click();
+    await expect.poll(() => new URL(page.url()).pathname.replace(/\/+$/, '')).toBe('/transactions');
     await expect.poll(() => new URL(page.url()).search).toBe('?month=2026-06&q=direct');
   });
 }

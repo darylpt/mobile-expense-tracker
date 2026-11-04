@@ -145,7 +145,7 @@ export default function StocksPage() {
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-20 pt-6 sm:px-6 sm:pb-0 sm:pt-8">
         {isLoading ? (
-          <div className="py-12 text-center text-sm text-zinc-400">Loading…</div>
+          <div className="py-12 text-center text-sm text-zinc-600 dark:text-zinc-400">Loading…</div>
         ) : !hasStocks ? (
           /* Empty state — show manage tickers inline */
           <div className="space-y-6">
