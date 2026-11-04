@@ -171,6 +171,7 @@ import { supabase } from './supabase';
 const mockedSupabase = supabase as unknown as {
   __state: MockState;
   rpc: jest.Mock;
+  auth: { getUser: jest.Mock };
 };
 
 const state = mockedSupabase.__state;
@@ -222,6 +223,7 @@ beforeAll(() => {
 beforeEach(async () => {
   await clearAllLocalData();
   localStorage.clear();
+  localStorage.setItem('lastUserId', USER);
   state.remoteGeneration = 0;
   state.pulls = {};
   state.selects = [];
@@ -320,6 +322,49 @@ describe('applyDatasetReplacement', () => {
     expect(resolved?.generation).toBe(10);
     expect(resolved?.snapshot).toBeNull();
     expect(state.rpcCalls[state.rpcCalls.length - 1].params.p_generation).toBe(10);
+  });
+});
+
+describe('backgroundSync lifecycle', () => {
+  it('releases the single-flight guard when user lookup rejects, then pulls', async () => {
+    await putDatasetReplacementMarker(
+      marker({ status: 'applied', generation: 1, snapshot: null })
+    );
+    state.remoteGeneration = 1;
+    state.pulls[STORES.ACCOUNTS] = [remoteAccount('recovered-account', 1, 2)];
+
+    mockedSupabase.auth.getUser.mockRejectedValueOnce(new Error('auth unavailable'));
+    await backgroundSync();
+
+    const db = await getDB();
+    expect(await db.get(STORES.ACCOUNTS, 'recovered-account')).toBeUndefined();
+
+    await backgroundSync();
+
+    expect(await db.get(STORES.ACCOUNTS, 'recovered-account')).toBeDefined();
+  });
+
+  it('tags normal and conflict completions with the authenticated user id', async () => {
+    await putDatasetReplacementMarker(
+      marker({ status: 'applied', generation: 1, snapshot: null })
+    );
+    state.remoteGeneration = 1;
+    const details: unknown[] = [];
+    const onComplete = (event: Event) => details.push((event as CustomEvent).detail);
+    window.addEventListener('sync-complete', onComplete);
+    try {
+      await backgroundSync();
+      expect(details).toEqual([{ userId: USER }]);
+
+      await putDatasetReplacementMarker(
+        marker({ status: 'conflict', generation: 1, remoteGeneration: 2, snapshot: snapshot() })
+      );
+      state.remoteGeneration = 2;
+      await backgroundSync();
+      expect(details).toEqual([{ userId: USER }, { userId: USER }]);
+    } finally {
+      window.removeEventListener('sync-complete', onComplete);
+    }
   });
 });
 
@@ -1080,6 +1125,28 @@ describe('pullStore generation fence', () => {
     const accounts = await db.getAll(STORES.ACCOUNTS);
     expect(accounts.map((account) => account.id)).toEqual(['current']);
   });
+
+  it('does not apply remote rows after the cache owner changes', async () => {
+    await putDatasetReplacementMarker(
+      marker({ status: 'applied', generation: 1, snapshot: null })
+    );
+    const db = await getDB();
+    await db.put(STORES.ACCOUNTS, { ...ACCOUNT, name: 'Local' });
+    state.pulls[STORES.ACCOUNTS] = [
+      remoteAccount(ACCOUNT.id, 1, 10000),
+      remoteAccount('next-owner', 1, 10),
+    ];
+    state.onSelect = async () => {
+      state.onSelect = null;
+      localStorage.setItem('lastUserId', 'user-2');
+    };
+
+    await pullStore(STORES.ACCOUNTS, USER, 1);
+
+    const accounts = await db.getAll(STORES.ACCOUNTS);
+    expect(accounts).toEqual([expect.objectContaining({ id: ACCOUNT.id, name: 'Local' })]);
+    expect(await db.get(STORES.ACCOUNTS, 'next-owner')).toBeUndefined();
+  });
 });
 
 
@@ -1220,7 +1287,11 @@ describe('same-generation managed write conflicts', () => {
     state.pulls[table] = [{ id: local.id, updated_at: iso(10000), dataset_generation: 2 }];
     state.rpc = () => ({ data: { status: 'applied', generation: 2 }, error: null });
     let completions = 0;
-    const onComplete = () => { completions++; };
+    let completionDetail: unknown = null;
+    const onComplete = (event: Event) => {
+      completions++;
+      completionDetail = (event as CustomEvent).detail;
+    };
     window.addEventListener('sync-complete', onComplete);
     try {
       await backgroundSync();
@@ -1233,6 +1304,7 @@ describe('same-generation managed write conflicts', () => {
       expect((await db.get(STORES.SYNC_QUEUE, 'rejected'))?.retryCount).toBe(4);
       expect(await db.get(STORES.SYNC_QUEUE, 'later')).toBeDefined();
       expect(completions).toBe(1);
+      expect(completionDetail).toEqual({ userId: USER });
       expect(state.selects).toEqual(['dataset_generations', table]);
       const calls = state.rpcCalls.length;
       await backgroundSync();

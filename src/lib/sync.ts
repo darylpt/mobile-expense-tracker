@@ -418,6 +418,12 @@ export async function pullStore(
     }
   }
 
+  const cacheBelongsToUser = localStorage.getItem('lastUserId') === userId;
+  if (!cacheBelongsToUser) {
+    await tx.done;
+    return;
+  }
+
   // Apply: delete purged, write merged
   for (const id of toDeleteIds) {
     await localStore.delete(id);
@@ -959,11 +965,10 @@ export async function backgroundSync(): Promise<void> {
   if (!supabase || syncInFlight) return; // not configured or already running
   syncInFlight = true;
 
-  // Resolve current user — bail if no session
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) { syncInFlight = false; return; }
-
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     // 0. Migrate any legacy slug IDs to proper UUIDs before syncing
     await ensureUuids();
 
@@ -975,13 +980,13 @@ export async function backgroundSync(): Promise<void> {
     let active = marker;
     if (active.status === 'conflict') {
       // Only the explicit conflict-resolution flow may adopt a new generation.
-      window.dispatchEvent(new CustomEvent('sync-complete'));
+      window.dispatchEvent(new CustomEvent('sync-complete', { detail: { userId: user.id } }));
       return;
     }
     if (active.status !== 'applied') {
       active = (await applyDatasetReplacement(user.id)) ?? active;
       if (active.status !== 'applied') {
-        window.dispatchEvent(new CustomEvent('sync-complete'));
+        window.dispatchEvent(new CustomEvent('sync-complete', { detail: { userId: user.id } }));
         return;
       }
     }
@@ -995,7 +1000,7 @@ export async function backgroundSync(): Promise<void> {
     } catch (err) {
       if (!(err instanceof ManagedWriteConflictError)) throw err;
       await recordManagedConflict(active, err.generation ?? active.generation + 1);
-      window.dispatchEvent(new CustomEvent('sync-complete'));
+      window.dispatchEvent(new CustomEvent('sync-complete', { detail: { userId: user.id } }));
       return;
     }
 
@@ -1023,7 +1028,7 @@ export async function backgroundSync(): Promise<void> {
     localStorage.setItem('last_sync_time', Date.now().toString());
 
     // Notify pages that fresh remote data is available in IDB
-    window.dispatchEvent(new CustomEvent('sync-complete'));
+    window.dispatchEvent(new CustomEvent('sync-complete', { detail: { userId: user.id } }));
   } catch (err) {
     console.error('[Sync] background sync failed:', err);
     // ponytail: silent failure. User's UI is intact from IDB cache.

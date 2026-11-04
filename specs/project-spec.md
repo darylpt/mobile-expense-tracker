@@ -1,7 +1,7 @@
 # Unified Project Spec — mobile-expense-tracker v2.0
 
 > Project overview; detailed feature contracts are linked from the [specs index](README.md).
-> Compiled: 2026-10-30. Status: all Phase 1 and Phase 2 features done.
+> Compiled: 2026-11-04. Status: all Phase 1 and Phase 2 features done.
 
 ---
 
@@ -175,6 +175,8 @@ $$;
 15. Conflict resolution re-reads and validates the marker inside its snapshot transaction and derives the next generation there
 16. A pending `local` marker is adopted under the authenticated user ID in one `datasetMarkers` transaction; an authenticated import deletes the obsolete local marker
 17. On first open, `getDB()` shares one initialization promise and resolves it only after `datasetMarkers` hydrates the active generation; a failed open or hydration clears the promise so a later call retries without exposing a partially initialized singleton
+18. A rejected auth lookup cannot retain the `syncInFlight` guard; the auth check and sync lifecycle share one `try/finally` cleanup path
+19. An authenticated online PWA syncs when its document becomes visible; `sync-complete` carries `userId`, `TransactionProvider` refreshes matching local data, and pulls reject stale cache ownership before applying rows
 
 ---
 
@@ -297,7 +299,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `src/lib/idb-import-uuid-snapshot.test.ts` | UUID migration after an import: no duplicate account, local references and balance snapshot follow, every persisted marker snapshot is remapped, a preexisting `uuid_migration_done` key does not suppress the correctly versioned rerun, and a failed migration leaves `uuid_migration_v2_done` unset |
 | `src/lib/dataset-replacement.test.ts` | Account identity, ID retention, generation sequencing |
 | `src/lib/orphans.test.ts` | Missing-account grouping, safe labels, reference-only relinking |
-| `src/lib/sync.test.ts` | Replacement retry/idempotency, managed-write RPC, generation gate, fenced-push conflict retention, atomic local marker adoption, marker-transition-safe resolution, paginated reconciliation |
+| `src/lib/sync.test.ts` | Replacement retry/idempotency, auth-rejection lock recovery, user-tagged completion events, stale cache-owner pull rejection, managed-write RPC, generation gate, and fenced-push conflict retention |
 | `src/lib/csv-import.test.ts` | CSV parsing, date detection, amount parsing, carry-over logic |
 | `src/lib/reconciliation.test.ts` | Expected balance computation |
 | `src/hooks/useTransactions.test.ts` | Transaction add/delete through the hook |
@@ -307,6 +309,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `src/lib/dividends.test.ts` | Legacy/expanded dividend sync compatibility |
 | `src/components/summary/PortfolioSummaryCard.test.tsx` | Portfolio summary rerender behavior and empty-state handling |
 | `src/context/AuthContext.test.tsx` | Auth lifecycle, identity isolation, sign-out cleanup, PIN remount, and filter mirror gates |
+| `src/context/TransactionContext.test.tsx` | Visible-resume refresh, current-user completion filter, hidden visibility behavior, and online reconnect behavior |
 | `src/lib/transaction-filters.test.ts` | Persistable filter allowlist and query canonicalization |
 | `src/components/summary/TransactionList.test.tsx` | Add dialog toggle render isolation; StrictMode restore/settlement; empty-URL/stale-router settlement; stale-router and view-only URL projection; consecutive filter updates and stale-page normalization; auth-gated persistence, identity-switch provenance, and server-rendered hydration restore |
 | `src/components/forms/DividendForm.test.tsx` | Dividend fields, validation, computed amounts, and loading state |
