@@ -52,8 +52,7 @@ function accountNameMap(accounts: Account[]): Map<string, string> {
  *   current month (expense's fromAccount, transaction's fromAccount).
  * - **Ending Balance** = Starting Balance + Inflow − Outflow.
  *
- * Only accounts that have activity OR a non-zero starting balance are
- * included (zero-balance dormant accounts are skipped).
+ * All configured accounts are included, even zero-balance dormant accounts.
  *
  * A **TOTAL** row is appended at the end.
  */

@@ -141,6 +141,32 @@ test.describe('Quick Add → Summary sync', () => {
   });
 });
 
+test.describe('Mobile accounts summary', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedIndexedDB(page, DEFAULT_SEED);
+    await openDashboard(page);
+  });
+
+  test('accounts table renders below the md breakpoint with balances and flows', async ({ page }) => {
+    test.skip((page.viewportSize()?.width ?? 0) >= 768, 'mobile viewport only');
+
+    const main = page.locator('main');
+    await expect(main.getByRole('heading', { name: 'Accounts', exact: true })).toBeVisible();
+
+    const accountsTable = main.locator('table').first();
+    await expect(accountsTable).toBeVisible();
+
+    const cashRow = accountsTable.locator('tbody tr:has(td:first-child:text-is("Cash"))');
+    await expect(cashRow).toBeVisible();
+    const cells = cashRow.locator('td');
+    await expect(cells).toHaveCount(5);
+    expect(parseCurrency((await cells.nth(1).textContent()) ?? '')).toBe(500);
+    expect(parseCurrency((await cells.nth(2).textContent()) ?? '')).toBe(0);
+    expect(parseCurrency((await cells.nth(3).textContent()) ?? '')).toBe(0);
+    expect(parseCurrency((await cells.nth(4).textContent()) ?? '')).toBe(500);
+  });
+});
+
 test.describe('Mobile Quick Add disclosure', () => {
   test.beforeEach(async ({ page }) => {
     await seedIndexedDB(page, DEFAULT_SEED);

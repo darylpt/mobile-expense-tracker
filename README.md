@@ -101,10 +101,11 @@ table (starting balance / inflow / outflow / ending), Income Breakdown table,
 Expenses Breakdown table with budget targets. Inline budget editor via "Edit
 Budgets" button. Category and Account breakdown charts via tabs.
 
-**Mobile (<768px):** Accounts table, Income table, and Expenses table are hidden.
-Replaced by a grouped CategoryBreakdown (Income/Expenses/Transfers sections) with
-progress bars. Quick Add form is collapsed by default — tap to expand. While
-collapsed, the panel is inert for keyboard and assistive-technology users.
+**Mobile (<768px):** The Accounts table stays visible and scrolls horizontally
+inside its card. The Income and Expenses tables are hidden and replaced by a
+grouped CategoryBreakdown (Income/Expenses/Transfers sections) with progress
+bars. Quick Add form is collapsed by default — tap to expand. While collapsed,
+the panel is inert for keyboard and assistive-technology users.
 
 ### `/transactions` — Transaction List
 

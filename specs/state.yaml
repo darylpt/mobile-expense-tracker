@@ -1,9 +1,9 @@
 project: "mobile-expense-tracker"
-version: "0.19.2"
+version: "0.19.3"
 phase: "build"
 current_epic: "auth-and-security"
 current_story: "ui-accessibility-onboarding"
-last_action: "2026-11-04 — Fixed PWA sync lifecycle: visible online authenticated resumes trigger sync, matching-user completion refreshes IDB-backed state, rejected auth lookups release the sync guard, and stale pulls cannot write after cache ownership changes. Verified 235/235 tests in 23 suites, TypeScript, zero lint errors with five existing warnings, and mobile/desktop Chromium viewport smoke with no console errors. Live Supabase and iOS-device verification unavailable."
+last_action: "2026-11-04 — Fixed PWA sync lifecycle: visible online authenticated resumes trigger sync, matching-user completion refreshes IDB-backed state, rejected auth lookups release the sync guard, and stale pulls cannot write after cache ownership changes. Verified 235/235 tests in 23 suites, TypeScript, zero lint errors with five existing warnings, and mobile/desktop Chromium viewport smoke with no console errors. Live Supabase and iOS-device verification unavailable. Mobile Summary accounts table; see specs/summary-accounts-mobile.md for the AccountBalanceRow contract and mobile inclusion."
 story_end: "2026-10-31T00:00:00Z"
 stories:
   - "stock-schema"

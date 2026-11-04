@@ -191,10 +191,7 @@ export function MonthlySummaryCard() {
         />
       </div>
 
-      {/* Row 2: Accounts table — desktop only, mobile uses CategoryBreakdown */}
-      <div className="hidden md:block">
-        <AccountsTable rows={accountBalances} hideAmounts={hideAmounts} />
-      </div>
+      <AccountsTable rows={accountBalances} hideAmounts={hideAmounts} />
 
       {/* Row 2: Income Breakdown (1/2) | Expenses Breakdown (1/2) — desktop only, mobile uses CategoryBreakdown */}
       <div className="hidden md:block md:space-y-6 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">

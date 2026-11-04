@@ -214,7 +214,7 @@ Invite-only model — no sign-up form. Users invited via Supabase dashboard.
 | Route | Purpose | Key Features |
 |---|---|---|
 | `/login` | Sign-in (Google OAuth + magic link) | Google primary, magic link fallback, invite-only, disabled when Supabase not configured |
-| `/` | Summary / Dashboard | Month nav, 4 metric cards, Accounts table, Income/Expenses breakdowns with budget targets, Category/Account breakdown charts. Mobile: grouped CategoryBreakdown with progress bars, collapsed Quick Add whose closed panel is inert |
+| `/` | Summary / Dashboard | Month nav, 4 metric cards, Accounts table, Income/Expenses breakdowns with budget targets, Category/Account breakdown charts. Mobile layout: see [Summary usage](../README.md) and the [accounts implementation spec](summary-accounts-mobile.md) |
 | `/transactions` | Transaction List | URL search-param filtering (type, month, account, category, text), date grouping toggle, pagination (50/page), edit modal, inline delete. Query persistence is owned by the private `useTransactionFilterState` hook and follows the [transaction filter contract](transaction-filters.md). Mobile: card layout. Desktop: table layout |
 | `/available-balance` | Cash Reconciliation | Per-account expected balance to user-selected date. **Current** field computable from sub-split amounts (toggle via layers icon). Cash: denomination breakdown grid (₱1000→₱1). Difference column. Read-only |
 | `/payout` | Payout Calculator | Standalone calc (no ledger writes). Percentage/flat-amount mode. Savings sub-split. Validated saves are atomic, guarded against concurrent submissions, and expose pending/success/failure state. |
@@ -222,7 +222,7 @@ Invite-only model — no sign-up form. Users invited via Supabase dashboard.
 
 ### Responsive Layout
 
-- **Mobile (<768px):** Single column, fixed bottom tab bar (5 tabs, z-20, safe-area-inset), card layouts for Settings, collapsible Quick Add
+- **Mobile (<768px):** Single column, fixed bottom tab bar (5 tabs, z-20, safe-area-inset), card layouts for Settings, collapsible Quick Add; Summary details are owned by [Summary usage](../README.md)
 - **Tablet (md: 768px+):** Light adjustments (side-by-side fields)
 - **Desktop (lg: 1024px+):** Multi-column grids, wider max-width container (`max-w-7xl mx-auto`)
 
@@ -319,7 +319,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 
 | File | Focus |
 |---|---|
-| `e2e/quick-add-summary.spec.ts` | Quick Add → Summary sync with seeded category/account option waits, mobile disclosure keyboard/focus behavior, and empty-state setup guidance |
+| `e2e/quick-add-summary.spec.ts` | Quick Add → Summary sync with seeded category/account option waits, mobile accounts summary visibility and seeded Cash balances, mobile disclosure keyboard/focus behavior, and empty-state setup guidance |
 | `e2e/settings-delete-blocked.spec.ts` | Delete-blocked-if-in-use |
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence |
