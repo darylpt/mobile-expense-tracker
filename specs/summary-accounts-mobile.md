@@ -28,7 +28,7 @@ The summary renders `AccountBalanceRow[]`, produced by `calculateAccountBalances
 | `outflow` | `number` | Money out of the account during the selected month |
 | `endingBalance` | `number` | `startingBalance + inflow - outflow` |
 
-The array holds one row per configured account in `sortOrder`. When transactions reference account ids that no longer exist, a `_orphaned` row named `Deleted accounts` follows the account rows so their flows still reach the totals. A trailing `'TOTAL'` row always closes the array. `AccountsTable` splits the `TOTAL` row out of `dataRows` and renders it as a footer; the orphan row renders as a normal data row. Accounts with no activity still appear, with zero inflow and outflow and an ending balance equal to the starting balance. Transfers appear as outflow on the source row and inflow on the destination row.
+The array holds one row per configured account in `sortOrder`. When missing account references produce nonzero prior net flow, positive inflow, or positive outflow, a `_orphaned` row named `Deleted accounts` follows the account rows so their flows still reach the totals. A trailing `'TOTAL'` row always closes the array. `AccountsTable` splits the `TOTAL` row out of `dataRows` and renders it as a footer; the orphan row renders as a normal data row. Accounts with no activity still appear, with zero inflow and outflow and an ending balance equal to the starting balance. Transfers appear as outflow on the source row and inflow on the destination row.
 
 ---
 
@@ -60,11 +60,11 @@ At a 375px viewport the card's inner width is about 311px once page and card pad
 
 ## 4. Acceptance criteria
 
-- At widths below 768px, `/` renders the `Accounts` section with one row per account plus the `TOTAL` footer.
+- When the datastore contains transactions, at widths below 768px, `/` renders the `Accounts` section with one row per account plus the `TOTAL` footer.
 - At 768px and above, the Summary route renders exactly what it rendered before this change.
 - Every account row exposes starting balance, inflow, outflow, and ending balance at every breakpoint.
 - The route scrolls vertically only. Horizontal overflow stays inside the accounts table container.
-- An account with no transactions in the selected month still appears with its starting balance as its ending balance.
+- When the datastore contains transactions, an account with no transactions in the selected month still appears with its starting balance as its ending balance.
 - `hideAmounts` masks every numeric cell in the accounts table, on every breakpoint.
 - The `No data yet` empty state still replaces the whole summary when the datastore holds no transactions.
 

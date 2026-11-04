@@ -38,7 +38,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | Version badge + `npm run version:bump` | ✅ Done | `APP_VERSION` in `src/lib/version.ts`. Badge in header. Script auto-increments patch, stages the file. |
 | Sync status display | ✅ Done | `last_sync_time` in localStorage after `backgroundSync()`. Shown as relative time ("just now", "5m ago") on desktop header and mobile header. Sync button reordered before email. |
 | Collapsible Quick Add on mobile | ✅ Done | See the [mobile disclosure contract](./ui-accessibility-onboarding.md#quick-add-disclosure-mobile-768px). |
-| Mobile-only breakdown views | ✅ Done | Income/Expense tables hidden on mobile (`hidden md:block`). CategoryBreakdown (grouped by type) shown on mobile only. The accounts summary deliberately renders at every breakpoint; see [`summary-accounts-mobile.md`](./summary-accounts-mobile.md). |
+| Mobile-only breakdown views | ✅ Done | Income/Expense tables hidden on mobile (`hidden md:block`). CategoryBreakdown (grouped by type) shown on mobile only. Accounts layout: see [Summary usage](../README.md). |
 | Category breakdown grouped by type | ✅ Done | Items grouped under Income/Expenses/Transfers section headers with colored dots/bars. Transfer section included. |
 | Category compound-key dedup fix | ✅ Done | `enrichedCategoryBreakdown` used `Set<string>` keyed by name only — same-name categories with different types silently dropped. Fixed by using compound key `"name|type"`. |
 | Settings mobile card layout | ✅ Done | Accounts & Categories tables on <768px replaced with vertical card stack (flex cards with drag handle, name, icon buttons). Desktop table unchanged. Inline edit/add forms render as stacked cards. Eliminates horizontal scrolling on mobile. |
@@ -50,6 +50,6 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | [`auto-backup.md`](./auto-backup.md) | ✅ Done | Daily localStorage snapshot triggered on app load. Settings → Restore from auto-backup. |
 | [`codebase-audit-backlog.md`](./codebase-audit-backlog.md) | ✅ Done | Comprehensive 2026-07-10 audit. All P1 fixed 2026-07-10. All P2 resolved 2026-07-11. Full-codebase critic review: 18 fixes (sync correctness, React performance, a11y, CSV validation, a11y), 3 won't-fix. All 21 items resolved. |
 | [`ui-accessibility-onboarding.md`](./ui-accessibility-onboarding.md) | ✅ Done | Mobile disclosure accessibility, empty-state setup guidance, contrast, Settings icons, and Payout headings. |
-| [`summary-accounts-mobile.md`](./summary-accounts-mobile.md) | ✅ Done | Per-account summary (starting balance, inflow, outflow, ending balance, TOTAL footer) renders below the `md` breakpoint. One table, one data path, horizontal scroll contained inside its card; `AccountBalanceRow[]` shape documented. v0.19.1. |
+| [`summary-accounts-mobile.md`](./summary-accounts-mobile.md) | ✅ Done | Mobile accounts summary; see the linked spec for implementation and acceptance criteria. |
 
 **Legend:** ✅ Done · 🟡 Ready to hand off · ⚪ Not yet scoped · 🔵 Deferred
