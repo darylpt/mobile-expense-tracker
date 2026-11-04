@@ -276,7 +276,7 @@ mount → AuthGuard checks session
          ↓
     processSyncQueue() → push local changes to Supabase
          ↓
-    pullStore(transactions) → pull fresh data for all 6 stores
+    pullStore(each store) → pull fresh data for all 10 synchronized stores
          ↓
     refreshTransactions() → re-read from IDB, UI updates
 ```
@@ -284,11 +284,18 @@ mount → AuthGuard checks session
 **Critical:** The UI never waits for the network. `refreshTransactions()` runs
 immediately from IDB; sync is a background promise.
 
-### Online/Offline Reactivity
+### Online and foreground reactivity
 
-```typescript
-window.addEventListener('online', () => backgroundSync().then(refreshTransactions));
-```
+The authenticated provider starts a sync when connectivity returns. It also
+requests a sync when the document becomes visible while online, so a resumed
+PWA checks for changes made on another device. The app does not poll in the
+background.
+
+Every `sync-complete` event carries the syncing `userId`. `TransactionProvider`
+re-reads transactions, accounts, and categories from IndexedDB only when the
+event matches its authenticated user. Other data consumers can refresh from
+the same event. The startup path also reads IndexedDB after its sync attempt,
+including when offline.
 
 ### Pull Strategy (per-record LWW merge)
 
@@ -312,11 +319,11 @@ async function pullStore(storeName, userId):
 | `supabase/migrations/002_user_isolation.sql` | **NEW** — TRUNCATE + user_id + per-user RLS |
 | `supabase/migrations/003_add_sort_order.sql` | **NEW** — sort_order for accounts/categories |
 | `src/lib/supabase.ts` | **NEW** — Supabase client wrapper (null if env missing) |
-| `src/lib/sync.ts` | **NEW** — processSyncQueue, pullStore, backgroundSync, FIELD_MAP |
+| `src/lib/sync.ts` | **NEW** — processSyncQueue, pullStore, backgroundSync, FIELD_MAP; user-scoped completion events, stale-cache ownership check, and auth-failure-safe guard cleanup |
 | `src/lib/idb.ts` | **MODIFY** — Add syncQueue store, wrap CRUD to enqueue, monotonic counter, ensureUuids, resyncAll |
 | `src/lib/constants.ts` | **MODIFY** — DB_VERSION, STORES including syncQueue |
 | `src/context/AuthContext.tsx` | **MODIFY** — Auth provider + guard with useEffect redirect |
-| `src/context/TransactionContext.tsx` | **MODIFY** — Auth-aware cache lifecycle, call backgroundSync |
+| `src/context/TransactionContext.tsx` | **MODIFY** — Auth-aware cache lifecycle, online and visible-resume sync, user-scoped completion refresh |
 | `src/app/layout.tsx` | **MODIFY** — Wrap with AuthProvider + AuthGuard |
 | `src/app/login/page.tsx` | **NEW** — Magic link form |
 | `src/app/settings/page.tsx` | **MODIFY** — Sign-out button, SyncSection |
@@ -337,6 +344,9 @@ async function pullStore(storeName, userId):
 | **Sign-out with pending sync** | backgroundSync() runs first; if it fails and queue non-empty, user is warned before proceeding. |
 | **Supabase not configured** | supabase client is null → sync no-ops, auth is disabled. App works fully offline. |
 | **Overlapping sync cycles** | `syncInFlight` module-level guard prevents concurrent backgroundSync cycles. |
+| **Auth lookup rejects** | `backgroundSync()` releases its in-flight guard so a later trigger can retry. |
+| **Authenticated PWA resumes online** | A visible-document transition requests sync; matching user completion refreshes the IDB-backed transaction state. |
+| **User changes during a pull** | A pull skips writes when `lastUserId` no longer matches its captured user. |
 | **sort_order missing on remote** | Migration 003 must be run on Supabase, otherwise upsert returns 400 (unknown column). |
 
 ---

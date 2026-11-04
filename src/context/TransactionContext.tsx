@@ -158,15 +158,38 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
     return () => { cancelled = true; };
   }, [authState, user, refreshTransactions]);
 
-  // Auth-aware online listener: sync when coming back online
   useEffect(() => {
+    const syncIfAuthenticated = () => {
+      if (authState !== 'authenticated' || !user) return;
+      backgroundSync().catch(() => {});
+    };
     const handleOnline = () => {
-      if (authState === 'authenticated' && user) {
-        backgroundSync().then(() => refreshTransactions()).catch(() => {}); // ponytail: fire-and-forget, errors logged inside backgroundSync
-      }
+      if (!navigator.onLine) return;
+      syncIfAuthenticated();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!navigator.onLine) return;
+      syncIfAuthenticated();
     };
     window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [authState, user, refreshTransactions]);
+
+  useEffect(() => {
+    const handleSyncComplete = (event: Event) => {
+      if (authState !== 'authenticated' || !user) return;
+      const detail = (event as CustomEvent<{ userId?: string }>).detail;
+      const completionBelongsToUser = detail?.userId === user.id;
+      if (!completionBelongsToUser) return;
+      refreshTransactions().catch(() => {});
+    };
+    window.addEventListener('sync-complete', handleSyncComplete);
+    return () => window.removeEventListener('sync-complete', handleSyncComplete);
   }, [authState, user, refreshTransactions]);
 
   // Add a transaction
