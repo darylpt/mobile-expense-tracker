@@ -13,8 +13,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useTransactionContext } from '@/context/TransactionContext';
-import { getSyncQueueCount, resyncAll } from '@/lib/idb';
-import { backgroundSync, getFailedSyncCount, clearFailedSyncCount } from '@/lib/sync';
+import { backgroundSync, getSyncStatus, retrySyncWork, type SyncStatus } from '@/lib/sync';
 import { APP_VERSION } from '@/lib/version';
 
 interface HeaderProps {
@@ -109,15 +108,15 @@ const tabs: TabDef[] = [
 export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderProps) {
   const router = useRouter();
   const { state, user, signOut } = useAuth();
-  const { hideAmounts, toggleHideAmounts } = useTransactionContext();
+  const { hideAmounts, toggleHideAmounts, isScopeVerified, isLoading } = useTransactionContext();
   const pathname = usePathname();
 
   const handleSignOut = async () => {
-    // Try to push pending changes before signing out
-    try { await backgroundSync(); } catch { /* offline or error — check queue below */ }
-    const pending = await getSyncQueueCount();
-    if (pending > 0 && !window.confirm(
-      `You have ${pending} unsaved change${pending === 1 ? '' : 's'} that couldn't be synced. Signing out will lose these changes. Continue?`
+    // Best-effort push first. Whatever remains stays safely on this device.
+    try { await backgroundSync(); } catch { /* offline or error — data remains local */ }
+    const status = await getSyncStatus().catch(() => null);
+    if (status && status.queue > 0 && !window.confirm(
+      `You have ${status.queue} change${status.queue === 1 ? '' : 's'} that haven't synced yet. They will remain safely on this device. Sign out?`
     )) return;
     await signOut();
     router.push('/login');
@@ -139,48 +138,52 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
   }, []);
 
   // ── Sync status ──────────────────────────────────────────
-  const [lastSync, setLastSync] = useState<number | null>(() => {
-    try { const ts = localStorage.getItem('last_sync_time'); return ts ? parseInt(ts, 10) : null; } catch { return null; }
-  });
   const [isSyncing, setIsSyncing] = useState(false);
-  const [failedSyncCount, setFailedSyncCount] = useState(() => getFailedSyncCount());
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const syncTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
+  const refreshStatus = useCallback(async () => {
+    try {
+      setSyncStatus(await getSyncStatus());
+    } catch {
+      setSyncStatus(null);
+    }
+  }, []);
+
   useEffect(() => {
-    // Refresh the relative-time display every 30s
-    syncTimer.current = setInterval(() => {
-      const ts = localStorage.getItem('last_sync_time');
-      if (ts) setLastSync(parseInt(ts, 10));
-      // Also refresh failed sync count
-      setFailedSyncCount(getFailedSyncCount());
-    }, 30000);
-    // Listen for sync-time updates from other tabs
+    // Refresh counts/relative time periodically and when another tab syncs.
+    void refreshStatus();
+    syncTimer.current = setInterval(() => { void refreshStatus(); }, 30000);
     const handler = (e: StorageEvent) => {
-      if (e.key === 'last_sync_time' && e.newValue) setLastSync(parseInt(e.newValue, 10));
+      if (e.key === 'last_sync_time') void refreshStatus();
     };
+    const statusHandler = () => { void refreshStatus(); };
     window.addEventListener('storage', handler);
+    window.addEventListener('sync-status-changed', statusHandler);
+    window.addEventListener('sync-complete', statusHandler);
     return () => {
       clearInterval(syncTimer.current);
       window.removeEventListener('storage', handler);
+      window.removeEventListener('sync-status-changed', statusHandler);
+      window.removeEventListener('sync-complete', statusHandler);
     };
-  }, []);
+  }, [refreshStatus]);
 
   const handleSync = useCallback(async () => {
     setIsSyncing(true);
     try {
       await backgroundSync();
     } catch { /* handled in sync.ts */ }
-    const ts = localStorage.getItem('last_sync_time');
-    if (ts) setLastSync(parseInt(ts, 10));
+    await refreshStatus();
     setIsSyncing(false);
-  }, []);
+  }, [refreshStatus]);
 
   const handleRetrySync = useCallback(async () => {
-    clearFailedSyncCount();
-    setFailedSyncCount(0);
-    await resyncAll();
+    await retrySyncWork();
     await handleSync();
   }, [handleSync]);
+
+  const retryableCount = syncStatus?.blocked ?? 0;
 
   const visibleTabs = tabs.filter(t =>
     t.core ||
@@ -195,7 +198,7 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
         <div className="mx-auto flex max-w-4xl items-center justify-between px-4 pt-3 sm:px-6">
           <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
             {title}
-            <span className="ml-2 inline-block rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500">
+            <span className="ml-2 inline-block rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
               v{APP_VERSION}
             </span>
           </h1>
@@ -222,21 +225,21 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
               PWA
             </span>
             {/* Sync status — desktop only */}
-            {state === 'authenticated' && (
-              <span className="hidden items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500 md:inline-flex">
-                {lastSync ? timeAgo(lastSync) : 'never'}
+            {state === 'authenticated' && isScopeVerified && (
+              <span className="hidden items-center gap-1 text-xs text-zinc-600 dark:text-zinc-400 md:inline-flex">
+                {syncSummary(syncStatus)}
               </span>
             )}
-            {failedSyncCount > 0 && (
+            {isScopeVerified && retryableCount > 0 && (
               <button
                 onClick={handleRetrySync}
-                className="hidden items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 transition-colors hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50 md:inline-flex"
-                title={`${failedSyncCount} sync entries failed. Click to retry.`}
+                className="hidden items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 transition-colors hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50 md:inline-flex"
+                title={`${retryableCount} paused upload${retryableCount === 1 ? '' : 's'}. Click to retry.`}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-3 w-3">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                 </svg>
-                {failedSyncCount} failed
+                {retryableCount} paused
               </button>
             )}
             {state === 'authenticated' && (
@@ -244,13 +247,13 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
                 {/* Desktop: sync button */}
                 <button
                   onClick={handleSync}
-                  disabled={isSyncing}
+                  disabled={isSyncing || !isScopeVerified}
                   className="hidden rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 md:inline-block"
                   aria-label="Sync now"
                 >
                   <RefreshIcon className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
                 </button>
-                <span className="hidden text-xs text-zinc-400 dark:text-zinc-500 md:inline" title={user?.email ?? ''}>
+                <span className="hidden text-xs text-zinc-600 dark:text-zinc-400 md:inline" title={user?.email ?? ''}>
                   {user?.email ?? ''}
                 </span>
                 {/* Desktop: text sign-out button */}
@@ -261,24 +264,24 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
                   Sign out
                 </button>
                 {/* Mobile: sync status + button */}
-                <span className="truncate text-[10px] text-zinc-400 dark:text-zinc-500 md:hidden">
-                  {lastSync ? timeAgo(lastSync) : 'never'}
+                <span className="truncate text-[10px] text-zinc-600 dark:text-zinc-400 md:hidden">
+                  {syncSummary(syncStatus)}
                 </span>
-                {failedSyncCount > 0 && (
+                {isScopeVerified && retryableCount > 0 && (
                   <button
                     onClick={handleRetrySync}
-                    className="flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 md:hidden"
-                    title={`${failedSyncCount} sync entries failed. Click to retry.`}
+                    className="flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 md:hidden"
+                    title={`${retryableCount} paused upload${retryableCount === 1 ? '' : 's'}. Click to retry.`}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-2.5 w-2.5">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                     </svg>
-                    {failedSyncCount}
+                    {retryableCount}
                   </button>
                 )}
                 <button
                   onClick={handleSync}
-                  disabled={isSyncing}
+                  disabled={isSyncing || !isScopeVerified}
                   className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 md:hidden"
                   aria-label="Sync now"
                 >
@@ -296,6 +299,16 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
             )}
           </div>
         </div>
+
+        {state === 'authenticated' && !isLoading && !isScopeVerified && (
+          <div
+            role="status"
+            className="mx-auto max-w-4xl px-4 pb-2 text-xs text-amber-700 dark:text-amber-400 sm:px-6"
+          >
+            Local data is locked to another account and was not loaded. Nothing has been
+            deleted. Sign out and sign back in with the account that owns this data.
+          </div>
+        )}
 
         {/* Desktop tab navigation — hidden on mobile */}
         {showTabs && (
@@ -342,6 +355,18 @@ function TabLink({ href, pathname, children }: { href: string; pathname: string;
 // Helpers
 // ============================================================
 
+function syncSummary(status: SyncStatus | null): string {
+  if (!status) return 'checking…';
+  const parts: string[] = [];
+  if (status.pending > 0) parts.push(`${status.pending} pending`);
+  if (status.blocked > 0) parts.push(`${status.blocked} paused`);
+  if (status.conflict > 0) parts.push(`${status.conflict} conflict${status.conflict === 1 ? '' : 's'}`);
+  if (status.quarantined > 0) parts.push(`${status.quarantined} unverified`);
+  if (parts.length > 0) return parts.join(' · ');
+  if (status.lastAttemptFailed) return 'last sync failed';
+  return status.lastSyncAt ? timeAgo(status.lastSyncAt) : 'never';
+}
+
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
   if (diff < 60000) return 'just now';
@@ -374,7 +399,7 @@ function MobileBottomNav({ tabs, pathname }: { tabs: TabDef[]; pathname: string 
               className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
                 isActive
                   ? 'text-blue-600 dark:text-blue-400'
-                  : 'text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300'
+                  : 'text-zinc-600 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200'
               }`}
             >
               <tab.icon className={`h-6 w-6 ${isActive ? 'stroke-[2.5]' : 'stroke-2'}`} />

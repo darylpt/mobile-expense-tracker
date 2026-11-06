@@ -10,6 +10,7 @@ import { StockTransactionForm } from '@/components/forms/StockTransactionForm';
 import { DividendForm } from '@/components/forms/DividendForm';
 import { PortfolioSummaryCard } from '@/components/summary/PortfolioSummaryCard';
 import { useStocks } from '@/hooks/useStocks';
+import { useTransactionContext } from '@/context/TransactionContext';
 import { getAllStockTransactions, addStockTransaction, deleteStockTransaction, updateStockTransaction } from '@/lib/idb';
 import { getAllDividends, addDividend, deleteDividend, updateDividend } from '@/lib/idb';
 import { refreshAllPrices } from '@/lib/stock-prices';
@@ -22,6 +23,7 @@ type Section = 'holdings' | 'transactions' | 'dividends';
 
 export default function StocksPage() {
   const { stocks, isLoading: stocksLoading, refreshStocks, addStock, updateStock, deleteStock, moveStockTo } = useStocks();
+  const { isScopeVerified } = useTransactionContext();
   const [transactions, setTransactions] = useState<StockTransaction[]>([]);
   const [dividends, setDividends] = useState<Dividend[]>([]);
   const [holdings, setHoldings] = useState<HoldingsResult | null>(null);
@@ -41,6 +43,13 @@ export default function StocksPage() {
 
   // ponytail: load initial data once stocks are ready
   useEffect(() => {
+    if (!isScopeVerified) {
+      setTransactions([]);
+      setDividends([]);
+      setHoldings(null);
+      setDataLoading(false);
+      return;
+    }
     if (stocksLoading) return;
     (async () => {
       const [txs, divs] = await Promise.all([
@@ -54,9 +63,10 @@ export default function StocksPage() {
       setHoldings(result);
       setDataLoading(false);
     })();
-  }, [stocksLoading, stocks]);
+  }, [stocksLoading, stocks, isScopeVerified]);
 
   const reloadData = useCallback(async () => {
+    if (!isScopeVerified) return;
     const [txs, divs] = await Promise.all([
       getAllStockTransactions(),
       getAllDividends(),
@@ -66,7 +76,7 @@ export default function StocksPage() {
     setDividends(divs);
     const result = computeHoldings(stocks, txs, divs);
     setHoldings(result);
-  }, [stocks]);
+  }, [stocks, isScopeVerified]);
 
   // Reload from IDB after a background sync pulls fresh remote data
   useEffect(() => {
@@ -103,35 +113,39 @@ export default function StocksPage() {
   };
 
   const handleAddTx = async (tx: Omit<StockTransaction, 'id' | 'createdAt' | 'updatedAt'>) => {
+    if (!isScopeVerified) return;
     await addStockTransaction(tx);
     setShowTxForm(false);
     await reloadData();
   };
 
   const handleDeleteTx = async (id: string) => {
-    if (!window.confirm('Delete this transaction?')) return;
+    if (!isScopeVerified || !window.confirm('Delete this transaction?')) return;
     await deleteStockTransaction(id);
     await reloadData();
   };
 
   const handleAddDiv = async (d: Omit<Dividend, 'id' | 'createdAt' | 'updatedAt'>) => {
+    if (!isScopeVerified) return;
     await addDividend(d);
     setShowDivForm(false);
     await reloadData();
   };
 
   const handleDeleteDiv = async (id: string) => {
-    if (!window.confirm('Delete this dividend record?')) return;
+    if (!isScopeVerified || !window.confirm('Delete this dividend record?')) return;
     await deleteDividend(id);
     await reloadData();
   };
 
   const handleUpdateTx = async (id: string, updates: Partial<StockTransaction>) => {
+    if (!isScopeVerified) return;
     await updateStockTransaction(id, updates);
     await reloadData();
   };
 
   const handleUpdateDiv = async (id: string, updates: Partial<Dividend>) => {
+    if (!isScopeVerified) return;
     await updateDividend(id, updates);
     await reloadData();
   };
@@ -145,7 +159,7 @@ export default function StocksPage() {
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-20 pt-6 sm:px-6 sm:pb-0 sm:pt-8">
         {isLoading ? (
-          <div className="py-12 text-center text-sm text-zinc-400">Loading…</div>
+          <div className="py-12 text-center text-sm text-zinc-600 dark:text-zinc-400">Loading…</div>
         ) : !hasStocks ? (
           /* Empty state — show manage tickers inline */
           <div className="space-y-6">

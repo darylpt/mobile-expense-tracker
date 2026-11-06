@@ -31,7 +31,7 @@ The user's real transaction data lives in a Google Sheets budget tracker. The ap
 | Bulk import function | `src/lib/idb.ts` — `importFromCsv(data)` |
 | Import UI section | `src/app/settings/page.tsx` |
 | Import preview component | `src/components/forms/CsvImportPreview.tsx` |
-| Empty-state handling | All pages show "Import your data" when no transactions exist |
+| Empty-state handling | Dashboard, Transactions, and Available Balance show setup guidance with an `Open Settings` link; import path is described in copy |
 
 ---
 
@@ -154,10 +154,10 @@ Add below the existing Backup/Restore section. Paste CSV or upload `.csv` file.
 | `src/lib/constants.ts` | Remove `DEFAULT_ACCOUNTS`, `DEFAULT_CATEGORIES`, `SEED_TRANSACTIONS`, `DEFAULT_BUDGET_TARGETS`. Keep `DB_NAME`, `DB_VERSION`, `STORES` only. |
 | `src/app/settings/page.tsx` | Add Import CSV section |
 | `src/components/forms/CsvImportPreview.tsx` | **New** — preview table: account list, category list, sample transactions, error list |
-| `src/components/summary/MonthlySummaryCard.tsx` | Handle empty state — show "Import your data to get started" with link to Settings if no transactions |
-| `src/app/available-balance/page.tsx` | Handle empty accounts gracefully |
+| `src/components/summary/MonthlySummaryCard.tsx` | Handle empty state — manual setup guidance plus `Open Settings` when no transactions |
+| `src/app/available-balance/page.tsx` | Handle empty accounts with account-setup guidance plus `Open Settings` |
 | `src/app/payout/page.tsx` | Handle empty state gracefully |
-| `src/app/transactions/page.tsx` | Handle empty state — show "Import your data" instead of "No transactions yet" |
+| `src/app/transactions/page.tsx` | Handle empty state — setup guidance instead of "No transactions yet" |
 
 ### Parser (`csv-import.ts`)
 
@@ -200,19 +200,41 @@ interface CsvError {
 
 ### Empty-state handling
 
-When no transactions exist in IndexedDB, every page shows a card:
+When a screen has no data, it shows setup guidance instead of tables/graphs. The guidance names the screen's actual prerequisite, keeps import reachable through Settings, and does not label a plain `/settings` link as a direct Import route.
+
+Dashboard and transaction list:
 
 ```
-┌────────────────────────────────────┐
-│  No data yet                       │
-│  Import your Google Sheets data    │
-│  to get started.                   │
-│                                    │
-│  [Go to Settings → Import]        │
-└────────────────────────────────────┘
+┌────────────────────────────────────────────┐
+│  No data yet                               │
+│  Add accounts and categories in Settings,  │
+│  then use Quick Add (or Add) to record     │
+│  transactions. To import a Google Sheets   │
+│  export, open Settings and choose          │
+│  Data Tools (Import / Export Data on       │
+│  mobile), then Import from Google Sheets.  │
+│                                            │
+│  [Open Settings]                           │
+└────────────────────────────────────────────┘
 ```
 
-The app **should still render** — just show the empty state instead of tables/graphs. Do not crash.
+Available Balance:
+
+```
+┌────────────────────────────────────────────┐
+│  No data yet                               │
+│  Add at least one account in Settings to   │
+│  reconcile your balances. To import a      │
+│  Google Sheets export, open Settings and   │
+│  choose Data Tools (Import / Export Data   │
+│  on mobile), then Import from Google       │
+│  Sheets.                                   │
+│                                            │
+│  [Open Settings]                           │
+└────────────────────────────────────────────┘
+```
+
+The app **should still render** — just show the empty state instead of tables/graphs. Do not crash. See [`ui-accessibility-onboarding.md`](ui-accessibility-onboarding.md) for the full guidance and accessibility contract.
 
 ---
 
@@ -239,7 +261,7 @@ The app **should still render** — just show the empty state instead of tables/
 3. After import + reload: Summary shows correct totals from Jan 2026
 4. After import: Accounts table shows correct starting balances (Cash = 34, Landbank = 600.68, etc.)
 5. Export CSV after import is approximately round-trippable
-6. Fresh app (no data) shows empty-state guidance on every page
+6. Fresh app (no data) shows accurate empty-state setup guidance on every screen, with import reachable through the described Settings path
 7. 0 ESLint errors, 0 TS build errors
 
 ## Future (not building now)

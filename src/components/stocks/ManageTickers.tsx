@@ -276,7 +276,7 @@ export function ManageTickers({ stocks, onAdd, onUpdate, onDelete, onMoveTo }: M
 
       {/* Stock list */}
       {sorted.length === 0 && !addMode ? (
-        <p className="py-6 text-center text-sm text-zinc-400 dark:text-zinc-500">
+        <p className="py-6 text-center text-sm text-zinc-600 dark:text-zinc-400">
           No stocks yet. Add your first ticker above.
         </p>
       ) : (

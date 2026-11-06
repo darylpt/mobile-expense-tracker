@@ -44,8 +44,19 @@ setForm((prev) => ({
 
 The form also auto-collapses on mobile after submit.
 
+## Mobile disclosure
+
+On mobile (`<768px`) the form is a disclosure:
+
+- Closed: only the disclosure button is reachable. It reports `aria-expanded="false"`, points at the panel with `aria-controls="quick-add-panel"`, and the panel carries `inert`, so its fields are out of the tab order and the accessibility tree.
+- Open: `aria-expanded="true"`, `inert` is removed, and the form controls are usable.
+- Submit success: the panel collapses and focus moves to the disclosure instead of remaining inside the now-hidden panel.
+
+Desktop keeps the static `+ Add Transaction` heading and an always-expanded form. The mobile height transition is unchanged. See [`ui-accessibility-onboarding.md`](ui-accessibility-onboarding.md) for the full contract and regression coverage.
+
 ## Files
 
 | File | Role |
 |------|------|
-| `src/components/forms/QuickAddForm.tsx` | Sticky defaults on form reset after submit |
+| `src/components/forms/QuickAddForm.tsx` | Sticky defaults on form reset after submit; mobile disclosure semantics and focus return |
+| `e2e/quick-add-summary.spec.ts` | Sticky-default sync flows plus mobile disclosure regression |

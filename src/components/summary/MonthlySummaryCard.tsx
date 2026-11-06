@@ -32,6 +32,8 @@ export function MonthlySummaryCard() {
   } = useTransactions();
 
   const { getCategoriesByType } = useCategories();
+  const ctx = useTransactionContext();
+  const { hideAmounts, isScopeVerified } = ctx;
   const [editingBudgets, setEditingBudgets] = useState(false);
   const [budgetEdits, setBudgetEdits] = useState<Record<string, string>>({});
 
@@ -49,6 +51,10 @@ export function MonthlySummaryCard() {
   // Fetch budget targets from IndexedDB and resolve effective values
   // ponytail: re-fetches on month change, which is O(n) with n < 200
   useEffect(() => {
+    if (!isScopeVerified) {
+      setBudgetTargets({});
+      return;
+    }
     let cancelled = false;
     async function load() {
       const all = await getAllBudgetTargets();
@@ -71,7 +77,7 @@ export function MonthlySummaryCard() {
     }
     load();
     return () => { cancelled = true; };
-  }, [monthStr, getCategoriesByType, budgetVersion]);
+  }, [monthStr, getCategoriesByType, budgetVersion, isScopeVerified]);
 
   // Compute income breakdown with all income categories (including zero-amount)
   const incomeBreakdown = useMemo(
@@ -106,6 +112,7 @@ export function MonthlySummaryCard() {
   };
 
   const handleSaveBudgets = async () => {
+    if (!isScopeVerified) return;
     for (const [cat, val] of Object.entries(budgetEdits)) {
       await setBudgetTarget(cat, parseFloat(val) || 0);
     }
@@ -116,27 +123,26 @@ export function MonthlySummaryCard() {
   const handlePrevMonth = () => setMonthYear(getPreviousMonthYear(monthYear));
   const handleNextMonth = () => setMonthYear(getNextMonthYear(monthYear));
 
-  const ctx = useTransactionContext();
-  const { hideAmounts } = ctx;
-
   if (isLoading) {
     return <LoadingSkeleton />;
   }
 
   if (ctx.transactions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16">
+      <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
         <p className="text-base font-medium text-zinc-900 dark:text-zinc-100">
           No data yet
         </p>
-        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          Import your Google Sheets data to get started.
+        <p className="mt-2 max-w-md text-sm text-zinc-600 dark:text-zinc-400">
+          Add accounts and categories in Settings, then record transactions with Quick Add. To
+          import a Google Sheets export, open Settings and choose Data Tools (Import / Export Data
+          on mobile), then Import from Google Sheets.
         </p>
         <Link
           href="/settings"
           className="mt-4 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
         >
-          Go to Settings → Import
+          Open Settings
         </Link>
       </div>
     );
@@ -189,10 +195,7 @@ export function MonthlySummaryCard() {
         />
       </div>
 
-      {/* Row 2: Accounts table — desktop only, mobile uses CategoryBreakdown */}
-      <div className="hidden md:block">
-        <AccountsTable rows={accountBalances} hideAmounts={hideAmounts} />
-      </div>
+      <AccountsTable rows={accountBalances} hideAmounts={hideAmounts} />
 
       {/* Row 2: Income Breakdown (1/2) | Expenses Breakdown (1/2) — desktop only, mobile uses CategoryBreakdown */}
       <div className="hidden md:block md:space-y-6 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">
@@ -305,7 +308,7 @@ function StatCard({ label, value, sub, color }: StatCardProps) {
     <div className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
       <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{label}</p>
       <p className={`mt-1 text-base font-semibold tabular-nums ${color}`}>{value}</p>
-      <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">{sub}</p>
+      <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{sub}</p>
     </div>
   );
 }
@@ -327,7 +330,7 @@ function AccountsTable({ rows, hideAmounts }: { rows: AccountRow[]; hideAmounts:
   if (rows.length === 0) {
     return (
       <SectionCard title="Accounts">
-        <p className="py-4 text-center text-sm text-zinc-500">No accounts configured.</p>
+        <p className="py-4 text-center text-sm text-zinc-500 dark:text-zinc-400">No accounts configured.</p>
       </SectionCard>
     );
   }

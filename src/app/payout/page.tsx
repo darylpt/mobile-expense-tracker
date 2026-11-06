@@ -16,6 +16,7 @@ import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { formatCurrency, getToday } from '@/lib/utils';
 import { addPayout } from '@/lib/idb';
+import { useTransactionContext } from '@/context/TransactionContext';
 
 // ── Types ───────────────────────────────────────────────────
 interface SplitRow {
@@ -55,6 +56,7 @@ const LABELS: Record<keyof SavingsSubSplit, string> = {
 // ── Page ─────────────────────────────────────────────────────
 
 export default function PayoutPage() {
+  const { isScopeVerified } = useTransactionContext();
   const [totalAmount, setTotalAmount] = useState(0);
   const [splitMode, setSplitMode] = useState<'amount' | 'percentage'>('percentage');
   const [splits, setSplits] = useState<SplitRow[]>(() =>
@@ -156,7 +158,7 @@ export default function PayoutPage() {
 
   // ponytail: blocks save when percentages don't sum to 100% (or amounts don't match total)
   const handleSave = async () => {
-    if (saving) return; // prevent duplicate submissions
+    if (!isScopeVerified || saving) return; // prevent duplicate submissions
     setSaving(true);
     setSaved(false);
     setSaveError(null);
@@ -199,7 +201,7 @@ export default function PayoutPage() {
             <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
               <Input
                 label="Total Amount"
-                leading={<span className="text-zinc-500">₱</span>}
+                leading={<span>₱</span>}
                 type="number"
                 step="any"
                 min={0}
@@ -222,7 +224,7 @@ export default function PayoutPage() {
                     onClick={() => setSplitMode(mode)}
                     className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
                       splitMode === mode
-                        ? 'bg-white text-blue-700 shadow-sm dark:bg-zinc-700 dark:text-blue-400'
+                        ? 'bg-white text-blue-700 shadow-sm dark:bg-zinc-700 dark:text-blue-300'
                         : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
                     }`}
                   >
@@ -256,8 +258,8 @@ export default function PayoutPage() {
                           value={split.value || ''}
                           onChange={(e) => handlePersonChange(split.id, 'value', e.target.value)}
                           {...(splitMode === 'percentage'
-                            ? { trailing: <span className="text-zinc-400">%</span> }
-                            : { leading: <span className="text-zinc-500">₱</span> })}
+                            ? { trailing: <span>%</span> }
+                            : { leading: <span>₱</span> })}
                         />
                       </div>
                       <button
@@ -335,7 +337,7 @@ export default function PayoutPage() {
                                       onChange={(e) => handleSubSplitChange(split.id, key, e.target.value)}
                                       className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 pr-7 text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400"
                                     />
-                                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-zinc-400">
+                                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-zinc-500 dark:text-zinc-400">
                                       %
                                     </span>
                                   </div>
@@ -378,7 +380,7 @@ export default function PayoutPage() {
                   <span
                     className={
                       warnings.length > 0
-                        ? 'text-amber-700 dark:text-amber-400'
+                        ? 'text-amber-800 dark:text-amber-400'
                         : 'text-emerald-700 dark:text-emerald-400'
                     }
                   >
@@ -389,7 +391,7 @@ export default function PayoutPage() {
                 </span>
               </div>
               {warnings.map((w, i) => (
-                <p key={i} className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                <p key={i} className="mt-2 text-xs text-amber-800 dark:text-amber-400">
                   ⚠ {w}
                 </p>
               ))}
@@ -401,9 +403,9 @@ export default function PayoutPage() {
             {/* ── Output Display ──────────────────────────── */}
             <section className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
               <div className="px-4 py-3 sm:px-6">
-                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                   Output
-                </h3>
+                </h2>
               </div>
 
               {/* Desktop table */}
@@ -504,7 +506,7 @@ export default function PayoutPage() {
               </div>
 
               {splits.length === 0 && (
-                <p className="py-8 text-center text-sm text-zinc-500">
+                <p className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
                   No rows. Add a person to start.
                 </p>
               )}

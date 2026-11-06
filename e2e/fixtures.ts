@@ -86,46 +86,15 @@ export const DEFAULT_SEED: SeedData = {
  * Call this in `beforeEach` so tests start from a known state.
  */
 export async function seedIndexedDB(page: Page, data: SeedData): Promise<void> {
-  await page.evaluate(async (seedData) => {
-    const dName = 'expense-tracker-db';
-    const dVer = 4;
+  await page.goto('/');
+  await page.getByText('No data yet').first().waitFor();
 
-    // Open (or create) the database, ensuring all stores exist
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(dName, dVer);
-      req.onupgradeneeded = (ev) => {
-        const d = (ev.target as IDBOpenDBRequest).result;
-        if (!d.objectStoreNames.contains('transactions')) {
-          const s = d.createObjectStore('transactions', { keyPath: 'id' });
-          s.createIndex('date', 'date', { unique: false });
-          s.createIndex('type', 'type', { unique: false });
-          s.createIndex('category', 'category', { unique: false });
-          s.createIndex('account', 'account', { unique: false });
-          s.createIndex('fromAccount', 'fromAccount', { unique: false });
-          s.createIndex('toAccount', 'toAccount', { unique: false });
-        }
-        if (!d.objectStoreNames.contains('accounts')) {
-          const s = d.createObjectStore('accounts', { keyPath: 'id' });
-          s.createIndex('name', 'name', { unique: true });
-        }
-        if (!d.objectStoreNames.contains('categories')) {
-          const s = d.createObjectStore('categories', { keyPath: 'id' });
-          s.createIndex('name', 'name', { unique: false });
-          s.createIndex('type', 'type', { unique: false });
-        }
-        if (!d.objectStoreNames.contains('cashDenominations')) {
-          d.createObjectStore('cashDenominations', { keyPath: 'id' });
-        }
-        if (!d.objectStoreNames.contains('payouts')) {
-          d.createObjectStore('payouts', { keyPath: 'id' });
-        }
-        if (!d.objectStoreNames.contains('budgetTargets')) {
-          d.createObjectStore('budgetTargets', { keyPath: 'id' });
-        }
-      };
-      req.onsuccess = (ev) => resolve((ev.target as IDBOpenDBRequest).result);
-      req.onerror = () => reject(req.error);
-    });
+  await page.evaluate(async (seedData) => {
+    const opened = Promise.withResolvers<IDBDatabase>();
+    const req = indexedDB.open('expense-tracker-db');
+    req.onsuccess = (ev) => opened.resolve((ev.target as IDBOpenDBRequest).result);
+    req.onerror = () => opened.reject(req.error);
+    const db = await opened.promise;
 
     // Clear all stores in one readwrite transaction
     const storeNames = Array.from(db.objectStoreNames);
