@@ -200,6 +200,13 @@ Creates use a server readback check. Updates and deletions compare the stored
 baseline token and verify the response. A zero-row compare-and-set (CAS) result,
 unexpected server row, or missing baseline is not acknowledged.
 
+The outcome transaction re-reads the queued entry before writing queue,
+metadata, or deletion state. It applies success, retry, or conflict outcomes
+only while the exact pending operation sent to Supabase remains unchanged. If
+restore or another local change replaces or conflicts it during the request,
+the client preserves the current queue and metadata and applies no stale
+outcome. The request may already have committed remotely.
+
 ### Transitional conflict handling
 
 The client protects local records with pending edits from remote active rows and
@@ -211,6 +218,10 @@ merge, so its decisions do not use stale pre-transaction state. A competing
 active row or tombstone becomes a conflict; neither version is silently
 substituted. An untouched local record receiving a remote tombstone is archived
 before local removal.
+
+An empty successful pull still runs this merge. A local-only record without a
+queued operation or known remote baseline remains in IndexedDB and is marked
+quarantined, so the empty response cannot certify it as synchronized.
 
 This is client-side containment, not a server-managed revision protocol. The
 existing `updated_at` comparisons do not provide atomic operation receipts,

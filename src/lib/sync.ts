@@ -254,6 +254,37 @@ function valuesEqual(a: unknown, b: unknown): boolean {
 }
 
 /**
+ * Exact structural comparison for a queued operation. `valuesEqual` is
+ * deliberately coercive for remote rows, where Postgres may return numeric
+ * columns as strings; an outbox entry instead must be unchanged in type and
+ * shape before a late response may settle it.
+ */
+function queueEntryValuesEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (a == null || b == null) return false;
+  if (typeof a !== typeof b) return false;
+  if (a instanceof Date || b instanceof Date) {
+    return (
+      a instanceof Date && b instanceof Date && Object.is(a.getTime(), b.getTime())
+    );
+  }
+  if (typeof a !== 'object') return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((value, index) => queueEntryValuesEqual(value, b[index]));
+  }
+  const aObject = a as Record<string, unknown>;
+  const bObject = b as Record<string, unknown>;
+  const aKeys = Object.keys(aObject);
+  if (aKeys.length !== Object.keys(bObject).length) return false;
+  return aKeys.every(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(bObject, key) &&
+      queueEntryValuesEqual(aObject[key], bObject[key])
+  );
+}
+
+/**
  * Verify that the server row matches the complete intended local record.
  * Used before acknowledging a create or treating a CAS miss as our own write.
  */
@@ -331,7 +362,15 @@ async function commitOutcome(
   db: IDBPDatabase<ExpenseTrackerDB>,
   options: {
     queueEntry?: SyncQueueEntry;
+    /** Entry to delete, only if `expectQueueEntry` is still current and pending. */
     removeQueueId?: string;
+    /**
+     * Exact pending entry read before the request. A local mutation (for
+     * example a backup restore) may replace, conflict, or remove it while the
+     * request is in flight; its late outcome must then settle nothing.
+     * Required for every queue, metadata, or deletion-snapshot write.
+     */
+    expectQueueEntry?: SyncQueueEntry;
     meta?: SyncMetaEntry;
     deletionId?: string;
     deletionPatch?: Partial<SyncDeletionSnapshot>;
@@ -375,10 +414,46 @@ async function commitOutcome(
       return false;
     }
 
-    if (options.removeQueueId) {
-      await tx.objectStore(STORES.SYNC_QUEUE).delete(options.removeQueueId);
-    } else if (options.queueEntry) {
-      await tx.objectStore(STORES.SYNC_QUEUE).put(options.queueEntry);
+    const expected = options.expectQueueEntry;
+    const writesQueue = options.removeQueueId != null || options.queueEntry != null;
+    // Every outcome that writes queue, metadata, or deletion state must prove
+    // the authorizing entry is still the exact pending one. A missing
+    // expectation fails closed so a future call site cannot bypass the check.
+    if (writesQueue || options.meta != null || options.deletionId != null) {
+      const queueId = options.removeQueueId ?? expected?.id;
+      const current = expected && queueId
+        ? await tx.objectStore(STORES.SYNC_QUEUE).get(queueId)
+        : undefined;
+      // A local mutation (restore, conflict, replacement, removal, or an
+      // in-place payload edit) may have changed this entry while the request
+      // was in flight. Every outcome path — success, conflict, quarantine,
+      // blocked, or retry — must settle nothing unless the queue still holds
+      // the exact pending operation that authorized it, types included.
+      if (
+        !expected ||
+        (options.removeQueueId != null && options.removeQueueId !== expected.id) ||
+        (options.queueEntry != null && options.queueEntry.id !== expected.id) ||
+        current == null ||
+        current.state !== 'pending' ||
+        !queueEntryValuesEqual(current, expected)
+      ) {
+        try {
+          tx.abort();
+        } catch {
+          // The transaction already settled.
+        }
+        try {
+          await tx.done;
+        } catch {
+          // Aborted as intended.
+        }
+        return false;
+      }
+      if (options.removeQueueId) {
+        await tx.objectStore(STORES.SYNC_QUEUE).delete(options.removeQueueId);
+      } else if (options.queueEntry) {
+        await tx.objectStore(STORES.SYNC_QUEUE).put(options.queueEntry);
+      }
     }
     if (options.meta) {
       await tx.objectStore(STORES.SYNC_META).put(options.meta);
@@ -518,6 +593,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
       };
       if (!(await commitOutcome(db, {
         queueEntry: quarantined,
+        expectQueueEntry: original,
         meta: {
           id: recordKey(original.storeName, original.recordId),
           storeName: original.storeName,
@@ -542,7 +618,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
         lastError: 'Local change belongs to a different signed-in account',
         lastAttemptAt: Date.now(),
       };
-      if (!(await commitOutcome(db, { queueEntry: blocked }, scope))) return summarize();
+      if (!(await commitOutcome(db, { queueEntry: blocked, expectQueueEntry: original }, scope))) return summarize();
       continue;
     }
 
@@ -555,6 +631,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
       };
       if (!(await commitOutcome(db, {
         queueEntry: quarantined,
+        expectQueueEntry: original,
         meta: {
           id: recordKey(original.storeName, original.recordId),
           storeName: original.storeName,
@@ -639,6 +716,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
               payload, remote, 'Remote record is deleted; local create preserved', meta
             );
             if (!(await commitOutcome(db, {
+              expectQueueEntry: original,
               queueEntry: {
                 ...original,
                 state: 'conflict',
@@ -657,6 +735,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
               payload, remote, 'Remote record differs from the local create', meta
             );
             if (!(await commitOutcome(db, {
+              expectQueueEntry: original,
               queueEntry: {
                 ...original,
                 state: 'conflict',
@@ -672,6 +751,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
 
           if (!(await commitOutcome(db, {
             removeQueueId: original.id,
+            expectQueueEntry: original,
             meta: metaForRemote(original.storeName, remote, userId, payload),
           }, scope))) return summarize();
           acknowledged++;
@@ -691,6 +771,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
               payload, remote, 'No server baseline available for update', meta
             );
             if (!(await commitOutcome(db, {
+              expectQueueEntry: original,
               queueEntry: {
                 ...original,
                 state: 'conflict',
@@ -734,6 +815,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
               payload, remote, 'Remote update no longer matches the recorded baseline', meta
             );
             if (!(await commitOutcome(db, {
+              expectQueueEntry: original,
               queueEntry: {
                 ...original,
                 state: 'conflict',
@@ -755,6 +837,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
               payload, remote, 'Server representation did not match the update', meta
             );
             if (!(await commitOutcome(db, {
+              expectQueueEntry: original,
               queueEntry: {
                 ...original,
                 state: 'conflict',
@@ -770,6 +853,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
 
           if (!(await commitOutcome(db, {
             removeQueueId: original.id,
+            expectQueueEntry: original,
             meta: metaForRemote(original.storeName, remote, userId, payload),
           }, scope))) return summarize();
           acknowledged++;
@@ -791,6 +875,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
                 original.payload, remote, 'No immutable baseline available for delete', meta
               );
               if (!(await commitOutcome(db, {
+                expectQueueEntry: original,
                 queueEntry: {
                   ...original,
                   state: 'conflict',
@@ -826,6 +911,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
                 original.payload, remote, 'Cash deletion no longer matches the recorded baseline', meta
               );
               if (!(await commitOutcome(db, {
+                expectQueueEntry: original,
                 queueEntry: {
                   ...original,
                   state: 'conflict',
@@ -843,6 +929,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
 
             if (!(await commitOutcome(db, {
               removeQueueId: original.id,
+              expectQueueEntry: original,
               meta: metaForRemote(original.storeName, data[0] as RemoteRow, userId, original.payload),
               deletionId: original.deletionSnapshotId ?? undefined,
               deletionPatch: { state: 'synced', lastError: null, updatedAt: Date.now() },
@@ -860,6 +947,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
               original.payload, remote, 'No stored server baseline for delete', meta
             );
             if (!(await commitOutcome(db, {
+              expectQueueEntry: original,
               queueEntry: {
                 ...original,
                 state: 'conflict',
@@ -899,6 +987,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
               original.payload, remote, 'Remote record changed before delete', meta
             );
             if (!(await commitOutcome(db, {
+              expectQueueEntry: original,
               queueEntry: {
                 ...original,
                 state: 'conflict',
@@ -916,6 +1005,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
 
           if (!(await commitOutcome(db, {
             removeQueueId: original.id,
+            expectQueueEntry: original,
             meta: metaForRemote(original.storeName, data[0] as RemoteRow, userId, original.payload),
             deletionId: original.deletionSnapshotId ?? undefined,
             deletionPatch: { state: 'synced', lastError: null, updatedAt: Date.now() },
@@ -938,6 +1028,7 @@ async function processSyncQueueForScope(scope: AuthScope): Promise<SyncPushSumma
       };
       if (!(await commitOutcome(db, {
         queueEntry: next,
+        expectQueueEntry: original,
         meta: meta
           ? { ...meta, state: next.state, lastError: next.lastError ?? null, lastAttemptAt: next.lastAttemptAt ?? null, updatedAt: Date.now() }
           : undefined,
@@ -1015,7 +1106,12 @@ async function pullStoreForScope(
     console.error(`[Sync] Failed to pull ${storeName}:`, error);
     return false;
   }
-  if (!remoteRecords || remoteRecords.length === 0) return true;
+  // A successful response with null or empty data is an authoritative empty
+  // snapshot, not a no-op. It still proves nothing about locally owned rows,
+  // so fall through to the merge transaction and let the existing
+  // classification quarantine local-only records instead of claiming a clean
+  // sync from an empty remote.
+  const remoteRows = remoteRecords ?? [];
 
   const db = await getDB();
   if (!isAuthScopeCurrent(scope)) return false;
@@ -1097,7 +1193,7 @@ async function pullStoreForScope(
     for (const meta of metaRows) metaByRecord.set(meta.recordId, meta);
 
     const remoteMap = new Map<string, RemoteRow>();
-    for (const remote of remoteRecords) {
+    for (const remote of remoteRows) {
       remoteMap.set(String(remote.id), remote as RemoteRow);
     }
 

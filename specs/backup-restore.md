@@ -179,6 +179,10 @@ Import / Export Data**.
 6. The existing outbox is not cleared. Pre-existing `pending` or `blocked`
    entries for record IDs in replaced stores are marked `conflict` with
    "Record was replaced by a backup restore; review before syncing".
+   A success, conflict, or network error from a request started before restore
+   cannot clear this conflict or write stale metadata. Supabase may already
+   have committed the request before the client received the response.
+
 7. Incoming `syncQueue`, `syncMeta`, and `syncDeletions` entries are inserted
    **only when an entry with that ID is absent**. A backup entry therefore
    cannot replace an existing local queue, metadata, or deletion record with

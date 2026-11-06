@@ -156,10 +156,10 @@ verification are containment only; they are not a full concurrency protocol.
 1. Local record changes and queue writes are atomic in IndexedDB; local deletes also archive the full snapshot in that transaction.
 2. The monotonic `syncSeqCounter` preserves FIFO order across same-millisecond changes.
 3. Sync uses Read → Network → Write and never holds an IndexedDB transaction across network requests.
-4. Queue work is acknowledged only after checking a returned server row; failed work remains durable and is marked `blocked` after five failures.
+4. Each queue outcome first verifies in the same IndexedDB write transaction that the original entry is still unchanged and pending. A late success, retry, or conflict result cannot clear newer state or write stale metadata. Successful work is acknowledged only after checking the returned server row; failed work remains durable and becomes `blocked` after five failures.
 5. `pending`, `blocked`, `conflict`, and `quarantined` work is reported separately. Conflicts preserve both versions for manual review; there is no in-app conflict-resolution UI. Unowned legacy work is quarantined, not replayed.
 6. The client uses stored `updated_at` baselines and response checks where supported. Competing edits are retained as conflicts; this is not server-enforced revision control or exactly-once processing.
-7. Pull merges read local rows, queue entries, and metadata in the same read-write IndexedDB transaction that applies remote rows, conflicts, and deletion archives. The network fetch stays outside; overlapping local CRUD transactions serialize before or after the merge. Pending local edits remain protected from remote active overwrites/tombstones; untouched rows removed by tombstones are archived first.
+7. Pull merges read local rows, queue entries, and metadata in the same read-write IndexedDB transaction that applies remote rows, conflicts, and deletion archives. The network fetch stays outside; overlapping local CRUD transactions serialize before or after the merge. Pending local edits remain protected from remote active overwrites/tombstones; untouched rows removed by tombstones are archived first. Successful empty pulls still run this merge; local-only rows without queued work or a remote baseline remain local and quarantined, not clean.
 8. `resyncAll()` retains the outbox, baselines, conflicts, and deletion archives; it retries eligible work without rebuilding the queue.
 9. Auto-sync is debounced after local changes; `syncInFlight` prevents overlapping cycles in one client instance.
 
@@ -296,6 +296,8 @@ deletion entries are inserted by ID only when absent, so they do not replace an
 existing local entry with the same ID. Restored records are queued for sync,
 but commit is not server acknowledgement.
 
+A late success, network error, or conflict result for a request sent before restore cannot clear that conflict or write stale metadata. Supabase may already have committed a request before the client receives an error; Phase 3A cannot roll it back.
+
 Backup tools are gated by `isScopeVerified`, which proves local cache ownership
 only. Startup verifies ownership across all 13 stores: an unowned cache with any
 record — including a cache whose only records are safety stores — is not claimed
@@ -346,7 +348,7 @@ financial stores and three safety stores are optional.
 | `src/components/summary/PortfolioSummaryCard.test.tsx` | Portfolio summary rerender behavior and empty-state handling |
 | `src/context/AuthContext.test.tsx` | Auth lifecycle, identity isolation, sign-out cleanup, PIN remount, and filter mirror gates |
 | `src/lib/auth-scope.test.ts` | Identity generations, exact scope tokens, and abort-on-invalidation registration |
-| `src/lib/sync.test.ts` / `src/lib/phase3a-sync.test.ts` | Outbox preservation, CAS readback verification, and auth-generation fencing for in-flight push and pull |
+| `src/lib/sync.test.ts` / `src/lib/phase3a-sync.test.ts` | Outbox preservation, CAS readback, empty-pull quarantine, unchanged acknowledgment after restore or queue mutation, and auth-generation fencing for in-flight push and pull |
 | `src/context/TransactionContext.test.tsx` / `TransactionContext.phase3a.test.tsx` | Cache ownership, sign-out hiding, and stale read/error/loading/refresh publication fences |
 | `src/components/auth/AuthGuard.test.tsx` | Fail-closed unauthenticated rendering, PIN gate order, and generation-keyed subtree remount |
 | `src/lib/transaction-filters.test.ts` | Persistable filter allowlist and query canonicalization |

@@ -803,6 +803,446 @@ describe('push compare-and-set verification', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Push: backup restore while a request is in flight
+//
+// importAllData() may replace a record and mark its pre-existing outbox entry
+// as a conflict while the previous payload is still awaiting a response. That
+// late success belongs to the replaced payload, so it must settle nothing:
+// the conflict, its restore error, the restored record, and the restore's new
+// create work all stay exactly as the restore committed them.
+// ---------------------------------------------------------------------------
+
+describe('push across backup restore', () => {
+  it('does not acknowledge an update whose queue entry a backup restore conflicted while it was in flight', async () => {
+    const { idb, sync, db } = await setup();
+    try {
+      const entry = makeQueueEntry();
+      await db.put(STORES.TRANSACTIONS, makeLocalTransaction());
+      await db.put(STORES.SYNC_QUEUE, entry);
+      await db.put(STORES.SYNC_META, makeMeta());
+
+      const restoredTransaction = {
+        id: 'tx-1',
+        amount: 777,
+        date: '2026-01-05',
+        type: 'expense' as const,
+        category: 'Food',
+        fromAccount: null,
+        toAccount: 'acct-1',
+        description: 'restored',
+        createdAt: 500,
+        updatedAt: 2000,
+      };
+
+      const response = Promise.withResolvers<QueryResult>();
+      const requestStarted = Promise.withResolvers<void>();
+      mockSupabase.from
+        .mockImplementationOnce(() =>
+          makeDeferredQuery(response.promise, () => requestStarted.resolve())
+        )
+        .mockImplementation(() => makeQuery({ data: [], error: null }));
+
+      const run = sync.processSyncQueue('user-1');
+      await requestStarted.promise;
+
+      // Restore lands while the update is still awaiting its response. The
+      // backup replaces tx-1, conflicts the entry being pushed, and queues
+      // fresh create work for the restored record.
+      await idb.importAllData({
+        version: 1,
+        exportedAt: new Date('2026-03-01T00:00:00.000Z').toISOString(),
+        data: {
+          transactions: [restoredTransaction],
+          accounts: [],
+          categories: [],
+          cashDenominations: [],
+          payouts: [],
+          budgetTargets: [],
+          balanceSnapshots: [],
+          stocks: [],
+          stockTransactions: [],
+          dividends: [],
+        },
+      });
+
+      const queueAfterRestore = await db.getAll(STORES.SYNC_QUEUE);
+      const metaAfterRestore = await db.get(STORES.SYNC_META, metaKey('tx-1'));
+
+      const conflicted = queueAfterRestore.find((item) => item.id === entry.id);
+      expect(conflicted).toMatchObject({
+        state: 'conflict',
+        lastError:
+          'Record was replaced by a backup restore; review before syncing',
+      });
+      expect(
+        queueAfterRestore.some(
+          (item) =>
+            item.id !== entry.id &&
+            item.recordId === 'tx-1' &&
+            item.operation === 'create' &&
+            item.state === 'pending'
+        )
+      ).toBe(true);
+      expect(metaAfterRestore).toMatchObject({
+        state: 'pending',
+        ownerId: 'user-1',
+      });
+      expect(await db.get(STORES.TRANSACTIONS, 'tx-1')).toEqual(
+        restoredTransaction
+      );
+
+      // A valid server representation for the pre-restore payload arrives.
+      const nextIso = new Date(
+        Date.parse(entry.baselineRevision ?? '') + 1
+      ).toISOString();
+      response.resolve({
+        data: [makeRemoteTransaction({ updated_at: nextIso })],
+        error: null,
+      });
+      await run;
+
+      // The conflict and its restore error survive instead of being deleted.
+      const queueAfter = await db.getAll(STORES.SYNC_QUEUE);
+      expect(queueAfter).toEqual(queueAfterRestore);
+      expect(queueAfter.find((item) => item.id === entry.id)).toMatchObject({
+        state: 'conflict',
+        lastError:
+          'Record was replaced by a backup restore; review before syncing',
+      });
+
+      // The restore-generated create work is still durable.
+      expect(
+        queueAfter.filter(
+          (item) =>
+            item.id !== entry.id &&
+            item.recordId === 'tx-1' &&
+            item.state === 'pending'
+        )
+      ).toHaveLength(1);
+
+      // No stale clean acknowledgment or baseline for the replaced payload.
+      const metaAfter = await db.get(STORES.SYNC_META, metaKey('tx-1'));
+      expect(metaAfter).toEqual(metaAfterRestore);
+      expect(metaAfter).toMatchObject({ state: 'pending' });
+      expect(metaAfter?.baselineRevision).not.toBe(nextIso);
+
+      // The restored record itself is untouched.
+      expect(await db.get(STORES.TRANSACTIONS, 'tx-1')).toEqual(
+        restoredTransaction
+      );
+
+      // Only the entry that was already pending when the run started was sent.
+      expect(mockSupabase.from).toHaveBeenCalledTimes(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('does not turn a network error after a backup restore conflicted the in-flight entry into retry or blocked work', async () => {
+    const { idb, sync, db } = await setup();
+    try {
+      // A previously failed attempt, so the stale failure would be visible as
+      // a retry-count bump and not merely as a state rewrite.
+      const entry = makeQueueEntry({ retryCount: 2 });
+      await db.put(STORES.TRANSACTIONS, makeLocalTransaction());
+      await db.put(STORES.SYNC_QUEUE, entry);
+      await db.put(STORES.SYNC_META, makeMeta());
+
+      const restoredTransaction = {
+        id: 'tx-1',
+        amount: 777,
+        date: '2026-01-05',
+        type: 'expense' as const,
+        category: 'Food',
+        fromAccount: null,
+        toAccount: 'acct-1',
+        description: 'restored',
+        createdAt: 500,
+        updatedAt: 2000,
+      };
+
+      const response = Promise.withResolvers<QueryResult>();
+      const requestStarted = Promise.withResolvers<void>();
+      mockSupabase.from
+        .mockImplementationOnce(() =>
+          makeDeferredQuery(response.promise, () => requestStarted.resolve())
+        )
+        .mockImplementation(() => makeQuery({ data: [], error: null }));
+
+      const run = sync.processSyncQueue('user-1');
+      await requestStarted.promise;
+
+      // The restore replaces tx-1, conflicts the entry being pushed, and
+      // queues fresh create work for the restored record.
+      await idb.importAllData({
+        version: 1,
+        exportedAt: new Date('2026-03-01T00:00:00.000Z').toISOString(),
+        data: {
+          transactions: [restoredTransaction],
+          accounts: [],
+          categories: [],
+          cashDenominations: [],
+          payouts: [],
+          budgetTargets: [],
+          balanceSnapshots: [],
+          stocks: [],
+          stockTransactions: [],
+          dividends: [],
+        },
+      });
+
+      const queueAfterRestore = await db.getAll(STORES.SYNC_QUEUE);
+      const metaAfterRestore = await db.get(STORES.SYNC_META, metaKey('tx-1'));
+
+      const conflicted = queueAfterRestore.find((item) => item.id === entry.id);
+      expect(conflicted).toMatchObject({
+        state: 'conflict',
+        retryCount: entry.retryCount,
+        lastError:
+          'Record was replaced by a backup restore; review before syncing',
+      });
+      expect(
+        queueAfterRestore.some(
+          (item) =>
+            item.id !== entry.id &&
+            item.recordId === 'tx-1' &&
+            item.operation === 'create' &&
+            item.state === 'pending'
+        )
+      ).toBe(true);
+      expect(metaAfterRestore).toMatchObject({
+        state: 'pending',
+        ownerId: 'user-1',
+      });
+
+      // The original request fails after the restore, not before it.
+      response.resolve({ data: null, error: { message: 'network down' } });
+      const summary = await run;
+
+      // The stale failure settles nothing: the conflict, its restore error,
+      // and its pre-existing retry count survive instead of being rewritten
+      // into retry/blocked work.
+      const queueAfter = await db.getAll(STORES.SYNC_QUEUE);
+      expect(queueAfter).toEqual(queueAfterRestore);
+      expect(queueAfter.find((item) => item.id === entry.id)).toMatchObject({
+        state: 'conflict',
+        retryCount: entry.retryCount,
+        lastError:
+          'Record was replaced by a backup restore; review before syncing',
+      });
+      expect(queueAfter.some((item) => item.state === 'blocked')).toBe(false);
+
+      // The restore-generated create work is still durable.
+      expect(
+        queueAfter.filter(
+          (item) =>
+            item.id !== entry.id &&
+            item.recordId === 'tx-1' &&
+            item.state === 'pending'
+        )
+      ).toHaveLength(1);
+
+      // The restored record and the restore metadata are exactly as restored.
+      expect(await db.get(STORES.TRANSACTIONS, 'tx-1')).toEqual(
+        restoredTransaction
+      );
+      expect(await db.get(STORES.SYNC_META, metaKey('tx-1'))).toEqual(
+        metaAfterRestore
+      );
+
+      // The stale failure is neither acknowledged nor counted as a failure.
+      expect(summary).toMatchObject({
+        attempted: 1,
+        acknowledged: 0,
+        failed: 0,
+      });
+
+      // No readback or second attempt followed the failed request.
+      expect(mockSupabase.from).toHaveBeenCalledTimes(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('does not replace a backup-restore conflict with a late CAS-miss conflict', async () => {
+    const { idb, sync, db } = await setup();
+    try {
+      const entry = makeQueueEntry();
+      await db.put(STORES.TRANSACTIONS, makeLocalTransaction());
+      await db.put(STORES.SYNC_QUEUE, entry);
+      await db.put(STORES.SYNC_META, makeMeta());
+
+      const restoredTransaction = {
+        id: 'tx-1',
+        amount: 777,
+        date: '2026-01-05',
+        type: 'expense' as const,
+        category: 'Food',
+        fromAccount: null,
+        toAccount: 'acct-1',
+        description: 'restored',
+        createdAt: 500,
+        updatedAt: 2000,
+      };
+
+      const response = Promise.withResolvers<QueryResult>();
+      const requestStarted = Promise.withResolvers<void>();
+      mockSupabase.from
+        .mockImplementationOnce(() =>
+          makeDeferredQuery(response.promise, () => requestStarted.resolve())
+        )
+        // The CAS-miss readback for the pre-restore payload.
+        .mockImplementationOnce(() =>
+          makeQuery({
+            data: [
+              makeRemoteTransaction({
+                amount: 999,
+                updated_at: '2026-02-01T00:00:00.000Z',
+              }),
+            ],
+            error: null,
+          })
+        )
+        .mockImplementation(() => makeQuery({ data: [], error: null }));
+
+      const run = sync.processSyncQueue('user-1');
+      await requestStarted.promise;
+
+      await idb.importAllData({
+        version: 1,
+        exportedAt: new Date('2026-03-01T00:00:00.000Z').toISOString(),
+        data: {
+          transactions: [restoredTransaction],
+          accounts: [],
+          categories: [],
+          cashDenominations: [],
+          payouts: [],
+          budgetTargets: [],
+          balanceSnapshots: [],
+          stocks: [],
+          stockTransactions: [],
+          dividends: [],
+        },
+      });
+
+      const queueAfterRestore = await db.getAll(STORES.SYNC_QUEUE);
+      const metaAfterRestore = await db.get(STORES.SYNC_META, metaKey('tx-1'));
+      expect(
+        queueAfterRestore.find((item) => item.id === entry.id)
+      ).toMatchObject({
+        state: 'conflict',
+        lastError:
+          'Record was replaced by a backup restore; review before syncing',
+      });
+
+      // The update misses its CAS and would otherwise write a new conflict
+      // over the restore's conflict.
+      response.resolve({ data: [], error: null });
+      const summary = await run;
+
+      // The restore conflict and metadata survive exactly; no queue or meta
+      // write from the late classification lands.
+      expect(await db.getAll(STORES.SYNC_QUEUE)).toEqual(queueAfterRestore);
+      expect(await db.get(STORES.SYNC_META, metaKey('tx-1'))).toEqual(
+        metaAfterRestore
+      );
+      expect(summary).toMatchObject({
+        attempted: 1,
+        acknowledged: 0,
+        failed: 0,
+      });
+
+      // The request and its readback ran; no further attempt followed.
+      expect(mockSupabase.from).toHaveBeenCalledTimes(2);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Push: exact queue-entry identity
+//
+// A queued operation is acknowledged only if the stored entry still matches
+// the one that was sent exactly, types included. A payload rewritten in place
+// (here number 20 to string "20") must not be deleted or receive the old
+// response's clean metadata just because the values coerce to equality.
+// ---------------------------------------------------------------------------
+
+describe('push queue-entry acknowledgment identity', () => {
+  it('does not acknowledge an update whose stored payload changed from a number to a string while it was in flight', async () => {
+    const { sync, db } = await setup();
+    try {
+      const entry = makeQueueEntry();
+      await db.put(STORES.TRANSACTIONS, makeLocalTransaction());
+      await db.put(STORES.SYNC_QUEUE, entry);
+      await db.put(STORES.SYNC_META, makeMeta());
+
+      const response = Promise.withResolvers<QueryResult>();
+      const requestStarted = Promise.withResolvers<void>();
+      mockSupabase.from
+        .mockImplementationOnce(() =>
+          makeDeferredQuery(response.promise, () => requestStarted.resolve())
+        )
+        .mockImplementation(() => makeQuery({ data: [], error: null }));
+
+      const run = sync.processSyncQueue('user-1');
+      await requestStarted.promise;
+
+      // Rewrite the persisted payload in place while the numeric version is
+      // still awaiting its response. The entry itself stays pending.
+      const stored = await db.get(STORES.SYNC_QUEUE, entry.id);
+      if (!stored) throw new Error('pending queue entry disappeared');
+      expect(stored.state).toBe('pending');
+      const changed: SyncQueueEntry = {
+        ...stored,
+        payload: {
+          ...(stored.payload as Record<string, unknown>),
+          amount: '20',
+        },
+      };
+      const second = await setupSecondConnection();
+      await runRawTransaction(second, [STORES.SYNC_QUEUE], (tx) => {
+        tx.objectStore(STORES.SYNC_QUEUE).put(changed);
+      });
+
+      const queueAfterMutation = await db.getAll(STORES.SYNC_QUEUE);
+      const metaAfterMutation = await db.get(STORES.SYNC_META, metaKey('tx-1'));
+      expect(queueAfterMutation).toEqual([changed]);
+      expect(
+        (queueAfterMutation[0].payload as Record<string, unknown>).amount
+      ).toBe('20');
+
+      // The success for the original numeric payload arrives.
+      const nextIso = new Date(
+        Date.parse(entry.baselineRevision ?? '') + 1
+      ).toISOString();
+      response.resolve({
+        data: [makeRemoteTransaction({ updated_at: nextIso })],
+        error: null,
+      });
+      const summary = await run;
+
+      // The stale success settled nothing: neither the changed entry nor its
+      // metadata may be deleted, replaced, or acknowledged.
+      expect(await db.getAll(STORES.SYNC_QUEUE)).toEqual(queueAfterMutation);
+      expect(await db.get(STORES.SYNC_META, metaKey('tx-1'))).toEqual(
+        metaAfterMutation
+      );
+      expect(summary).toMatchObject({
+        attempted: 1,
+        acknowledged: 0,
+        failed: 0,
+        remaining: 1,
+      });
+      expect(mockSupabase.from).toHaveBeenCalledTimes(1);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Pull: pending work and tombstones
 // ---------------------------------------------------------------------------
 
@@ -997,6 +1437,57 @@ describe('pull protects pending local work', () => {
     });
     expect(deletions[0].payload).toMatchObject({ amount: 20 });
     db.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pull: empty snapshots and unproven local ownership
+//
+// A local record without a queue entry or baseline has no proof that the
+// signed-in account ever owned it. An empty remote snapshot neither proves
+// ownership nor authorizes an automatic upload, so the record must stay put
+// and be marked unresolved instead of letting the cycle claim a clean sync.
+// ---------------------------------------------------------------------------
+
+describe('empty remote pulls and unproven local ownership', () => {
+  it('quarantines a local-only record and refuses a clean sync when the remote snapshot is empty', async () => {
+    const { sync, db } = await setup();
+    try {
+      localStorage.setItem('uuid_migration_done', '1');
+      await db.put(STORES.TRANSACTIONS, makeLocalTransaction());
+
+      // Every pulled store answers with a successful, empty snapshot.
+      responses = DATA_STORES.map(() => ({ data: [], error: null }));
+
+      const result = await sync.backgroundSync();
+
+      // No queue entry existed before, and none was invented for the row.
+      expect(await db.getAll(STORES.SYNC_QUEUE)).toHaveLength(0);
+      // The local row survives, but its ownership is explicitly unresolved.
+      expect(await db.get(STORES.TRANSACTIONS, 'tx-1')).toMatchObject(
+        makeLocalTransaction()
+      );
+      expect(await db.get(STORES.SYNC_META, metaKey('tx-1'))).toMatchObject({
+        state: 'quarantined',
+        ownerId: null,
+      });
+
+      const status = await sync.getSyncStatus();
+      expect(status).toMatchObject({
+        queue: 0,
+        pending: 0,
+        quarantined: 1,
+        unresolved: 1,
+      });
+      expect(status.canClaimSynced).toBe(false);
+
+      // The cycle did not claim a fully synchronized success.
+      expect(result).toBe(false);
+      expect(localStorage.getItem('last_sync_time')).toBeNull();
+      expect(localStorage.getItem('sync_last_attempt_failed')).toBe('1');
+    } finally {
+      db.close();
+    }
   });
 });
 
