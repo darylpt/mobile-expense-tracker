@@ -23,7 +23,7 @@ import { CashDenominationInput } from '@/components/available-balance/CashDenomi
 const CASH_ACCOUNT_ID = 'cash';
 
 export default function AvailableBalancePage() {
-  const { transactions, accounts, isLoading } = useTransactionContext();
+  const { transactions, accounts, isLoading, isScopeVerified } = useTransactionContext();
   // Persisted to IndexedDB so values sync across devices via Supabase
   const [currentBalances, setCurrentBalances] = useState<Record<string, { value: number; updatedAt: number; useSubSplit?: boolean; subSplits?: { id: string; label: string; amount: number }[] }>>(() => {
     // Will be populated in useEffect below
@@ -33,6 +33,11 @@ export default function AvailableBalancePage() {
 
   // One-time migration from localStorage + load from IDB
   useEffect(() => {
+    if (!isScopeVerified) {
+      setCurrentBalances({});
+      setLoaded(false);
+      return;
+    }
     let cancelled = false;
     (async () => {
       // First, migrate any old localStorage data into IDB
@@ -70,11 +75,11 @@ export default function AvailableBalancePage() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [isScopeVerified]);
 
   // Persist to IDB on every change (for sync across devices)
   useEffect(() => {
-    if (!loaded) return; // don't write during initial load
+    if (!loaded || !isScopeVerified) return; // don't write during initial load
     // ponytail: upsert all — the overhead is tiny for < 10 accounts
     for (const [accountId, entry] of Object.entries(currentBalances)) {
       upsertBalanceSnapshot(accountId, {
@@ -83,7 +88,7 @@ export default function AvailableBalancePage() {
         subSplits: entry.subSplits,
       }).catch(() => {}); // fire-and-forget, best-effort persistence
     }
-  }, [currentBalances, loaded]);
+  }, [currentBalances, loaded, isScopeVerified]);
   const [cashUseDenominations, setCashUseDenominations] = useState(true);
   // ponytail: toggling plain→denomination mode abandons the plain-number value
   // (denomination grid re-mounts from IDB). Fix: write plain value back to IDB on toggle,
@@ -200,18 +205,20 @@ export default function AvailableBalancePage() {
     return (
       <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
         <Header title="Available Balance" />
-        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center justify-center px-4 pb-20 pt-16 sm:pb-0 sm:pt-16">
+        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center justify-center px-4 pb-20 pt-16 text-center sm:pb-0 sm:pt-16">
           <p className="text-base font-medium text-zinc-900 dark:text-zinc-100">
             No data yet
           </p>
-          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            Import your Google Sheets data to get started.
+          <p className="mt-2 max-w-md text-sm text-zinc-600 dark:text-zinc-400">
+            Add at least one account in Settings to reconcile your balances. To import a Google
+            Sheets export, open Settings and choose Data Tools (Import / Export Data on mobile),
+            then Import from Google Sheets.
           </p>
           <Link
             href="/settings"
             className="mt-4 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
           >
-            Go to Settings → Import
+            Open Settings
           </Link>
         </main>
       </div>
@@ -307,7 +314,7 @@ export default function AvailableBalancePage() {
                                       />
                                     )}
                                     {updatedAt && (
-                                      <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                                      <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
                                         Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                       </span>
                                     )}
@@ -367,7 +374,7 @@ export default function AvailableBalancePage() {
                                   />
                                 )}
                                 {updatedAt && (
-                                  <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                                  <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
                                     Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                   </span>
                                 )}
@@ -392,7 +399,7 @@ export default function AvailableBalancePage() {
             </div>
 
             {expectedRows.length === 0 && (
-              <p className="py-8 text-center text-sm text-zinc-500">
+              <p className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
                 No accounts configured.
               </p>
             )}
@@ -434,7 +441,7 @@ export default function AvailableBalancePage() {
                         onTotalChange={handleCashTotalChange}
                       />
                       {updatedAt && (
-                        <span className="block text-right text-[10px] text-zinc-400 dark:text-zinc-500">
+                        <span className="block text-right text-[10px] text-zinc-500 dark:text-zinc-400">
                           Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </span>
                       )}
@@ -508,7 +515,7 @@ export default function AvailableBalancePage() {
                         </div>
                       )}
                       {updatedAt && (
-                        <div className="text-right text-[10px] text-zinc-400 dark:text-zinc-500">
+                        <div className="text-right text-[10px] text-zinc-500 dark:text-zinc-400">
                           Updated: {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </div>
                       )}
@@ -538,7 +545,7 @@ export default function AvailableBalancePage() {
           })}
 
           {expectedRows.length === 0 && (
-            <p className="py-8 text-center text-sm text-zinc-500">
+            <p className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
               No accounts configured.
             </p>
           )}
@@ -560,7 +567,7 @@ export default function AvailableBalancePage() {
 function CurrencyInput({ value, onChange, ariaLabel }: { value: number; onChange: (v: string) => void; ariaLabel: string }) {
   return (
     <div className="flex items-center rounded-lg border border-zinc-300 bg-white transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:focus-within:border-blue-400 dark:focus-within:ring-blue-400/20">
-      <span className="pl-3 text-sm text-zinc-400 dark:text-zinc-500">₱</span>
+      <span className="pl-3 text-sm text-zinc-500 dark:text-zinc-400">₱</span>
       <input
         type="number"
         step="any"
@@ -624,7 +631,7 @@ function SubSplitEditor({
             className="w-20 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400"
           />
           <div className="flex items-center rounded-lg border border-zinc-300 bg-white transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:focus-within:border-blue-400 dark:focus-within:ring-blue-400/20">
-            <span className="pl-2 text-xs text-zinc-400 dark:text-zinc-500">₱</span>
+            <span className="pl-2 text-xs text-zinc-500 dark:text-zinc-400">₱</span>
             <input
               type="number"
               step="any"

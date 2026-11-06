@@ -19,7 +19,13 @@ import {
   type ReactNode,
 } from 'react';
 import { supabase } from '@/lib/supabase';
+import { LAST_USER_STORAGE_KEY } from '@/lib/constants';
 import { FILTERS_STORAGE_KEY } from '@/lib/transaction-filters';
+import {
+  publishAuthIdentity,
+  getAuthGeneration,
+  type AuthIdentity,
+} from '@/lib/auth-scope';
 import type { User } from '@supabase/supabase-js';
 
 // ============================================================
@@ -29,6 +35,8 @@ import type { User } from '@supabase/supabase-js';
 interface AuthContextValue {
   state: 'disabled' | 'loading' | 'authenticated' | 'unauthenticated';
   user: User | null;
+  /** Monotonic auth identity generation shared with `@/lib/auth-scope`. */
+  authGeneration: number;
   signIn: (email: string) => Promise<{ error?: string }>;
   signInWithOAuth: () => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
@@ -55,6 +63,7 @@ interface AuthContextValue {
 export const AuthContext = createContext<AuthContextValue>({
   state: 'loading',
   user: null,
+  authGeneration: 0,
   signIn: async () => ({ error: 'Auth not initialized' }),
   signInWithOAuth: async () => ({ error: 'Auth not initialized' }),
   signOut: async () => {},
@@ -124,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     'disabled' | 'loading' | 'authenticated' | 'unauthenticated'
   >(() => (supabase ? 'loading' : 'disabled'));
   const [user, setUser] = useState<User | null>(null);
+  const [authGeneration, setAuthGeneration] = useState(0);
 
   // ── App lock state ──
   // Initialize lock immediately for disabled (offline) case; authenticated
@@ -144,23 +154,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // is set on the next effect tick. User identity changes also force
   // re-engagement so a different user cannot inherit an unlocked state.
   const prevUserIdRef = useRef<string | null>(null);
+  const mountedRef = useRef(false);
 
   useEffect(() => {
-    if (!supabase) return;
+    mountedRef.current = true;
+    let cancelled = false;
+    let authEventSeen = false;
 
-    const applyAuth = (user: User | null) => {
+    const publish = (identity: AuthIdentity) => {
+      const nextGeneration = publishAuthIdentity(identity);
+      setAuthGeneration(nextGeneration);
+      return nextGeneration;
+    };
+
+    // Publish the initial lifecycle state before any async auth work.
+    publish(supabase ? { state: 'loading' } : { state: 'disabled' });
+
+    if (!supabase) {
+      return () => {
+        mountedRef.current = false;
+      };
+    }
+
+    const applyAuth = (nextUser: User | null) => {
+      if (cancelled) return;
+
+      // Publish the shared scope before React state so a consumer can never
+      // observe a new identity alongside an older generation token.
+      publish(
+        nextUser
+          ? { state: 'authenticated', userId: nextUser.id }
+          : { state: 'unauthenticated' },
+      );
+
       try {
-        const previousUser = prevUserIdRef.current ?? localStorage.getItem('lastUserId');
-        if (!user || (previousUser && previousUser !== user.id)) {
+        const previousUser =
+          prevUserIdRef.current ??
+          localStorage.getItem(LAST_USER_STORAGE_KEY);
+        if (!nextUser || (previousUser && previousUser !== nextUser.id)) {
           localStorage.removeItem(FILTERS_STORAGE_KEY);
         }
       } catch {}
-      setUser(user);
-      if (user) {
+      setUser(nextUser);
+      if (nextUser) {
         const identityChanged =
           prevUserIdRef.current !== null &&
-          prevUserIdRef.current !== user.id;
-        prevUserIdRef.current = user.id;
+          prevUserIdRef.current !== nextUser.id;
+        prevUserIdRef.current = nextUser.id;
 
         if (identityChanged) {
           // Different user signed in — force lock re-engagement
@@ -177,23 +217,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    supabase.auth
-      .getSession()
-      .then(({ data: { session } }) => {
-        applyAuth(session?.user ?? null);
-      })
-      .catch(() => {
-        // offline or error → unauthenticated
-        applyAuth(null);
-      });
-
+    // Subscribe before reading the initial session: any auth event is newer
+    // than a bootstrap snapshot that is already in flight.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (cancelled) return;
+      authEventSeen = true;
       applyAuth(session?.user ?? null);
     });
 
-    return () => subscription.unsubscribe();
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        // A newer event (including a sign-out) or an unmounted provider
+        // makes this bootstrap response stale.
+        if (cancelled || authEventSeen) return;
+        applyAuth(session?.user ?? null);
+      })
+      .catch(() => {
+        // Offline or error → unauthenticated, unless a newer event won.
+        if (cancelled || authEventSeen) return;
+        applyAuth(null);
+      });
+
+    return () => {
+      mountedRef.current = false;
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   // ── Sign in with email (magic link, invite-only) ──
@@ -239,8 +291,69 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── Sign out ──
   const signOut = useCallback(async () => {
-    await supabase?.auth.signOut();
+    // No Supabase: there is no remote identity to revoke. Keep offline mode
+    // in its disabled lifecycle and only release the local lock.
+    if (!supabase) {
+      setIsLocked(false);
+      return;
+    }
+
+    // Revoke synchronously, before awaiting Supabase. This aborts any
+    // in-flight account-scoped work and hides the previous account view for
+    // the whole sign-out attempt.
+    const previousUserId = prevUserIdRef.current;
+    const revokedGeneration = publishAuthIdentity({
+      state: 'unauthenticated',
+    });
+    setAuthGeneration(revokedGeneration);
+    prevUserIdRef.current = null;
+    setUser(null);
     setIsLocked(false);
+    setState('unauthenticated');
+
+    try {
+      localStorage.removeItem(FILTERS_STORAGE_KEY);
+    } catch {}
+
+    let signOutError: unknown = null;
+    try {
+      const result = await supabase.auth.signOut();
+      signOutError = result?.error ?? null;
+    } catch (error) {
+      signOutError = error ?? new Error('Sign out failed');
+    }
+    if (!signOutError) return;
+
+    // A newer auth transition happened while sign-out was failing, or the
+    // provider unmounted: neither may be overwritten by this recovery.
+    if (!mountedRef.current) return;
+    if (getAuthGeneration() !== revokedGeneration) return;
+
+    // Revalidate before restoring. The recovered identity gets a new
+    // generation; the revoked token can never become current again.
+    let restoredUser: User | null = null;
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) return;
+      restoredUser = data?.session?.user ?? null;
+    } catch {
+      return;
+    }
+    if (!restoredUser) return;
+    if (!mountedRef.current) return;
+    if (getAuthGeneration() !== revokedGeneration) return;
+
+    const restoredGeneration = publishAuthIdentity({
+      state: 'authenticated',
+      userId: restoredUser.id,
+    });
+    setAuthGeneration(restoredGeneration);
+    prevUserIdRef.current = restoredUser.id;
+    setUser(restoredUser);
+    setIsLocked(
+      previousUserId === restoredUser.id ? checkLockState() : true,
+    );
+    setState('authenticated');
   }, []);
 
   // ── App lock actions ──
@@ -288,6 +401,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         state,
         user,
+        authGeneration,
         signIn,
         signInWithOAuth,
         signOut,

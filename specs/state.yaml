@@ -1,10 +1,10 @@
 project: "mobile-expense-tracker"
-version: "0.17.8"
+version: "0.19.1"
 phase: "build"
 current_epic: "auth-and-security"
-current_story: "transaction-filter-persistence"
-last_action: "2026-10-30 — Transaction filter persistence; see specs/transaction-filters.md for restore, auth, and tab-navigation coverage."
-story_end: "2026-10-30T00:00:00Z"
+current_story: "ui-accessibility-onboarding"
+last_action: "2026-11-04 — Mobile Summary accounts table; see specs/summary-accounts-mobile.md for the AccountBalanceRow contract and mobile inclusion."
+story_end: "2026-10-31T00:00:00Z"
 stories:
   - "stock-schema"
   - "stock-crud"
@@ -16,6 +16,7 @@ stories:
   - "dividend-expansion"
   - "oauth-and-app-lock"
   - "transaction-filter-persistence"
+  - "ui-accessibility-onboarding"
 metrics:
   total_skills_simulated: 94
   lifecycle_strictness: "maximum"

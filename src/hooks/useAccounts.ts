@@ -18,13 +18,18 @@ import {
 import { useTransactionContext } from '@/context/TransactionContext';
 
 export function useAccounts() {
-  const { refreshTransactions } = useTransactionContext();
+  const { refreshTransactions, isScopeVerified } = useTransactionContext();
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!isScopeVerified) {
+      setAccounts([]);
+      setIsLoading(false);
+      return;
+    }
     let mounted = true;
     getAllAccounts()
       .then((data) => { if (mounted) setAccounts(data); })
@@ -35,9 +40,10 @@ export function useAccounts() {
       })
       .finally(() => { if (mounted) setIsLoading(false); });
     return () => { mounted = false; };
-  }, []);
+  }, [isScopeVerified]);
 
   const refresh = useCallback(async () => {
+    if (!isScopeVerified) return;
     try {
       setError(null);
       const data = await getAllAccounts();
@@ -47,10 +53,11 @@ export function useAccounts() {
       setError(message);
       console.error('[useAccounts] Error loading accounts:', err);
     }
-  }, []);
+  }, [isScopeVerified]);
 
   const addAccount = useCallback(async (account: Omit<Account, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> => {
     try {
+      if (!isScopeVerified) throw new Error('Local data is locked to another account');
       const id = await addAccountToDB(account);
       await refresh();
       await refreshTransactions();
@@ -60,10 +67,11 @@ export function useAccounts() {
       setError(message);
       throw new Error(message);
     }
-  }, [refresh, refreshTransactions]);
+  }, [isScopeVerified, refresh, refreshTransactions]);
 
   const updateAccount = useCallback(async (account: Partial<Account> & Pick<Account, 'id'>): Promise<void> => {
     try {
+      if (!isScopeVerified) throw new Error('Local data is locked to another account');
       await updateAccountToDB(account);
       await refresh();
       await refreshTransactions();
@@ -72,10 +80,11 @@ export function useAccounts() {
       setError(message);
       throw new Error(message);
     }
-  }, [refresh, refreshTransactions]);
+  }, [isScopeVerified, refresh, refreshTransactions]);
 
   const deleteAccount = useCallback(async (id: string): Promise<void> => {
     try {
+      if (!isScopeVerified) throw new Error('Local data is locked to another account');
       await deleteAccountFromDB(id);
       await refresh();
       await refreshTransactions();
@@ -84,17 +93,18 @@ export function useAccounts() {
       setError(message);
       throw new Error(message);
     }
-  }, [refresh, refreshTransactions]);
+  }, [isScopeVerified, refresh, refreshTransactions]);
 
   const moveAccountTo = useCallback(async (id: string, targetIndex: number): Promise<void> => {
     try {
+      if (!isScopeVerified) throw new Error('Local data is locked to another account');
       await moveAccountToInDB(id, targetIndex);
       await refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to reorder accounts';
       setError(message);
     }
-  }, [refresh]);
+  }, [isScopeVerified, refresh]);
 
   return {
     accounts,

@@ -4,6 +4,7 @@
 
 import { renderHook, act } from '@testing-library/react';
 import { useTransactions } from './useTransactions';
+import { AuthContext } from '@/context/AuthContext';
 import { TransactionProvider } from '@/context/TransactionContext';
 import type { Transaction } from '@/types';
 import React from 'react';
@@ -44,7 +45,26 @@ jest.mock('@/lib/idb', () => ({
 // ---------------------------------------------------------------------------
 
 function Wrapper({ children }: { children: React.ReactNode }) {
-  return React.createElement(TransactionProvider, null, children);
+  return React.createElement(
+    AuthContext.Provider,
+    {
+      value: {
+        state: 'disabled',
+        user: null,
+        authGeneration: 0,
+        signIn: async () => ({}),
+        signInWithOAuth: async () => ({}),
+        signOut: async () => {},
+        isLocked: false,
+        hasLock: false,
+        unlock: async () => false,
+        setPin: async () => {},
+        clearPin: () => {},
+        verifyPin: async () => false,
+      },
+    },
+    React.createElement(TransactionProvider, null, children)
+  );
 }
 
 // ---------------------------------------------------------------------------

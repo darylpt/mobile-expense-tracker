@@ -12,6 +12,7 @@ import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { useAuth } from '@/context/AuthContext';
+import { useTransactionContext } from '@/context/TransactionContext';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useCategories } from '@/hooks/useCategories';
 import { useStocks } from '@/hooks/useStocks';
@@ -28,10 +29,58 @@ import {
 import { formatCurrency } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
 import { parseCsv, type ParsedCsv } from '@/lib/csv-import';
-import { getSyncQueueCount, resyncAll } from '@/lib/idb';
-import { backgroundSync } from '@/lib/sync';
+import { backgroundSync, getSyncStatus, retrySyncWork, type SyncStatus } from '@/lib/sync';
 import { CsvImportPreview } from '@/components/forms/CsvImportPreview';
 import { ManageTickers } from '@/components/stocks/ManageTickers';
+
+function CreditCardIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className} aria-hidden="true" focusable="false">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+    </svg>
+  );
+}
+
+function TagIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className} aria-hidden="true" focusable="false">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581a2.25 2.25 0 003.182 0l5.318-5.318a2.25 2.25 0 000-3.182l-9.581-9.581A2.25 2.25 0 009.568 3z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
+    </svg>
+  );
+}
+
+function TrendingUpIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className} aria-hidden="true" focusable="false">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+    </svg>
+  );
+}
+
+function CloudIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className} aria-hidden="true" focusable="false">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" />
+    </svg>
+  );
+}
+
+function CircleStackIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className} aria-hidden="true" focusable="false">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+    </svg>
+  );
+}
+
+function LockClosedIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className} aria-hidden="true" focusable="false">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+    </svg>
+  );
+}
 
 // ── Main page ────────────────────────────────────────────────
 
@@ -146,23 +195,23 @@ export default function SettingsPage() {
       <div className="hidden md:flex md:gap-6">
         <aside className="w-56 shrink-0">
           <nav className="space-y-1">
-            <SidebarTab active={activeTab === 'accounts'} onClick={() => setActiveTab('accounts')}>
-              💳 Accounts
+            <SidebarTab active={activeTab === 'accounts'} onClick={() => setActiveTab('accounts')} icon={CreditCardIcon}>
+              Accounts
             </SidebarTab>
-            <SidebarTab active={activeTab === 'categories'} onClick={() => setActiveTab('categories')}>
-              🏷️ Categories
+            <SidebarTab active={activeTab === 'categories'} onClick={() => setActiveTab('categories')} icon={TagIcon}>
+              Categories
             </SidebarTab>
-            <SidebarTab active={activeTab === 'stocks'} onClick={() => setActiveTab('stocks')}>
-              📈 Stocks
+            <SidebarTab active={activeTab === 'stocks'} onClick={() => setActiveTab('stocks')} icon={TrendingUpIcon}>
+              Stocks
             </SidebarTab>
-            <SidebarTab active={activeTab === 'preferences'} onClick={() => setActiveTab('preferences')}>
-              ☁️ Preferences &amp; Sync
+            <SidebarTab active={activeTab === 'preferences'} onClick={() => setActiveTab('preferences')} icon={CloudIcon}>
+              Preferences &amp; Sync
             </SidebarTab>
-            <SidebarTab active={activeTab === 'data'} onClick={() => setActiveTab('data')}>
-              💾 Data Tools
+            <SidebarTab active={activeTab === 'data'} onClick={() => setActiveTab('data')} icon={CircleStackIcon}>
+              Data Tools
             </SidebarTab>
-            <SidebarTab active={activeTab === 'applock'} onClick={() => setActiveTab('applock')}>
-              🔒 App Lock
+            <SidebarTab active={activeTab === 'applock'} onClick={() => setActiveTab('applock')} icon={LockClosedIcon}>
+              App Lock
             </SidebarTab>
           </nav>
         </aside>
@@ -221,9 +270,9 @@ export default function SettingsPage() {
             App Management
           </h2>
           <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/50">
-            <HubLink onClick={() => setMobilePage('accounts')}>Accounts &amp; Balances</HubLink>
-            <HubLink onClick={() => setMobilePage('categories')}>Category Mapping</HubLink>
-            <HubLink onClick={() => setMobilePage('stocks')}>📈 Stock Tickers</HubLink>
+            <HubLink onClick={() => setMobilePage('accounts')} icon={CreditCardIcon}>Accounts &amp; Balances</HubLink>
+            <HubLink onClick={() => setMobilePage('categories')} icon={TagIcon}>Category Mapping</HubLink>
+            <HubLink onClick={() => setMobilePage('stocks')} icon={TrendingUpIcon}>Stock Tickers</HubLink>
           </div>
         </div>
         <div>
@@ -231,9 +280,9 @@ export default function SettingsPage() {
             Data Utilities
           </h2>
           <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/50">
-            <HubLink onClick={() => setMobilePage('preferences')}>Preferences &amp; Cloud Sync</HubLink>
-            <HubLink onClick={() => setMobilePage('data')}>Import / Export Data</HubLink>
-            <HubLink onClick={() => setMobilePage('applock')}>🔒 App Lock</HubLink>
+            <HubLink onClick={() => setMobilePage('preferences')} icon={CloudIcon}>Preferences &amp; Cloud Sync</HubLink>
+            <HubLink onClick={() => setMobilePage('data')} icon={CircleStackIcon}>Import / Export Data</HubLink>
+            <HubLink onClick={() => setMobilePage('applock')} icon={LockClosedIcon}>App Lock</HubLink>
           </div>
         </div>
       </div>
@@ -252,28 +301,32 @@ export default function SettingsPage() {
 
 // ── Layout sub-components ────────────────────────────────────
 
-function SidebarTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function SidebarTab({ active, onClick, icon: Icon, children }: { active: boolean; onClick: () => void; icon: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
-      className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
+      className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
         active
           ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
           : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200'
       }`}
     >
-      {children}
+      <Icon className="h-4 w-4 shrink-0" />
+      <span>{children}</span>
     </button>
   );
 }
 
-function HubLink({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+function HubLink({ onClick, icon: Icon, children }: { onClick: () => void; icon: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
       className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-zinc-800 transition-colors hover:bg-zinc-50 active:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:active:bg-zinc-700"
     >
-      <span>{children}</span>
+      <span className="flex items-center gap-2">
+        <Icon className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
+        <span>{children}</span>
+      </span>
       <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
       </svg>
@@ -406,7 +459,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
       <h2 className="mb-1 text-base font-semibold text-zinc-900 dark:text-zinc-100">Accounts</h2>
-      <p className="mb-3 text-xs text-zinc-400 dark:text-zinc-500">↕ Drag rows to reorder</p>
+      <p className="mb-3 text-xs text-zinc-600 dark:text-zinc-400">↕ Drag rows to reorder</p>
 
       {deleteWarning && (
         <p role="status" aria-live="polite" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-400">
@@ -447,7 +500,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
                         setEditValues({ ...editValues, startingBalance: e.target.value })
                       }
                       aria-label="Starting balance"
-                      leading={<span className="text-zinc-500">₱</span>}
+                      leading={<span>₱</span>}
                     />
                   </td>
                   <td className="py-2 pl-2 text-right">
@@ -507,7 +560,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
                       setEditValues({ ...editValues, startingBalance: e.target.value })
                     }
                     aria-label="Starting balance"
-                    leading={<span className="text-zinc-500">₱</span>}
+                    leading={<span>₱</span>}
                   />
                 </td>
                 <td className="py-2 pl-2 text-right">
@@ -521,14 +574,14 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
           </tbody>
         </table>
         {accounts.length === 0 && !addMode && (
-          <p className="py-4 text-center text-sm text-zinc-500">No accounts configured.</p>
+          <p className="py-4 text-center text-sm text-zinc-500 dark:text-zinc-400">No accounts configured.</p>
         )}
       </div>
 
       {/* ── Mobile cards ── */}
       <div className="block md:hidden space-y-2">
         {accounts.length === 0 && !addMode && (
-          <p className="py-4 text-center text-sm text-zinc-500">No accounts configured.</p>
+          <p className="py-4 text-center text-sm text-zinc-500 dark:text-zinc-400">No accounts configured.</p>
         )}
         {accounts.map((account) =>
           editingId === account.id ? (
@@ -548,7 +601,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
                     setEditValues({ ...editValues, startingBalance: e.target.value })
                   }
                   aria-label="Starting balance"
-                  leading={<span className="text-zinc-500">₱</span>}
+                  leading={<span>₱</span>}
                 />
               </div>
               <div className="mt-2 flex justify-end gap-2">
@@ -609,7 +662,7 @@ function AccountsSection({ accounts, onAdd, onUpdate, onDelete, onMoveTo }: Acco
                 value={editValues.startingBalance ?? '0'}
                 onChange={(e) => setEditValues({ ...editValues, startingBalance: e.target.value })}
                 aria-label="Starting balance"
-                leading={<span className="text-zinc-500">₱</span>}
+                leading={<span>₱</span>}
               />
             </div>
             <div className="mt-2 flex justify-end gap-2">
@@ -774,7 +827,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
       <h2 className="mb-1 text-base font-semibold text-zinc-900 dark:text-zinc-100">
         Categories
       </h2>
-      <p className="mb-3 text-xs text-zinc-400 dark:text-zinc-500">↕ Drag rows to reorder</p>
+      <p className="mb-3 text-xs text-zinc-600 dark:text-zinc-400">↕ Drag rows to reorder</p>
 
       {deleteWarning && (
         <p role="status" aria-live="polite" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-400">
@@ -907,7 +960,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
                 </tbody>
               </table>
               {filtered.length === 0 && !isAdding && (
-                <p className="py-3 text-center text-sm text-zinc-500">
+                <p className="py-3 text-center text-sm text-zinc-500 dark:text-zinc-400">
                   No {label.toLowerCase()} categories.
                 </p>
               )}
@@ -916,7 +969,7 @@ function CategoriesSection({ categories, onAdd, onUpdate, onDelete, onMoveTo }: 
             {/* Mobile cards */}
             <div className="block md:hidden space-y-2">
               {filtered.length === 0 && !isAdding && (
-                <p className="py-3 text-center text-sm text-zinc-500">
+                <p className="py-3 text-center text-sm text-zinc-500 dark:text-zinc-400">
                   No {label.toLowerCase()} categories.
                 </p>
               )}
@@ -1113,6 +1166,7 @@ function ToggleRow({
 // ============================================================
 
 function BackupSection() {
+  const { isScopeVerified } = useTransactionContext();
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [autoBackupTs, setAutoBackupTs] = useState<string | null>(null);
@@ -1123,7 +1177,8 @@ function BackupSection() {
   }, []);
 
   const handleRestoreAutoBackup = async () => {
-    if (!window.confirm('Restore auto-backup? This will replace all current data.')) return;
+    if (!isScopeVerified) return;
+    if (!window.confirm('Restore auto-backup? Current records in the backed-up stores are archived locally; pending uploads are kept for review.')) return;
     try {
       const ab = getAutoBackup();
       if (!ab) { setMsg('No auto-backup found.'); return; }
@@ -1135,6 +1190,7 @@ function BackupSection() {
   };
 
   const handleExport = async () => {
+    if (!isScopeVerified) return;
     try {
       const backup = await exportAllData();
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -1151,6 +1207,7 @@ function BackupSection() {
   };
 
   const handleExportCsv = async () => {
+    if (!isScopeVerified) return;
     try {
       const txs = await getAllTransactions();
       const csv = transactionsToCsv(txs);
@@ -1168,9 +1225,10 @@ function BackupSection() {
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isScopeVerified) return;
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!window.confirm('Import will REPLACE all current data. Are you sure?')) {
+    if (!window.confirm('Import will replace records in the stores contained in this backup. Replaced records are archived locally and pending uploads are kept for review. Continue?')) {
       e.target.value = '';
       return;
     }
@@ -1192,25 +1250,32 @@ function BackupSection() {
         Backup &amp; Restore
       </h2>
       <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
-        Export all data as JSON, or import from a previous backup. All data lives
-        locally in your browser and syncs to the cloud when connected.
+        Export all data as JSON, or import from a previous backup. The export
+        includes every store, pending sync work, conflicts, and deletion
+        archives. Records are archived locally before a restore replaces them.
       </p>
       <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
         Auto-backup: {autoBackupTs ? ('saved ' + timeAgo(new Date(autoBackupTs).getTime())) : 'none yet (saves daily)'}
       </p>
 
+      {!isScopeVerified && (
+        <p className="mb-3 text-sm text-amber-700 dark:text-amber-400">
+          Data tools are locked because the local cache belongs to another account.
+          Sign back in with the owning account to export or restore it.
+        </p>
+      )}
       <div className="flex flex-wrap gap-3">
-        <Button variant="secondary" size="sm" onClick={handleExport}>
+        <Button variant="secondary" size="sm" onClick={handleExport} disabled={!isScopeVerified}>
           Export All (JSON)
         </Button>
-        <Button variant="secondary" size="sm" onClick={handleExportCsv}>
+        <Button variant="secondary" size="sm" onClick={handleExportCsv} disabled={!isScopeVerified}>
           Export Transactions (CSV)
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()}>
+        <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()} disabled={!isScopeVerified}>
           Import from file…
         </Button>
         {autoBackupTs && (
-          <Button variant="ghost" size="sm" onClick={handleRestoreAutoBackup}>
+          <Button variant="ghost" size="sm" onClick={handleRestoreAutoBackup} disabled={!isScopeVerified}>
             Restore from auto-backup
           </Button>
         )}
@@ -1237,6 +1302,7 @@ function BackupSection() {
 // ============================================================
 
 function ImportSection() {
+  const { isScopeVerified } = useTransactionContext();
   const [csvText, setCsvText] = useState('');
   const [parsed, setParsed] = useState<ParsedCsv | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -1272,8 +1338,8 @@ function ImportSection() {
   };
 
   const handleImport = async () => {
-    if (!parsed || parsed.transactions.length === 0) return;
-    if (!window.confirm('Import will REPLACE all current data. Are you sure?')) return;
+    if (!isScopeVerified || !parsed || parsed.transactions.length === 0) return;
+    if (!window.confirm('Import will replace the account, category, transaction, cash, payout, and budget records. Replaced records are archived locally and pending uploads are kept for review. Continue?')) return;
     setIsImporting(true);
     setMsg(null);
     try {
@@ -1299,9 +1365,15 @@ function ImportSection() {
       <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
         Import from Google Sheets
       </h2>
+      {!isScopeVerified && (
+        <p className="mb-3 text-sm text-amber-700 dark:text-amber-400">
+          CSV import is locked because the local cache belongs to another account.
+        </p>
+      )}
       <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
         Paste CSV data below or upload a <code>.csv</code> file. The CSV becomes
-        the single source of truth — all current data will be replaced.
+        the single source of truth for those stores. Replaced records are
+        archived locally before removal.
       </p>
 
       {/* Mobile: collapsed accordion for the textarea */}
@@ -1365,32 +1437,42 @@ Date,Amount,Description,Type,Category,From Account,To Account
 
 function SyncSection() {
   const { state: authState } = useAuth();
+  const { isScopeVerified } = useTransactionContext();
   const router = useRouter();
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState<string | null>(() => {
-    const stored = localStorage.getItem('last_sync_time');
-    return stored ? formatSyncTime(Number(stored)) : null;
-  });
+  const [status, setStatus] = useState<SyncStatus | null>(null);
 
-  if (authState !== 'authenticated') return null;
+  useEffect(() => {
+    let cancelled = false;
+    getSyncStatus()
+      .then((next) => { if (!cancelled) setStatus(next); })
+      .catch(() => { if (!cancelled) setStatus(null); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (authState !== 'authenticated' || !isScopeVerified) return null;
+
+  const refreshStatus = async () => {
+    try {
+      const next = await getSyncStatus();
+      setStatus(next);
+      return next;
+    } catch {
+      setStatus(null);
+      return null;
+    }
+  };
 
   const handleSync = async () => {
     setIsSyncing(true);
     setSyncMsg(null);
     try {
       await backgroundSync();
-      const remaining = await getSyncQueueCount();
-      if (remaining === 0) {
-        const now = Date.now();
-        localStorage.setItem('last_sync_time', String(now));
-        setLastSync(formatSyncTime(now));
-        setSyncMsg('Synced!');
-      } else {
-        setSyncMsg(`${remaining} entr${remaining === 1 ? 'y' : 'ies'} couldn't be synced — check connection.`);
-      }
+      const next = await refreshStatus();
+      setSyncMsg(describeSyncStatus(next));
     } catch {
-      setSyncMsg('Sync failed — check connection.');
+      setSyncMsg('Sync failed — check connection. All local changes remain on this device.');
     } finally {
       setIsSyncing(false);
       router.refresh();
@@ -1398,29 +1480,23 @@ function SyncSection() {
   };
 
   const handleResync = async () => {
-    if (!window.confirm('Re-enqueue all local data for sync? This will clear the current sync queue and push everything again.')) return;
+    if (!window.confirm('Retry paused uploads and run a full reconciliation? Nothing local will be deleted or rebuilt.')) return;
     setIsSyncing(true);
-    setSyncMsg('Re-enqueuing all data…');
+    setSyncMsg('Retrying paused work…');
     try {
-      await resyncAll();
-      setSyncMsg('Queue rebuilt. Syncing…');
+      await retrySyncWork();
       await backgroundSync();
-      const remaining = await getSyncQueueCount();
-      if (remaining === 0) {
-        const now = Date.now();
-        localStorage.setItem('last_sync_time', String(now));
-        setLastSync(formatSyncTime(now));
-        setSyncMsg('All data synced!');
-      } else {
-        setSyncMsg(`Synced — ${remaining} entries still pending. Try again.`);
-      }
+      const next = await refreshStatus();
+      setSyncMsg(describeSyncStatus(next));
     } catch {
-      setSyncMsg('Re-sync failed — check connection.');
+      setSyncMsg('Re-sync failed — check connection. Nothing was deleted.');
     } finally {
       setIsSyncing(false);
       router.refresh();
     }
   };
+
+  const lastSync = status?.lastSyncAt ? formatSyncTime(status.lastSyncAt) : null;
 
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6">
@@ -1428,22 +1504,30 @@ function SyncSection() {
         Cloud Sync
       </h2>
       <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
-        Push local changes to the cloud and pull the latest data.
+        Push local changes to the cloud and pull the latest data. Failed or
+        conflicting changes stay safely on this device until resolved.
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" size="sm" onClick={handleSync} disabled={isSyncing}>
           {isSyncing ? 'Syncing…' : 'Sync now'}
         </Button>
         <Button variant="ghost" size="sm" onClick={handleResync} disabled={isSyncing}
-          className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
-          Re-sync all
+          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
+          Retry paused uploads
         </Button>
         {lastSync && (
-          <span className="text-xs text-zinc-400 dark:text-zinc-500">
-            Last sync: {lastSync}
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+            Last full sync: {lastSync}
           </span>
         )}
       </div>
+      {status && status.unresolved > 0 && (
+        <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
+          Needs attention: {status.pending} pending, {status.blocked} paused,{' '}
+          {status.conflict} conflict{status.conflict === 1 ? '' : 's'}, {status.quarantined} unverified,{' '}
+          {status.failed} failed attempt{status.failed === 1 ? '' : 's'}.
+        </p>
+      )}
       {syncMsg && (
         <p role="status" aria-live="polite" className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
           {syncMsg}
@@ -1451,6 +1535,16 @@ function SyncSection() {
       )}
     </section>
   );
+}
+
+function describeSyncStatus(status: SyncStatus | null): string {
+  if (!status) return 'Sync status unavailable — local changes are still stored on this device.';
+  if (status.canClaimSynced) return 'Synced — no pending changes.';
+  if (status.lastAttemptFailed && status.queue === 0 && status.unresolved === 0) {
+    return 'Last sync attempt failed — check connection. All local changes remain on this device.';
+  }
+  if (status.queue === 0 && status.unresolved === 0) return 'Nothing to sync.';
+  return `Sync incomplete — ${status.pending} pending, ${status.blocked} paused, ${status.conflict} conflict${status.conflict === 1 ? '' : 's'}, ${status.quarantined} unverified, ${status.failed} with failed attempts. All changes remain on this device.`;
 }
 
 function formatSyncTime(ts: number): string {
@@ -1480,26 +1574,31 @@ function formatSyncTime(ts: number): string {
 // ============================================================
 
 function DataRepairSection() {
+  const { isScopeVerified } = useTransactionContext();
   const [msg, setMsg] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
 
   const handleDedup = async () => {
-    if (!window.confirm('This will scan for duplicate transactions caused by previous imports and remove them. Proceed?')) return;
+    if (!isScopeVerified) {
+      setMsg('Local data is locked to another account. Nothing was scanned.');
+      return;
+    }
+    if (!window.confirm('Scan for duplicate and orphaned transactions? This is report-only and will not change any data.')) return;
     setIsRunning(true);
     setMsg(null);
     try {
       const result = await deduplicateTransactions();
-      if (result.deleted === 0 && result.relinked === 0 && result.remaining === 0) {
-        setMsg('No duplicates found. Your data is clean.');
+      if (result.orphaned === 0) {
+        setMsg('No orphaned or duplicate transactions found. Your data is clean.');
       } else {
-        const parts: string[] = [];
-        if (result.deleted > 0) parts.push(`${result.deleted} duplicate${result.deleted !== 1 ? 's' : ''} removed`);
-        if (result.relinked > 0) parts.push(`${result.relinked} transaction${result.relinked !== 1 ? 's' : ''} re-linked to correct accounts`);
-        if (result.remaining > 0) parts.push(`${result.remaining} transaction${result.remaining !== 1 ? 's' : ''} still orphaned (no match found)`);
-        setMsg(`Done: ${parts.join(', ')}. Reload to see changes.`);
+        setMsg(
+          `Scan complete — no changes made. Found ${result.orphaned} orphaned transaction${result.orphaned !== 1 ? 's' : ''}: ` +
+          `${result.duplicates} potential duplicate${result.duplicates !== 1 ? 's' : ''}, ` +
+          `${result.remaining} with no matching account record. Review them before editing.`
+        );
       }
     } catch {
-      setMsg('Repair failed — check console for details.');
+      setMsg('Scan failed — check console for details. No data was changed.');
     } finally {
       setIsRunning(false);
     }
@@ -1511,10 +1610,11 @@ function DataRepairSection() {
         Data Repair
       </h2>
       <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
-        Fix duplicate transactions from previous CSV imports. Removes confirmed duplicates and re-links orphaned transactions to the most likely accounts.
+        Scan for duplicate or orphaned transactions from previous CSV imports.
+        This is report-only: nothing is deleted or re-linked automatically.
       </p>
-      <Button variant="secondary" size="sm" onClick={handleDedup} disabled={isRunning}>
-        {isRunning ? 'Scanning…' : 'Deduplicate Transactions'}
+      <Button variant="secondary" size="sm" onClick={handleDedup} disabled={isRunning || !isScopeVerified}>
+        {isRunning ? 'Scanning…' : 'Scan for duplicates'}
       </Button>
       {msg && (
         <p role="status" aria-live="polite" className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
@@ -1665,7 +1765,7 @@ function AppLockSection() {
                 variant="ghost"
                 size="sm"
                 onClick={handleDisable}
-                className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
               >
                 Disable Lock
               </Button>

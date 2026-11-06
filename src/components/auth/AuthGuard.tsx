@@ -5,13 +5,14 @@
 // 1. Auth-disabled passthrough
 // 2. Loading spinner
 // 3. App lock → PinScreen overlay
-// 4. Unauthenticated → redirect to /login
+// 4. Unauthenticated → redirect to /login, rendering no private content
 // 5. Authenticated on /login → redirect to /
+// 6. Authenticated app subtree keyed by auth generation (remount on transition)
 // ============================================================
 
 'use client';
 
-import { useContext, useEffect, type ReactNode } from 'react';
+import { Fragment, useContext, useEffect, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { AuthContext } from '@/context/AuthContext';
 import { PinScreen } from '@/components/auth/PinScreen';
@@ -19,7 +20,7 @@ import { PinScreen } from '@/components/auth/PinScreen';
 export function AuthGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { state, isLocked } = useContext(AuthContext);
+  const { state, isLocked, authGeneration = 0 } = useContext(AuthContext);
 
   // Navigate on state change via useEffect, not inline redirect() which
   // throws mid-render and corrupts Next.js Router's hooks ordering.
@@ -41,5 +42,14 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   // Lock is a local privacy gate — enforce even when Supabase is disabled
   if (isLocked) return <PinScreen />;
   if (state === 'disabled') return <>{children}</>;
-  return <>{children}</>;
+  if (state === 'unauthenticated') {
+    // Fail closed while the redirect effect runs: only the public login route
+    // may render. Private children must never flash for a signed-out identity.
+    return pathname === '/login' ? <>{children}</> : null;
+  }
+
+  // A new identity generation (sign-out → sign-in, including the same user)
+  // remounts the app subtree so previous-generation component state cannot
+  // survive the transition.
+  return <Fragment key={authGeneration}>{children}</Fragment>;
 }

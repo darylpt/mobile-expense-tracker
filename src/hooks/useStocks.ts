@@ -14,13 +14,20 @@ import {
   deleteStock as deleteStockFromDB,
   moveStockTo as moveStockToInDB,
 } from '@/lib/idb';
+import { useTransactionContext } from '@/context/TransactionContext';
 
 export function useStocks() {
+  const { isScopeVerified } = useTransactionContext();
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!isScopeVerified) {
+      setStocks([]);
+      setIsLoading(false);
+      return;
+    }
     let mounted = true;
     getAllStocks()
       .then((data) => { if (mounted) setStocks(data); })
@@ -31,9 +38,10 @@ export function useStocks() {
       })
       .finally(() => { if (mounted) setIsLoading(false); });
     return () => { mounted = false; };
-  }, []);
+  }, [isScopeVerified]);
 
   const refresh = useCallback(async () => {
+    if (!isScopeVerified) return;
     try {
       setError(null);
       const data = await getAllStocks();
@@ -43,10 +51,11 @@ export function useStocks() {
       setError(message);
       console.error('[useStocks] Error loading stocks:', err);
     }
-  }, []);
+  }, [isScopeVerified]);
 
   const addStock = useCallback(async (stock: Omit<Stock, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> => {
     try {
+      if (!isScopeVerified) throw new Error('Local data is locked to another account');
       const id = await addStockToDB(stock);
       await refresh();
       return id;
@@ -55,10 +64,11 @@ export function useStocks() {
       setError(message);
       throw new Error(message);
     }
-  }, [refresh]);
+  }, [isScopeVerified, refresh]);
 
   const updateStock = useCallback(async (stock: Partial<Stock> & Pick<Stock, 'id'>): Promise<void> => {
     try {
+      if (!isScopeVerified) throw new Error('Local data is locked to another account');
       await updateStockToDB(stock);
       await refresh();
     } catch (err) {
@@ -66,10 +76,11 @@ export function useStocks() {
       setError(message);
       throw new Error(message);
     }
-  }, [refresh]);
+  }, [isScopeVerified, refresh]);
 
   const deleteStock = useCallback(async (id: string): Promise<void> => {
     try {
+      if (!isScopeVerified) throw new Error('Local data is locked to another account');
       await deleteStockFromDB(id);
       await refresh();
     } catch (err) {
@@ -77,17 +88,18 @@ export function useStocks() {
       setError(message);
       throw new Error(message);
     }
-  }, [refresh]);
+  }, [isScopeVerified, refresh]);
 
   const moveStockTo = useCallback(async (id: string, targetIndex: number): Promise<void> => {
     try {
+      if (!isScopeVerified) throw new Error('Local data is locked to another account');
       await moveStockToInDB(id, targetIndex);
       await refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to reorder stocks';
       setError(message);
     }
-  }, [refresh]);
+  }, [isScopeVerified, refresh]);
 
   return {
     stocks,

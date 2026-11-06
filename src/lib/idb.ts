@@ -6,7 +6,13 @@
 
 import { openDB, type IDBPDatabase, type IDBPObjectStore } from 'idb';
 import type { Transaction, Account, Category, CashDenomination, Payout, BudgetTarget, Stock, StockTransaction, Dividend, BalanceSnapshot } from '@/types';
-import { DB_NAME, DB_VERSION, STORES } from './constants';
+import {
+  DB_NAME,
+  DB_VERSION,
+  STORES,
+  DATA_STORES,
+  LAST_USER_STORAGE_KEY,
+} from './constants';
 import { generateId } from './utils';
 import { parseCsv, type ParsedCsv } from './csv-import';
 
@@ -15,6 +21,9 @@ import { parseCsv, type ParsedCsv } from './csv-import';
 // ============================================================
 
 export type SyncOperation = 'create' | 'update' | 'delete';
+
+/** Lifecycle of a queued mutation. Only `pending` is eligible for automatic push. */
+export type SyncEntryState = 'pending' | 'blocked' | 'conflict' | 'quarantined';
 
 export interface SyncQueueEntry {
   id: string;
@@ -25,6 +34,68 @@ export interface SyncQueueEntry {
   payload: unknown;
   timestamp: number;
   retryCount: number;
+  /** Account that produced this mutation. `null` means ownership is unproven. */
+  ownerId: string | null;
+  state: SyncEntryState;
+  /** Raw server row this mutation was based on (snake_case), or null for creates. */
+  baseline: Record<string, unknown> | null;
+  /** Raw server `updated_at` (or immutable `created_at`) CAS token. */
+  baselineRevision: string | null;
+  /** Durable archive id for delete operations. */
+  deletionSnapshotId?: string | null;
+  lastError?: string | null;
+  lastAttemptAt?: number | null;
+  quarantinedAt?: number | null;
+}
+
+/** Per-record synchronization state, keyed `${storeName}:${recordId}`. */
+export type SyncMetaState = 'clean' | 'pending' | 'blocked' | 'conflict' | 'quarantined';
+
+export interface SyncConflictSnapshot {
+  local: unknown;
+  remote: Record<string, unknown> | null;
+  reason: string;
+  detectedAt: number;
+}
+
+export interface SyncMetaEntry {
+  id: string;
+  storeName: string;
+  recordId: string;
+  ownerId: string | null;
+  baseline: Record<string, unknown> | null;
+  baselineRevision: string | null;
+  /** Local `updatedAt` observed when the baseline was last reconciled. */
+  localUpdatedAt: number | null;
+  state: SyncMetaState;
+  conflict?: SyncConflictSnapshot | null;
+  lastError?: string | null;
+  lastAttemptAt?: number | null;
+  updatedAt: number;
+}
+
+/** Durable copy of a record removed locally or replaced by import/restore. */
+export interface SyncDeletionSnapshot {
+  id: string;
+  storeName: string;
+  recordId: string;
+  payload: unknown;
+  deletedAt: number;
+  ownerId: string | null;
+  state: 'pending' | 'synced' | 'conflict' | 'quarantined' | 'archived';
+  reason: string;
+  baselineRevision: string | null;
+  lastError?: string | null;
+  updatedAt: number;
+}
+
+/** Read the account that currently owns the local cache (set after auth scope). */
+export function getActiveOwnerId(): string | null {
+  try {
+    return localStorage.getItem(LAST_USER_STORAGE_KEY) || null;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================
@@ -109,6 +180,23 @@ export interface ExpenseTrackerDB {
     value: BalanceSnapshot;
     indexes: {
       accountId: string;
+    };
+  };
+  [STORES.SYNC_META]: {
+    key: string;
+    value: SyncMetaEntry;
+    indexes: {
+      byStoreName: string;
+      byState: string;
+    };
+  };
+  [STORES.SYNC_DELETIONS]: {
+    key: string;
+    value: SyncDeletionSnapshot;
+    indexes: {
+      byStoreName: string;
+      byRecordId: string;
+      byState: string;
     };
   };
 }
@@ -204,6 +292,20 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
         bsStore.createIndex('accountId', 'accountId', { unique: false });
       }
 
+      // ── New stores added in v14 (Phase 3A sync safety) ──
+      if (!db.objectStoreNames.contains(STORES.SYNC_META)) {
+        const smStore = db.createObjectStore(STORES.SYNC_META, { keyPath: 'id' });
+        smStore.createIndex('byStoreName', 'storeName', { unique: false });
+        smStore.createIndex('byState', 'state', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains(STORES.SYNC_DELETIONS)) {
+        const sdStore = db.createObjectStore(STORES.SYNC_DELETIONS, { keyPath: 'id' });
+        sdStore.createIndex('byStoreName', 'storeName', { unique: false });
+        sdStore.createIndex('byRecordId', 'recordId', { unique: false });
+        sdStore.createIndex('byState', 'state', { unique: false });
+      }
+
       // ── Migration: v5 → v6 (category + account sortOrder) ──
       if (oldVersion < 6) {
         if (db.objectStoreNames.contains(STORES.CATEGORIES)) {
@@ -249,13 +351,10 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
         }
       }
 
-      // ── Migration: v7 → v8 (user isolation — clear old shared caches) ──
-      if (oldVersion < 8) {
-        for (const storeName of Object.values(STORES)) {
-          const store = transaction.objectStore(storeName);
-          await store.clear();
-        }
-      }
+      // NOTE: The historical v7 → v8 migration used to clear every store.
+      // Phase 3A removes that destructive branch: upgrades must never discard
+      // unacknowledged local changes or legacy rows. Existing data is preserved
+      // and ownership is verified later against the remote snapshot.
 
       // ── Migration: v8 → v9 (add createdAt/updatedAt to accounts and categories) ──
       if (oldVersion < 9) {
@@ -328,39 +427,78 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
 
       // ── Migration: v12 → v13 (dividend schema expansion) ──
       if (oldVersion < 13 && db.objectStoreNames.contains(STORES.DIVIDENDS)) {
-        const oldStore = transaction.objectStore(STORES.DIVIDENDS);
-        const oldRecords: Record<string, unknown>[] = [];
-        let cursor = await oldStore.openCursor();
-        while (cursor) {
-          oldRecords.push(cursor.value as Record<string, unknown>);
-          cursor = await cursor.continue();
+        const dividendStore = transaction.objectStore(STORES.DIVIDENDS);
+
+        // Update the existing store in place. A versionchange transaction is
+        // atomic: if an upgrade request fails, IndexedDB rolls back both the
+        // record updates and index changes and leaves the old version intact.
+        if (dividendStore.indexNames.contains('date')) {
+          dividendStore.deleteIndex('date');
+        }
+        for (const indexName of ['stockId', 'exDate', 'payDate', 'type'] as const) {
+          if (!dividendStore.indexNames.contains(indexName)) {
+            dividendStore.createIndex(indexName, indexName, { unique: false });
+          }
         }
 
-        db.deleteObjectStore(STORES.DIVIDENDS);
-        const dStore = db.createObjectStore(STORES.DIVIDENDS, { keyPath: 'id' });
-        dStore.createIndex('stockId', 'stockId', { unique: false });
-        dStore.createIndex('exDate', 'exDate', { unique: false });
-        dStore.createIndex('payDate', 'payDate', { unique: false });
-        dStore.createIndex('type', 'type', { unique: false });
-
-        for (const old of oldRecords) {
-          const oldDiv = old as Record<string, unknown>;
-          await dStore.put({
-            id: oldDiv.id as string,
-            stockId: oldDiv.stockId as string,
-            exDate: (oldDiv.date as string) ?? '',
-            payDate: (oldDiv.date as string) ?? '',
-            type: (oldDiv.type as 'cash' | 'stock') ?? 'cash',
-            qty: 0,
-            rate: 0,
-            amount: (oldDiv.amount as number) ?? 0,
-            fee: 0,
-            dividendYield: null,
-            sharesReceived: (oldDiv.sharesReceived as number | null) ?? null,
-            notes: (oldDiv.notes as string | null) ?? null,
-            createdAt: (oldDiv.createdAt as number) ?? Date.now(),
-            updatedAt: (oldDiv.updatedAt as number) ?? Date.now(),
+        let cursor = await dividendStore.openCursor();
+        while (cursor) {
+          const dividend = cursor.value as Record<string, unknown>;
+          await cursor.update({
+            ...dividend,
+            exDate: dividend.exDate ?? dividend.date ?? '',
+            payDate: dividend.payDate ?? dividend.date ?? '',
+            type: dividend.type ?? 'cash',
+            qty: dividend.qty ?? 0,
+            rate: dividend.rate ?? 0,
+            fee: dividend.fee ?? 0,
+            dividendYield: dividend.dividendYield ?? null,
+            createdAt: dividend.createdAt ?? Date.now(),
+            updatedAt: dividend.updatedAt ?? Date.now(),
           });
+          cursor = await cursor.continue();
+        }
+      }
+
+      // ── Migration: v13 → v14 (Phase 3A sync safety) ──
+      // Legacy queue rows have no proven owner. Keep their content verbatim,
+      // quarantine them, and never auto-assign them to a signed-in user.
+      // The whole upgrade runs in one versionchange transaction, so a failure
+      // aborts every schema/data change atomically.
+      if (oldVersion < 14 && db.objectStoreNames.contains(STORES.SYNC_QUEUE)) {
+        const queueStore = transaction.objectStore(STORES.SYNC_QUEUE);
+        let cursor = await queueStore.openCursor();
+        while (cursor) {
+          const entry = cursor.value as Partial<SyncQueueEntry>;
+          const knownStore = (DATA_STORES as readonly string[]).includes(entry.storeName ?? '');
+          const knownOperation =
+            entry.operation === 'create' ||
+            entry.operation === 'update' ||
+            entry.operation === 'delete';
+          if (entry.ownerId == null || !knownStore || !knownOperation) {
+            await cursor.update({
+              ...entry,
+              ownerId: entry.ownerId ?? null,
+              state: 'quarantined',
+              baseline: entry.baseline ?? null,
+              baselineRevision: entry.baselineRevision ?? null,
+              lastError:
+                entry.lastError ??
+                (entry.ownerId == null
+                  ? 'Legacy queue entry: owning account is unknown'
+                  : 'Unknown store or operation; entry preserved but not replayed'),
+              lastAttemptAt: entry.lastAttemptAt ?? null,
+              quarantinedAt: entry.quarantinedAt ?? Date.now(),
+            } as SyncQueueEntry);
+          } else if (entry.state == null) {
+            await cursor.update({
+              ...entry,
+              state: 'pending',
+              baseline: entry.baseline ?? null,
+              baselineRevision: entry.baselineRevision ?? null,
+            } as SyncQueueEntry);
+          }
+          cursor = await cursor.continue();
         }
       }
 
@@ -370,33 +508,13 @@ export async function getDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
   return dbInstance;
 }
 
-/**
- * Clear all local IndexedDB stores.
- * Used on user sign-out or user switch to wipe the previous user's cache.
- */
-export async function clearAllLocalData(): Promise<void> {
-  const db = await getDB();
-  for (const storeName of Object.values(STORES)) {
-    const tx = db.transaction(storeName, 'readwrite');
-    await tx.objectStore(storeName).clear();
-    await tx.done;
-  }
-}
-
 // ============================================================
 // Sync Queue
 // ============================================================
 
 /**
- * Enqueue a sync entry for the outbox pattern.
- * Called after each local CRUD to track unsynced changes.
- *
- * Simple CRUD functions now use enqueueSyncEntryInTx() inside a
- * shared transaction for atomicity. This function is still used by
- * batch operations (import, resync, dedup) where a separate tx is acceptable.
- */
-/**
- * Count pending sync entries that haven't been pushed to Supabase yet.
+ * Count all outbox entries (pending, paused, conflicting, quarantined).
+ * Use getSyncStatus() for a state breakdown.
  */
 export async function getSyncQueueCount(): Promise<number> {
   const db = await getDB();
@@ -431,15 +549,16 @@ function requestSync(): void {
  * Enqueue a sync entry within an existing IDB transaction.
  * Used by CRUD functions to atomically write data + sync queue entry.
  */
-function enqueueSyncEntryInTx(
-  syncStore: IDBPObjectStore<ExpenseTrackerDB, (typeof STORES)[keyof typeof STORES][], typeof STORES.SYNC_QUEUE, 'readwrite'>,
+function makeQueueEntry(
   storeName: string,
   recordId: string,
   operation: SyncOperation,
-  payload: unknown
-): void {
+  payload: unknown,
+  options?: { deletionSnapshotId?: string | null; ownerId?: string | null }
+): SyncQueueEntry {
+  const ownerId = options?.ownerId !== undefined ? options.ownerId : getActiveOwnerId();
   const seq = ++syncSeqCounter;
-  syncStore.add({
+  return {
     id: generateId(),
     storeName,
     recordId,
@@ -447,27 +566,100 @@ function enqueueSyncEntryInTx(
     payload,
     timestamp: seq,
     retryCount: 0,
-  });
+    ownerId,
+    state: ownerId ? 'pending' : 'quarantined',
+    baseline: null,
+    baselineRevision: null,
+    deletionSnapshotId: options?.deletionSnapshotId ?? null,
+    lastError: ownerId ? null : 'No verified account owns this local change',
+    lastAttemptAt: null,
+    quarantinedAt: ownerId ? null : Date.now(),
+  };
+}
+
+function enqueueSyncEntryInTx(
+  syncStore: IDBPObjectStore<ExpenseTrackerDB, (typeof STORES)[keyof typeof STORES][], typeof STORES.SYNC_QUEUE, 'readwrite'>,
+  storeName: string,
+  recordId: string,
+  operation: SyncOperation,
+  payload: unknown,
+  options?: { deletionSnapshotId?: string | null; ownerId?: string | null }
+): void {
+  syncStore.add(makeQueueEntry(storeName, recordId, operation, payload, options));
 }
 
 export async function enqueueSyncEntry<T>(
   storeName: string,
   recordId: string,
   operation: SyncOperation,
-  payload: T | null
+  payload: T | null,
+  options?: { deletionSnapshotId?: string | null; ownerId?: string | null }
 ): Promise<void> {
-  const seq = ++syncSeqCounter; // synchronous — order-preserving, no await before this
+  const entry = makeQueueEntry(storeName, recordId, operation, payload, options);
   const db = await getDB();
-  await db.add(STORES.SYNC_QUEUE, {
-    id: generateId(),
+  await db.add(STORES.SYNC_QUEUE, entry);
+  requestSync(); // fire-and-forget, debounced
+}
+
+/** IDB key for the durable per-record synchronization metadata. */
+export function syncMetaKey(storeName: string, recordId: string): string {
+  return `${storeName}:${recordId}`;
+}
+
+/**
+ * Archive a record before it is removed locally and enqueue the delete in the
+ * same transaction. The archive is never cleaned up automatically.
+ */
+function archiveAndEnqueueDeleteInTx(
+  syncStore: IDBPObjectStore<ExpenseTrackerDB, (typeof STORES)[keyof typeof STORES][], typeof STORES.SYNC_QUEUE, 'readwrite'>,
+  deletionStore: IDBPObjectStore<ExpenseTrackerDB, (typeof STORES)[keyof typeof STORES][], typeof STORES.SYNC_DELETIONS, 'readwrite'>,
+  storeName: string,
+  record: Record<string, unknown>,
+  reason: string
+): void {
+  const recordId = String(record.id);
+  const snapshotId = generateId();
+  const ownerId = getActiveOwnerId();
+  const now = Date.now();
+  deletionStore.add({
+    id: snapshotId,
     storeName,
     recordId,
-    operation,
-    payload,
-    timestamp: seq,
-    retryCount: 0,
-  });
-  requestSync(); // fire-and-forget, debounced
+    payload: record,
+    deletedAt: now,
+    ownerId,
+    state: ownerId ? 'pending' : 'quarantined',
+    reason,
+    baselineRevision: null,
+    lastError: ownerId ? null : 'No verified account owns this deletion',
+    updatedAt: now,
+  } satisfies SyncDeletionSnapshot);
+  enqueueSyncEntryInTx(
+    syncStore,
+    storeName,
+    recordId,
+    'delete',
+    record,
+    { deletionSnapshotId: snapshotId }
+  );
+}
+
+/**
+ * Return true when any local store holds a record — the ten financial stores
+ * plus the sync outbox, baselines, and deletion archives. A safety-only cache
+ * with no owner marker still counts as local data: claiming the database would
+ * orphan its archives, so this never assigns ownership.
+ */
+export async function hasAnyLocalData(): Promise<boolean> {
+  const db = await getDB();
+  const tx = db.transaction(ALL_BACKUP_STORES, 'readonly');
+  let hasData = false;
+  for (const storeName of ALL_BACKUP_STORES) {
+    hasData = (await tx.objectStore(storeName).count()) > 0;
+    if (hasData) break;
+  }
+  await tx.done;
+  return hasData;
 }
 
 // ============================================================
@@ -565,9 +757,22 @@ export async function updateTransaction(tx: Transaction): Promise<void> {
  */
 export async function deleteTransaction(id: string): Promise<void> {
   const db = await getDB();
-  const idbTx = db.transaction([STORES.TRANSACTIONS, STORES.SYNC_QUEUE], 'readwrite');
-  await idbTx.objectStore(STORES.TRANSACTIONS).delete(id);
-  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.TRANSACTIONS, id, 'delete', null);
+  const idbTx = db.transaction(
+    [STORES.TRANSACTIONS, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS],
+    'readwrite'
+  );
+  const store = idbTx.objectStore(STORES.TRANSACTIONS);
+  const existing = await store.get(id);
+  if (existing) {
+    archiveAndEnqueueDeleteInTx(
+      idbTx.objectStore(STORES.SYNC_QUEUE),
+      idbTx.objectStore(STORES.SYNC_DELETIONS),
+      STORES.TRANSACTIONS,
+      existing as unknown as Record<string, unknown>,
+      'local-delete'
+    );
+  }
+  await store.delete(id);
   await idbTx.done;
   requestSync();
 }
@@ -638,9 +843,22 @@ export async function updateAccount(
  */
 export async function deleteAccount(id: string): Promise<void> {
   const db = await getDB();
-  const idbTx = db.transaction([STORES.ACCOUNTS, STORES.SYNC_QUEUE], 'readwrite');
-  await idbTx.objectStore(STORES.ACCOUNTS).delete(id);
-  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.ACCOUNTS, id, 'delete', null);
+  const idbTx = db.transaction(
+    [STORES.ACCOUNTS, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS],
+    'readwrite'
+  );
+  const store = idbTx.objectStore(STORES.ACCOUNTS);
+  const existing = await store.get(id);
+  if (existing) {
+    archiveAndEnqueueDeleteInTx(
+      idbTx.objectStore(STORES.SYNC_QUEUE),
+      idbTx.objectStore(STORES.SYNC_DELETIONS),
+      STORES.ACCOUNTS,
+      existing as unknown as Record<string, unknown>,
+      'local-delete'
+    );
+  }
+  await store.delete(id);
   await idbTx.done;
   requestSync();
 }
@@ -752,9 +970,22 @@ export async function updateCategory(
  */
 export async function deleteCategory(id: string): Promise<void> {
   const db = await getDB();
-  const idbTx = db.transaction([STORES.CATEGORIES, STORES.SYNC_QUEUE], 'readwrite');
-  await idbTx.objectStore(STORES.CATEGORIES).delete(id);
-  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.CATEGORIES, id, 'delete', null);
+  const idbTx = db.transaction(
+    [STORES.CATEGORIES, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS],
+    'readwrite'
+  );
+  const store = idbTx.objectStore(STORES.CATEGORIES);
+  const existing = await store.get(id);
+  if (existing) {
+    archiveAndEnqueueDeleteInTx(
+      idbTx.objectStore(STORES.SYNC_QUEUE),
+      idbTx.objectStore(STORES.SYNC_DELETIONS),
+      STORES.CATEGORIES,
+      existing as unknown as Record<string, unknown>,
+      'local-delete'
+    );
+  }
+  await store.delete(id);
   await idbTx.done;
   requestSync();
 }
@@ -834,9 +1065,22 @@ export async function addCashDenomination(
  */
 export async function deleteCashDenomination(id: string): Promise<void> {
   const db = await getDB();
-  const idbTx = db.transaction([STORES.CASH_DENOMINATIONS, STORES.SYNC_QUEUE], 'readwrite');
-  await idbTx.objectStore(STORES.CASH_DENOMINATIONS).delete(id);
-  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.CASH_DENOMINATIONS, id, 'delete', null);
+  const idbTx = db.transaction(
+    [STORES.CASH_DENOMINATIONS, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS],
+    'readwrite'
+  );
+  const store = idbTx.objectStore(STORES.CASH_DENOMINATIONS);
+  const existing = await store.get(id);
+  if (existing) {
+    archiveAndEnqueueDeleteInTx(
+      idbTx.objectStore(STORES.SYNC_QUEUE),
+      idbTx.objectStore(STORES.SYNC_DELETIONS),
+      STORES.CASH_DENOMINATIONS,
+      existing as unknown as Record<string, unknown>,
+      'local-delete'
+    );
+  }
+  await store.delete(id);
   await idbTx.done;
   requestSync();
 }
@@ -847,13 +1091,23 @@ export async function deleteCashDenomination(id: string): Promise<void> {
  */
 export async function deleteCashDenominationsByDate(date: string): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction([STORES.CASH_DENOMINATIONS, STORES.SYNC_QUEUE], 'readwrite');
+  const tx = db.transaction(
+    [STORES.CASH_DENOMINATIONS, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS],
+    'readwrite'
+  );
   const store = tx.objectStore(STORES.CASH_DENOMINATIONS);
   const syncStore = tx.objectStore(STORES.SYNC_QUEUE);
+  const deletionStore = tx.objectStore(STORES.SYNC_DELETIONS);
   const index = store.index('date');
   let cursor = await index.openCursor(date);
   while (cursor) {
-    enqueueSyncEntryInTx(syncStore, STORES.CASH_DENOMINATIONS, cursor.value.id, 'delete', null);
+    archiveAndEnqueueDeleteInTx(
+      syncStore,
+      deletionStore,
+      STORES.CASH_DENOMINATIONS,
+      cursor.value as unknown as Record<string, unknown>,
+      'local-delete'
+    );
     await cursor.delete();
     cursor = await cursor.continue();
   }
@@ -910,6 +1164,32 @@ export async function upsertBalanceSnapshot(accountId: string, data: { value: nu
   requestSync();
 }
 
+/**
+ * Delete a balance snapshot locally, archiving the full record before removal.
+ * The archive and outbox entry are written atomically with the delete.
+ */
+export async function deleteBalanceSnapshot(accountId: string): Promise<void> {
+  const db = await getDB();
+  const idbTx = db.transaction(
+    [STORES.BALANCE_SNAPSHOTS, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS],
+    'readwrite'
+  );
+  const store = idbTx.objectStore(STORES.BALANCE_SNAPSHOTS);
+  const existing = await store.get(accountId);
+  if (existing) {
+    archiveAndEnqueueDeleteInTx(
+      idbTx.objectStore(STORES.SYNC_QUEUE),
+      idbTx.objectStore(STORES.SYNC_DELETIONS),
+      STORES.BALANCE_SNAPSHOTS,
+      existing as unknown as Record<string, unknown>,
+      'local-delete'
+    );
+  }
+  await store.delete(accountId);
+  await idbTx.done;
+  requestSync();
+}
+
 // ============================================================
 // Payout CRUD
 // ============================================================
@@ -960,9 +1240,22 @@ export async function updatePayout(payout: Payout): Promise<void> {
  */
 export async function deletePayout(id: string): Promise<void> {
   const db = await getDB();
-  const idbTx = db.transaction([STORES.PAYOUTS, STORES.SYNC_QUEUE], 'readwrite');
-  await idbTx.objectStore(STORES.PAYOUTS).delete(id);
-  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.PAYOUTS, id, 'delete', null);
+  const idbTx = db.transaction(
+    [STORES.PAYOUTS, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS],
+    'readwrite'
+  );
+  const store = idbTx.objectStore(STORES.PAYOUTS);
+  const existing = await store.get(id);
+  if (existing) {
+    archiveAndEnqueueDeleteInTx(
+      idbTx.objectStore(STORES.SYNC_QUEUE),
+      idbTx.objectStore(STORES.SYNC_DELETIONS),
+      STORES.PAYOUTS,
+      existing as unknown as Record<string, unknown>,
+      'local-delete'
+    );
+  }
+  await store.delete(id);
   await idbTx.done;
   requestSync();
 }
@@ -1125,19 +1418,44 @@ export async function updateStock(
  */
 export async function deleteStock(id: string): Promise<void> {
   const db = await getDB();
-  // ponytail: cascade-delete stockTransactions + dividends for this stock
+  // ponytail: cascade-delete stockTransactions + dividends for this stock,
+  // archiving every record (including the parent) before removal.
   const idbTx = db.transaction(
-    [STORES.STOCKS, STORES.STOCK_TRANSACTIONS, STORES.DIVIDENDS, STORES.SYNC_QUEUE],
+    [
+      STORES.STOCKS,
+      STORES.STOCK_TRANSACTIONS,
+      STORES.DIVIDENDS,
+      STORES.SYNC_QUEUE,
+      STORES.SYNC_DELETIONS,
+    ],
     'readwrite'
   );
+  const syncStore = idbTx.objectStore(STORES.SYNC_QUEUE);
+  const deletionStore = idbTx.objectStore(STORES.SYNC_DELETIONS);
+
+  const existingStock = await idbTx.objectStore(STORES.STOCKS).get(id);
+  if (existingStock) {
+    archiveAndEnqueueDeleteInTx(
+      syncStore,
+      deletionStore,
+      STORES.STOCKS,
+      existingStock as unknown as Record<string, unknown>,
+      'stock-cascade-delete'
+    );
+  }
   await idbTx.objectStore(STORES.STOCKS).delete(id);
-  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.STOCKS, id, 'delete', null);
 
   // Delete stock transactions for this stock
   const txnIndex = idbTx.objectStore(STORES.STOCK_TRANSACTIONS).index('stockId');
   let txnCursor = await txnIndex.openCursor(id);
   while (txnCursor) {
-    enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.STOCK_TRANSACTIONS, txnCursor.value.id, 'delete', null);
+    archiveAndEnqueueDeleteInTx(
+      syncStore,
+      deletionStore,
+      STORES.STOCK_TRANSACTIONS,
+      txnCursor.value as unknown as Record<string, unknown>,
+      'stock-cascade-delete'
+    );
     await txnCursor.delete();
     txnCursor = await txnCursor.continue();
   }
@@ -1146,7 +1464,13 @@ export async function deleteStock(id: string): Promise<void> {
   const divIndex = idbTx.objectStore(STORES.DIVIDENDS).index('stockId');
   let divCursor = await divIndex.openCursor(id);
   while (divCursor) {
-    enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.DIVIDENDS, divCursor.value.id, 'delete', null);
+    archiveAndEnqueueDeleteInTx(
+      syncStore,
+      deletionStore,
+      STORES.DIVIDENDS,
+      divCursor.value as unknown as Record<string, unknown>,
+      'stock-cascade-delete'
+    );
     await divCursor.delete();
     divCursor = await divCursor.continue();
   }
@@ -1212,9 +1536,22 @@ export async function addStockTransaction(tx: Omit<StockTransaction, 'id' | 'cre
 
 export async function deleteStockTransaction(id: string): Promise<void> {
   const db = await getDB();
-  const idbTx = db.transaction([STORES.STOCK_TRANSACTIONS, STORES.SYNC_QUEUE], 'readwrite');
-  await idbTx.objectStore(STORES.STOCK_TRANSACTIONS).delete(id);
-  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.STOCK_TRANSACTIONS, id, 'delete', null);
+  const idbTx = db.transaction(
+    [STORES.STOCK_TRANSACTIONS, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS],
+    'readwrite'
+  );
+  const store = idbTx.objectStore(STORES.STOCK_TRANSACTIONS);
+  const existing = await store.get(id);
+  if (existing) {
+    archiveAndEnqueueDeleteInTx(
+      idbTx.objectStore(STORES.SYNC_QUEUE),
+      idbTx.objectStore(STORES.SYNC_DELETIONS),
+      STORES.STOCK_TRANSACTIONS,
+      existing as unknown as Record<string, unknown>,
+      'local-delete'
+    );
+  }
+  await store.delete(id);
   await idbTx.done;
   requestSync();
 }
@@ -1241,9 +1578,22 @@ export async function addDividend(d: Omit<Dividend, 'id' | 'createdAt' | 'update
 
 export async function deleteDividend(id: string): Promise<void> {
   const db = await getDB();
-  const idbTx = db.transaction([STORES.DIVIDENDS, STORES.SYNC_QUEUE], 'readwrite');
-  await idbTx.objectStore(STORES.DIVIDENDS).delete(id);
-  enqueueSyncEntryInTx(idbTx.objectStore(STORES.SYNC_QUEUE), STORES.DIVIDENDS, id, 'delete', null);
+  const idbTx = db.transaction(
+    [STORES.DIVIDENDS, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS],
+    'readwrite'
+  );
+  const store = idbTx.objectStore(STORES.DIVIDENDS);
+  const existing = await store.get(id);
+  if (existing) {
+    archiveAndEnqueueDeleteInTx(
+      idbTx.objectStore(STORES.SYNC_QUEUE),
+      idbTx.objectStore(STORES.SYNC_DELETIONS),
+      STORES.DIVIDENDS,
+      existing as unknown as Record<string, unknown>,
+      'local-delete'
+    );
+  }
+  await store.delete(id);
   await idbTx.done;
   requestSync();
 }
@@ -1276,7 +1626,13 @@ export async function updateDividend(id: string, updates: Partial<Dividend>): Pr
 // Export / Import
 // ============================================================
 
-/** Shape of a full backup JSON. */
+/**
+ * Shape of a full recovery backup JSON.
+ *
+ * `version: 1` is preserved for backward compatibility. Older backups only
+ * contain the original six stores; the Phase 3A fields are optional so they
+ * continue to import without losing pending queues, conflicts, or archives.
+ */
 export interface BackupData {
   version: 1;
   exportedAt: string;
@@ -1287,6 +1643,16 @@ export interface BackupData {
     cashDenominations: CashDenomination[];
     payouts: Payout[];
     budgetTargets: BudgetTarget[];
+    balanceSnapshots?: BalanceSnapshot[];
+    stocks?: Stock[];
+    stockTransactions?: StockTransaction[];
+    dividends?: Dividend[];
+    /** Full outbox — pending, blocked, quarantined, and conflicting work. */
+    syncQueue?: SyncQueueEntry[];
+    /** Per-record baselines and conflict snapshots. */
+    syncMeta?: SyncMetaEntry[];
+    /** Durable deletion archives. */
+    syncDeletions?: SyncDeletionSnapshot[];
   };
 }
 
@@ -1297,77 +1663,239 @@ const ALL_STORES = [
   STORES.CASH_DENOMINATIONS,
   STORES.PAYOUTS,
   STORES.BUDGET_TARGETS,
+  STORES.BALANCE_SNAPSHOTS,
+  STORES.STOCKS,
+  STORES.STOCK_TRANSACTIONS,
+  STORES.DIVIDENDS,
 ] as const;
+
+const ALL_BACKUP_STORES = [
+  ...ALL_STORES,
+  STORES.SYNC_QUEUE,
+  STORES.SYNC_META,
+  STORES.SYNC_DELETIONS,
+] as const;
+
+type BackupStoreName =
+  | (typeof ALL_STORES)[number]
+  | typeof STORES.SYNC_QUEUE
+  | typeof STORES.SYNC_META
+  | typeof STORES.SYNC_DELETIONS;
+
+/**
+ * Minimal structural view over a heterogeneous object store. IndexedDB
+ * transactions type each store separately; recovery code iterates all of them.
+ */
+interface StoreHandle {
+  getAll(): Promise<unknown[]>;
+  add(value: unknown): Promise<unknown>;
+  put(value: unknown): Promise<unknown>;
+  clear(): Promise<void>;
+}
+
+function storeHandle(tx: unknown, name: BackupStoreName): StoreHandle {
+  // The idb transaction type cannot express one heterogeneous store union.
+  const typedTx = tx as { objectStore(storeName: never): unknown };
+  return typedTx.objectStore(name as never) as StoreHandle;
+}
 
 /**
  * Export every store as a portable JSON blob you can save to disk.
- * Each store gets a full read — no pagination needed (local-only, small data).
+ * Includes all ten data stores plus the outbox, baselines/conflicts, and
+ * deletion archives. Never includes authentication secrets.
  */
 export async function exportAllData(): Promise<BackupData> {
   const db = await getDB();
-  const tx = db.transaction(ALL_STORES, 'readonly');
-  const [transactions, accounts, categories, cashDenominations, payouts, budgetTargets] =
-    await Promise.all([
-      tx.objectStore(STORES.TRANSACTIONS).getAll(),
-      tx.objectStore(STORES.ACCOUNTS).getAll(),
-      tx.objectStore(STORES.CATEGORIES).getAll(),
-      tx.objectStore(STORES.CASH_DENOMINATIONS).getAll(),
-      tx.objectStore(STORES.PAYOUTS).getAll(),
-      tx.objectStore(STORES.BUDGET_TARGETS).getAll(),
-    ]);
+  const tx = db.transaction(ALL_BACKUP_STORES, 'readonly');
+  const read = <T,>(name: BackupStoreName): Promise<T[]> =>
+    storeHandle(tx, name).getAll() as Promise<T[]>;
+
+  const [
+    transactions,
+    accounts,
+    categories,
+    cashDenominations,
+    payouts,
+    budgetTargets,
+    balanceSnapshots,
+    stocks,
+    stockTransactions,
+    dividends,
+    syncQueue,
+    syncMeta,
+    syncDeletions,
+  ] = await Promise.all([
+    read<Transaction>(STORES.TRANSACTIONS),
+    read<Account>(STORES.ACCOUNTS),
+    read<Category>(STORES.CATEGORIES),
+    read<CashDenomination>(STORES.CASH_DENOMINATIONS),
+    read<Payout>(STORES.PAYOUTS),
+    read<BudgetTarget>(STORES.BUDGET_TARGETS),
+    read<BalanceSnapshot>(STORES.BALANCE_SNAPSHOTS),
+    read<Stock>(STORES.STOCKS),
+    read<StockTransaction>(STORES.STOCK_TRANSACTIONS),
+    read<Dividend>(STORES.DIVIDENDS),
+    read<SyncQueueEntry>(STORES.SYNC_QUEUE),
+    read<SyncMetaEntry>(STORES.SYNC_META),
+    read<SyncDeletionSnapshot>(STORES.SYNC_DELETIONS),
+  ]);
   await tx.done;
   return {
     version: 1,
     exportedAt: new Date().toISOString(),
-    data: { transactions, accounts, categories, cashDenominations, payouts, budgetTargets },
+    data: {
+      transactions,
+      accounts,
+      categories,
+      cashDenominations,
+      payouts,
+      budgetTargets,
+      balanceSnapshots,
+      stocks,
+      stockTransactions,
+      dividends,
+      syncQueue,
+      syncMeta,
+      syncDeletions,
+    },
   };
 }
 
 /**
- * Import a full backup — clears each store then bulk-adds the supplied records.
- * Runs inside a single readwrite transaction so it's atomic.
+ * Import a full backup.
+ *
+ * Safety properties:
+ *   - Runs in a single readwrite transaction.
+ *   - Only stores explicitly present in the backup are replaced.
+ *   - Replaced records are archived in `syncDeletions` before removal.
+ *   - Existing pending outbox entries are NOT deleted. Entries for replaced
+ *     records are marked `conflict` so the user can review them.
+ *   - Restored records get a fresh create entry owned by the current account
+ *     (or quarantined when no account scope has been established).
  */
 export async function importAllData(backup: BackupData): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(ALL_STORES, 'readwrite');
-  const stores = {
-    [STORES.TRANSACTIONS]: tx.objectStore(STORES.TRANSACTIONS),
-    [STORES.ACCOUNTS]: tx.objectStore(STORES.ACCOUNTS),
-    [STORES.CATEGORIES]: tx.objectStore(STORES.CATEGORIES),
-    [STORES.CASH_DENOMINATIONS]: tx.objectStore(STORES.CASH_DENOMINATIONS),
-    [STORES.PAYOUTS]: tx.objectStore(STORES.PAYOUTS),
-    [STORES.BUDGET_TARGETS]: tx.objectStore(STORES.BUDGET_TARGETS),
-  };
-  // Clear each store
-  for (const s of Object.values(stores)) await s.clear();
-  // Bulk-add
-  for (const record of backup.data.transactions) await stores[STORES.TRANSACTIONS].add(record);
-  for (const record of backup.data.accounts) await stores[STORES.ACCOUNTS].add(record);
-  for (const record of backup.data.categories) await stores[STORES.CATEGORIES].add(record);
-  for (const record of backup.data.cashDenominations) await stores[STORES.CASH_DENOMINATIONS].add(record);
-  for (const record of backup.data.payouts) await stores[STORES.PAYOUTS].add(record);
-  for (const record of backup.data.budgetTargets) await stores[STORES.BUDGET_TARGETS].add(record);
-  await tx.done;
+  const tx = db.transaction([...ALL_BACKUP_STORES], 'readwrite');
 
-  // Enqueue sync entries so restored data gets pushed to Supabase
-  for (const record of backup.data.accounts) {
-    enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record);
+  const data = backup.data;
+  const incoming: Array<[BackupStoreName, unknown[] | undefined]> = [
+    [STORES.TRANSACTIONS, data.transactions],
+    [STORES.ACCOUNTS, data.accounts],
+    [STORES.CATEGORIES, data.categories],
+    [STORES.CASH_DENOMINATIONS, data.cashDenominations],
+    [STORES.PAYOUTS, data.payouts],
+    [STORES.BUDGET_TARGETS, data.budgetTargets],
+    [STORES.BALANCE_SNAPSHOTS, data.balanceSnapshots],
+    [STORES.STOCKS, data.stocks],
+    [STORES.STOCK_TRANSACTIONS, data.stockTransactions],
+    [STORES.DIVIDENDS, data.dividends],
+  ];
+
+  const syncStore = tx.objectStore(STORES.SYNC_QUEUE);
+  const metaStore = tx.objectStore(STORES.SYNC_META);
+  const deletionStore = tx.objectStore(STORES.SYNC_DELETIONS);
+  const ownerId = getActiveOwnerId();
+  const now = Date.now();
+
+  const preExistingQueueIds = new Set<string>();
+  let queueCursor = await syncStore.index('byTimestamp').openCursor();
+  while (queueCursor) {
+    preExistingQueueIds.add((queueCursor.value as SyncQueueEntry).id);
+    queueCursor = await queueCursor.continue();
   }
-  for (const record of backup.data.categories) {
-    enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record);
+
+  const restoredQueueKeys = new Set<string>();
+  for (const entry of data.syncQueue ?? []) {
+    if (entry.operation !== 'delete') {
+      restoredQueueKeys.add(`${entry.storeName}:${entry.recordId}`);
+    }
   }
-  for (const record of backup.data.transactions) {
-    enqueueSyncEntry(STORES.TRANSACTIONS, record.id, 'create', record);
+  const restoredMetaIds = new Set((data.syncMeta ?? []).map((meta) => meta.id));
+
+  const replacedKeys = new Set<string>();
+  for (const [storeName, records] of incoming) {
+    if (records === undefined) continue;
+    const handle = storeHandle(tx, storeName);
+    const existing = await handle.getAll();
+    for (const record of existing) {
+      const rec = record as Record<string, unknown>;
+      replacedKeys.add(`${storeName}:${String(rec.id)}`);
+      deletionStore.add({
+        id: generateId(),
+        storeName,
+        recordId: String(rec.id),
+        payload: rec,
+        deletedAt: now,
+        ownerId,
+        state: 'archived',
+        reason: 'backup-restore-replaced',
+        baselineRevision: null,
+        lastError: null,
+        updatedAt: now,
+      } satisfies SyncDeletionSnapshot);
+    }
+    await handle.clear();
+    for (const record of records) {
+      await handle.add(record);
+      const rec = record as Record<string, unknown>;
+      const key = syncMetaKey(storeName, String(rec.id));
+      if (!restoredMetaIds.has(key)) {
+        await metaStore.put({
+          id: key,
+          storeName,
+          recordId: String(rec.id),
+          ownerId,
+          baseline: null,
+          baselineRevision: null,
+          localUpdatedAt: typeof rec.updatedAt === 'number' ? rec.updatedAt : null,
+          state: ownerId ? 'pending' : 'quarantined',
+          conflict: null,
+          lastError: ownerId ? null : 'No verified account owns this restored record',
+          lastAttemptAt: null,
+          updatedAt: now,
+        } satisfies SyncMetaEntry);
+      }
+      if (!restoredQueueKeys.has(`${storeName}:${String(rec.id)}`)) {
+        enqueueSyncEntryInTx(syncStore, storeName, String(rec.id), 'create', rec);
+      }
+    }
   }
-  for (const record of backup.data.cashDenominations) {
-    enqueueSyncEntry(STORES.CASH_DENOMINATIONS, record.id, 'create', record);
+
+  // Preserve unresolved work, but surface it instead of silently pushing
+  // mutations for records that were replaced. Only pre-existing entries are
+  // marked; restored outbox entries keep their recorded state.
+  queueCursor = await syncStore.index('byTimestamp').openCursor();
+  while (queueCursor) {
+    const entry = queueCursor.value as SyncQueueEntry;
+    if (
+      preExistingQueueIds.has(entry.id) &&
+      replacedKeys.has(`${entry.storeName}:${entry.recordId}`) &&
+      (entry.state === 'pending' || entry.state === 'blocked')
+    ) {
+      await queueCursor.update({
+        ...entry,
+        state: 'conflict',
+        lastError: 'Record was replaced by a backup restore; review before syncing',
+        lastAttemptAt: now,
+      } satisfies SyncQueueEntry);
+    }
+    queueCursor = await queueCursor.continue();
   }
-  for (const record of backup.data.payouts) {
-    enqueueSyncEntry(STORES.PAYOUTS, record.id, 'create', record);
+
+  // Merge the backup's safety metadata. Existing records win so a restore can
+  // never silently overwrite unresolved conflicts or deletion archives.
+  for (const entry of data.syncQueue ?? []) {
+    if (!(await syncStore.get(entry.id))) await syncStore.put(entry);
   }
-  for (const record of backup.data.budgetTargets) {
-    enqueueSyncEntry(STORES.BUDGET_TARGETS, record.id, 'create', record);
+  for (const meta of data.syncMeta ?? []) {
+    if (!(await metaStore.get(meta.id))) await metaStore.put(meta);
   }
+  for (const snapshot of data.syncDeletions ?? []) {
+    if (!(await deletionStore.get(snapshot.id))) await deletionStore.put(snapshot);
+  }
+
+  await tx.done;
+  requestSync();
 }
 
 /**
@@ -1462,6 +1990,8 @@ export async function ensureUuids(): Promise<void> {
   // ── 4. Sync queue — remap IDs in recordId and payload ──
   const entries = await db.getAll(STORES.SYNC_QUEUE);
   for (const entry of entries) {
+    // Quarantined/legacy work is preserved verbatim; it is never replayed.
+    if (entry.ownerId == null || entry.state === 'quarantined') continue;
     let changed = false;
 
     // Remap recordId
@@ -1494,52 +2024,71 @@ export async function ensureUuids(): Promise<void> {
       await db.put(STORES.SYNC_QUEUE, entry);
     }
   }
+
+  // ── 5. Safety metadata — keep baselines/conflicts keyed by the new IDs ──
+  const metas = await db.getAll(STORES.SYNC_META);
+  for (const meta of metas) {
+    const map = meta.storeName === STORES.ACCOUNTS
+      ? acctMap
+      : meta.storeName === STORES.CATEGORIES
+        ? catMap
+        : null;
+    const newId = map?.get(meta.recordId);
+    if (!newId) continue;
+    await db.delete(STORES.SYNC_META, meta.id);
+    await db.put(STORES.SYNC_META, {
+      ...meta,
+      id: syncMetaKey(meta.storeName, newId),
+      recordId: newId,
+      updatedAt: Date.now(),
+    });
+  }
+
+  const deletions = await db.getAll(STORES.SYNC_DELETIONS);
+  for (const snapshot of deletions) {
+    const map = snapshot.storeName === STORES.ACCOUNTS
+      ? acctMap
+      : snapshot.storeName === STORES.CATEGORIES
+        ? catMap
+        : null;
+    const newId = map?.get(snapshot.recordId);
+    if (!newId) continue;
+    const payload = snapshot.payload as Record<string, unknown> | null;
+    await db.put(STORES.SYNC_DELETIONS, {
+      ...snapshot,
+      recordId: newId,
+      payload: payload ? { ...payload, id: newId } : payload,
+      updatedAt: Date.now(),
+    });
+  }
+
   try { localStorage.setItem('uuid_migration_done', '1'); } catch { /* ignore */ }
 }
 
 /**
- * Re-enqueue every record from every data store into the sync queue.
- * Use this after deploying the monotonic-counter fix to recover entries
- * that were silently dropped after 5 retries due to the FK-ordering bug.
+ * Nondestructive "re-sync" used by the settings UI.
  *
- * Clears the queue first, then enqueues in dependency order:
- * accounts → categories → cash denominations → payouts → budget targets → transactions.
+ * It never clears the outbox, never rebuilds entries from current records,
+ * never assigns ownership to legacy rows, and never uploads quarantined or
+ * conflicting work. It only moves paused (blocked) entries back to `pending`
+ * so the next reconciliation attempt can retry them with their original
+ * payload, attempt count, and error history intact. Entries exist for all ten
+ * synchronized stores, so every store is covered.
  */
-export async function resyncAll(): Promise<void> {
+export async function resyncAll(): Promise<{ retried: number }> {
   const db = await getDB();
-
-  // Read all current data
-  const accounts = await db.getAll(STORES.ACCOUNTS);
-  const categories = await db.getAll(STORES.CATEGORIES);
-  const transactions = await db.getAll(STORES.TRANSACTIONS);
-  const cashDenominations = await db.getAll(STORES.CASH_DENOMINATIONS);
-  const payouts = await db.getAll(STORES.PAYOUTS);
-  const budgetTargets = await db.getAll(STORES.BUDGET_TARGETS);
-
-  // Clear existing queue
+  const entries = await db.getAllFromIndex(STORES.SYNC_QUEUE, 'byTimestamp');
   const tx = db.transaction(STORES.SYNC_QUEUE, 'readwrite');
-  await tx.store.clear();
+  let retried = 0;
+  for (const entry of entries) {
+    if (entry.state === 'blocked') {
+      await tx.store.put({ ...entry, state: 'pending' } satisfies SyncQueueEntry);
+      retried++;
+    }
+  }
   await tx.done;
-
-  // Enqueue in dependency order: accounts before transactions that reference them
-  for (const record of accounts) {
-    await enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record);
-  }
-  for (const record of categories) {
-    await enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record);
-  }
-  for (const record of cashDenominations) {
-    await enqueueSyncEntry(STORES.CASH_DENOMINATIONS, record.id, 'create', record);
-  }
-  for (const record of payouts) {
-    await enqueueSyncEntry(STORES.PAYOUTS, record.id, 'create', record);
-  }
-  for (const record of budgetTargets) {
-    await enqueueSyncEntry(STORES.BUDGET_TARGETS, record.id, 'create', record);
-  }
-  for (const record of transactions) {
-    await enqueueSyncEntry(STORES.TRANSACTIONS, record.id, 'create', record);
-  }
+  if (retried > 0) requestSync();
+  return { retried };
 }
 
 // ============================================================
@@ -1549,30 +2098,60 @@ export async function resyncAll(): Promise<void> {
 /**
  * Parse a CSV string and import all data into IndexedDB atomically.
  *
- * Clears all existing stores, then writes the parsed accounts (with
- * starting balances from carry-overs), categories, and transactions.
+ * Archives the records in the six replaced stores, then writes the parsed
+ * accounts (with starting balances from carry-overs), categories, and
+ * transactions. Pending outbox work is preserved as conflicts.
  *
  * Returns the parsed data (including any parse errors).
  */
+const CSV_REPLACED_STORES = [
+  STORES.ACCOUNTS,
+  STORES.CATEGORIES,
+  STORES.TRANSACTIONS,
+  STORES.CASH_DENOMINATIONS,
+  STORES.PAYOUTS,
+  STORES.BUDGET_TARGETS,
+] as const;
+
 export async function importFromCsv(csvText: string): Promise<ParsedCsv> {
   const parsed = parseCsv(csvText);
 
   const db = await getDB();
   const tx = db.transaction(
-    [STORES.ACCOUNTS, STORES.CATEGORIES, STORES.TRANSACTIONS, STORES.CASH_DENOMINATIONS, STORES.PAYOUTS, STORES.BUDGET_TARGETS],
+    [...CSV_REPLACED_STORES, STORES.SYNC_DELETIONS],
     'readwrite'
   );
 
   const acctStore = tx.objectStore(STORES.ACCOUNTS);
   const catStore = tx.objectStore(STORES.CATEGORIES);
   const txStore = tx.objectStore(STORES.TRANSACTIONS);
+  const deletionStore = tx.objectStore(STORES.SYNC_DELETIONS);
+  const ownerId = getActiveOwnerId();
+  const replacedKeys = new Set<string>();
 
-  await acctStore.clear();
-  await catStore.clear();
-  await txStore.clear();
-  await tx.objectStore(STORES.CASH_DENOMINATIONS).clear();
-  await tx.objectStore(STORES.PAYOUTS).clear();
-  await tx.objectStore(STORES.BUDGET_TARGETS).clear();
+  // Archive every record that the import is about to replace.
+  for (const storeName of CSV_REPLACED_STORES) {
+    const handle = storeHandle(tx, storeName);
+    const existing = await handle.getAll();
+    for (const record of existing) {
+      const rec = record as Record<string, unknown>;
+      replacedKeys.add(`${storeName}:${String(rec.id)}`);
+      deletionStore.add({
+        id: generateId(),
+        storeName,
+        recordId: String(rec.id),
+        payload: rec,
+        deletedAt: Date.now(),
+        ownerId,
+        state: 'archived',
+        reason: 'csv-import-replaced',
+        baselineRevision: null,
+        lastError: null,
+        updatedAt: Date.now(),
+      } satisfies SyncDeletionSnapshot);
+    }
+    await handle.clear();
+  }
 
   const now = Date.now();
 
@@ -1596,23 +2175,24 @@ export async function importFromCsv(csvText: string): Promise<ParsedCsv> {
 
   await tx.done;
 
-  // Clear stale sync queue entries for the stores we just wiped
-  // to prevent old-ID payloads from creating ghost records on Supabase.
+  // Never delete pending work just because the records it referred to were
+  // replaced. Preserve the entries and surface them as conflicts for review.
   const syncTx = db.transaction(STORES.SYNC_QUEUE, 'readwrite');
   const syncStore = syncTx.objectStore(STORES.SYNC_QUEUE);
   const syncIndex = syncStore.index('byTimestamp');
   let syncCursor = await syncIndex.openCursor();
   while (syncCursor) {
-    const entry = syncCursor.value as { storeName: string };
+    const entry = syncCursor.value as SyncQueueEntry;
     if (
-      entry.storeName === STORES.ACCOUNTS ||
-      entry.storeName === STORES.CATEGORIES ||
-      entry.storeName === STORES.TRANSACTIONS ||
-      entry.storeName === STORES.CASH_DENOMINATIONS ||
-      entry.storeName === STORES.PAYOUTS ||
-      entry.storeName === STORES.BUDGET_TARGETS
+      replacedKeys.has(`${entry.storeName}:${entry.recordId}`) &&
+      (entry.state === 'pending' || entry.state === 'blocked')
     ) {
-      await syncCursor.delete();
+      await syncCursor.update({
+        ...entry,
+        state: 'conflict',
+        lastError: 'Record was replaced by a CSV import; review before syncing',
+        lastAttemptAt: Date.now(),
+      } satisfies SyncQueueEntry);
     }
     syncCursor = await syncCursor.continue();
   }
@@ -1636,101 +2216,59 @@ export async function importFromCsv(csvText: string): Promise<ParsedCsv> {
 // Transaction Deduplication
 // ============================================================
 
+export interface DeduplicationReport {
+  /** Always 0: Phase 3A never deletes during a scan. */
+  deleted: 0;
+  /** Always 0: Phase 3A never rewrites account links during a scan. */
+  relinked: 0;
+  /** Orphans with no same-date/amount sibling to compare against. */
+  remaining: number;
+  /** Orphans that look like duplicates of a healthy transaction. */
+  duplicates: number;
+  /** Total orphaned transactions found. */
+  orphaned: number;
+}
+
 /**
  * Scan for orphaned transactions (references to deleted accounts) and
- * either delete confirmed duplicates or re-link them to the most likely
- * valid account based on historical frequency.
+ * potential duplicates. Phase 3A is report-only: it never deletes records,
+ * rewrites account links, or enqueues sync mutations.
  */
-export async function deduplicateTransactions(): Promise<{ deleted: number; relinked: number; remaining: number }> {
+export async function deduplicateTransactions(): Promise<DeduplicationReport> {
   const db = await getDB();
   const allTxs = await db.getAll(STORES.TRANSACTIONS);
   const accounts = await db.getAll(STORES.ACCOUNTS);
   const validIds = new Set(accounts.map((a) => a.id));
 
-  // Find orphaned transactions
   const orphaned = allTxs.filter((tx) => {
     const fromBad = tx.fromAccount && !validIds.has(tx.fromAccount);
     const toBad = tx.toAccount && !validIds.has(tx.toAccount);
     return fromBad || toBad;
   });
 
-  if (orphaned.length === 0) return { deleted: 0, relinked: 0, remaining: 0 };
-
-  // Build twin index: key = "date|amount|type|description" → array of valid transactions
-  const validTxs = allTxs.filter((tx) => {
-    const fromOk = !tx.fromAccount || validIds.has(tx.fromAccount);
-    const toOk = !tx.toAccount || validIds.has(tx.toAccount);
-    return fromOk && toOk;
-  });
-
-  const twinIndex = new Map<string, typeof validTxs>();
-  for (const tx of validTxs) {
-    const key = `${tx.date}|${tx.amount}|${tx.type}|${tx.category}|${tx.description ?? ''}`;
-    const group = twinIndex.get(key) ?? [];
-    group.push(tx);
-    twinIndex.set(key, group);
+  if (orphaned.length === 0) {
+    return { deleted: 0, relinked: 0, remaining: 0, duplicates: 0, orphaned: 0 };
   }
 
-  let deleted = 0;
-  let relinked = 0;
-  let remaining = 0;
+  const twinKeys = new Set(
+    allTxs
+      .filter((tx) => {
+        const fromOk = !tx.fromAccount || validIds.has(tx.fromAccount);
+        const toOk = !tx.toAccount || validIds.has(tx.toAccount);
+        return fromOk && toOk;
+      })
+      .map((tx) => `${tx.date}|${tx.amount}|${tx.type}|${tx.category}|${tx.description ?? ''}`)
+  );
 
+  let duplicates = 0;
+  let remaining = 0;
   for (const tx of orphaned) {
     const key = `${tx.date}|${tx.amount}|${tx.type}|${tx.category}|${tx.description ?? ''}`;
-    const twins = twinIndex.get(key);
-
-    if (twins && twins.length > 0) {
-      // Confirmed duplicate — delete
-      await db.delete(STORES.TRANSACTIONS, tx.id);
-      enqueueSyncEntry(STORES.TRANSACTIONS, tx.id, 'delete', null);
-      deleted++;
-    } else {
-      // No twin — try to re-link by finding the most common valid account for this transaction type + category
-      const fromCounts = new Map<string, number>();
-      const toCounts = new Map<string, number>();
-      for (const v of validTxs) {
-        if (v.type === tx.type && v.category === tx.category) {
-          if (v.fromAccount) fromCounts.set(v.fromAccount, (fromCounts.get(v.fromAccount) ?? 0) + 1);
-          if (v.toAccount) toCounts.set(v.toAccount, (toCounts.get(v.toAccount) ?? 0) + 1);
-        }
-      }
-      // Fallback: if no category matches, use type-wide counts
-      if (fromCounts.size === 0 && toCounts.size === 0) {
-        for (const v of validTxs) {
-          if (v.type === tx.type) {
-            if (v.fromAccount) fromCounts.set(v.fromAccount, (fromCounts.get(v.fromAccount) ?? 0) + 1);
-            if (v.toAccount) toCounts.set(v.toAccount, (toCounts.get(v.toAccount) ?? 0) + 1);
-          }
-        }
-      }
-
-      let changed = false;
-      if (tx.fromAccount && !validIds.has(tx.fromAccount)) {
-        const best = [...fromCounts.entries()].sort((a, b) => b[1] - a[1])[0];
-        if (best) {
-          tx.fromAccount = best[0];
-          changed = true;
-        }
-      }
-      if (tx.toAccount && !validIds.has(tx.toAccount)) {
-        const best = [...toCounts.entries()].sort((a, b) => b[1] - a[1])[0];
-        if (best) {
-          tx.toAccount = best[0];
-          changed = true;
-        }
-      }
-
-      if (changed) {
-        await db.put(STORES.TRANSACTIONS, tx);
-        enqueueSyncEntry(STORES.TRANSACTIONS, tx.id, 'update', tx);
-        relinked++;
-      } else {
-        remaining++;
-      }
-    }
+    if (twinKeys.has(key)) duplicates++;
+    else remaining++;
   }
 
-  return { deleted, relinked, remaining };
+  return { deleted: 0, relinked: 0, remaining, duplicates, orphaned: orphaned.length };
 }
 
 // ── Auto-backup ───────────────────────────────────────────────

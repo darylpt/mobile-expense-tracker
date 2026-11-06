@@ -1,23 +1,32 @@
 # Spec: User Data Isolation (per-user scoping)
 
-**Status:** ✅ Done
+**Status:** ✅ Client-side safety fix verified — unowned safety-only caches fail
+closed (§5). Server protocol limits remain; this is not a Phase 3B or release
+approval.
 
-> **Implementation notes (Jul 2026):** A `lastUserId` localStorage marker prevents
-> unnecessary cache wiping on same-user page refresh — only clears local data when
-> the signed-in user actually changes. Sync queue entries from the old user are
-> discarded on user switch (intentional — unsynced changes from another user should
-> not pollute the new user's queue). The sync layer stamps `userId` on every
-> outgoing payload. `pullStore()` now scopes queries with `.eq('user_id', userId)`.
-> Migration 003 (`sort_order` column) was added later to fix a 400 error caused by
-> the sync code sending `sort_order` to tables that didn't have the column yet.
+> **Current behavior (Phase 3A):** `lastUserId` is an ownership check, not a
+> cache-wipe trigger. Sign-out, unauthenticated state, a different account, or
+> local data with unknown ownership in any of the 13 local stores hides records
+> and retains them with their outbox and deletion snapshots. Legacy queue entries
+> without a verified owner are quarantined, not replayed. This client-side
+> containment does not replace server-enforced revisions or atomic operation
+> receipts.
+>
+> **Ownership check:** an unmarked cache counts as empty only when all 13 stores
+> are empty. A safety-only cache with no marker is therefore retained and left
+> unassigned, not claimed by the next signed-in account. See §5.
 
 ---
 
 ## Objective
 
-Isolate each user's data behind their Supabase Auth user ID. Currently all users share a single ledger (no `user_id` column, RLS gates on `auth.role() = 'authenticated'`). After this change, each user sees only their own transactions, accounts, categories, etc.
+**Historical objective:** isolate each user's data behind their Supabase Auth
+user ID. That rollout added per-user RLS; the migration's original shared-data
+wipe is historical and does not describe current local account transitions.
 
-**Key decision:** Wipe existing shared data from both Supabase and local IndexedDB. No backfill or ownership migration. Both users start fresh after the rollout.
+**Historical rollout decision:** The original shared-data isolation rollout
+intentionally wiped shared Supabase data and old local caches. That migration
+history does not describe current account-transition behavior.
 
 ---
 
@@ -117,15 +126,17 @@ Used by the auth lifecycle in TransactionContext (step 4). Separate from the mig
 - If no user, bail entirely (don't push anonymous data)
 - Stamp `userId` onto every outgoing create/update payload before the `camelToSnake()` transform
 
-### `pullStore(storeName)`
-- Add a `userId` parameter
+### `pullStore(storeName, userId)`
 - Scope the Supabase select: `.select('*').eq('user_id', userId)`
 - This is defensive — RLS already scopes it, but explicit filtering is clearer and avoids pulling data that the merge would reject anyway
+- Direct callers must hold the exact captured auth scope (matching user, generation, and `lastUserId` marker); a supplied user ID never widens it
+- `backgroundSync()` uses a private scoped path with the token captured at cycle entry, so a sign-out/re-login cannot revive old pull work
+- The merge transaction is registered with the auth scope and aborts synchronously on invalidation; a stale response or aborted merge is a no-op, not success
 
 ### `backgroundSync()`
 - Resolve current user first
 - Bail entirely if no session (skip both push and pull)
-- Pass `user.id` to `pullStore()`
+- Capture one auth scope at cycle entry and pass it to push and pull; never recapture mid-cycle
 
 ### Transform map
 - Add `userId: 'user_id'` to `FIELD_MAP` in sync.ts (and reverse will be auto-generated)
@@ -136,74 +147,124 @@ For saved transaction filter isolation, see the [filter persistence contract](tr
 
 ## 4. Auth lifecycle (`TransactionContext.tsx`)
 
-### Current behavior
-On mount: seeds data (removed), runs `refreshTransactions()`, triggers `backgroundSync()` if online. Listens for `online` events.
+### Current Phase 3A behavior
 
-### New behavior
-Consume `useAuth()` and track auth transitions:
+- Supabase disabled: local-only access remains available.
+- Authenticated user matches the verified `lastUserId`: the cache may be loaded
+  and sync is scoped to that user.
+- Different authenticated user: local data remains in IndexedDB but is hidden;
+  the app does not pull into or upload from that cache under the new identity.
+- No marker with at least one record in any store, including a safety-only
+  cache: ownership is unknown, so the cache remains hidden, is not uploaded, and
+  is never claimed for the signed-in user. See §5.
+- No marker and no records in any of the 13 local stores: the cache is treated
+  as empty and assigned to the signed-in user. `hasAnyLocalData()` inspects all
+  13 stores in one readonly transaction, so a cache that retains only
+  `syncQueue`, `syncMeta`, or `syncDeletions` records is not empty.
+- Sign-out or unauthenticated state: local data, queued operations, and deletion
+  snapshots are retained but hidden. Sign-out does not guarantee pending work
+  reached Supabase.
+- In-flight reads and lifecycle refreshes capture the `AuthContext` identity
+  generation. A continuation from a previous generation cannot repopulate
+  transactions, accounts, or categories, publish a stale error/loading state, or
+  trigger a refresh after sign-out or same-user re-login.
+- `AuthGuard` renders no private children while unauthenticated (the redirect
+  effect runs first) and keys the authenticated subtree by generation, forcing a
+  remount on every identity transition.
+- Legacy queue entries with unknown ownership are preserved as quarantined work.
 
-```typescript
-// localStorage key for tracking which user's data is cached
-const LAST_USER_KEY = 'lastUserId';
+The app has no automatic local-data transfer between users. The owner must sign
+back in to access an owned cache; Phase 3A does not decide ownership for
+unassigned legacy records, including safety-only caches. An unowned cache is
+never adopted by a newly signed-in account, so its records remain local,
+hidden, and retained; the app has no automatic reassignment path for an
+unmarked cache that still contains records. Push/pull cycles and UI
+reads are fenced by the identity generation captured when they started, so work
+authorized before sign-out or a same-user re-login cannot become authoritative
+again. These are client-side safety checks. They do not stop older clients from
+using the direct REST protocol or provide server-managed revision and
+idempotency guarantees.
 
-// Current state machine:
-// disabled (no Supabase) → no change, app works offline as before
-// authenticated → check marker against user.id
-// unauthenticated → if marker exists, clear and remove marker
-```
-
-**On mount (authenticated):**
-1. Read `lastUserId` from localStorage
-2. If marker exists and `marker !== user.id` → `clearAllLocalData()` (user switch detected)
-3. Set `lastUserId = user.id`
-4. Run `backgroundSync()` then `refreshTransactions()`
-
-**On SIGNED_OUT event (via onAuthStateChange):**
-1. `clearAllLocalData()`
-2. `localStorage.removeItem(LAST_USER_KEY)`
-3. `refreshTransactions()` → renders empty state
-
-**On mount (unauthenticated):**
-1. Read `lastUserId` from localStorage
-2. If marker exists → `clearAllLocalData()`, remove marker, `refreshTransactions()`
-3. This handles the case where a user signed out, then refreshed the page
-
-**On mount (disabled):**
-1. No auth — app works as today. No cache clearing.
-
-### Why localStorage marker?
-Without it, refreshing the page as the same user would trigger a clear + full re-pull on every reload. The marker persists across refreshes and only differs when a different user signs in.
-
----
-
-## 5. Edge cases
-
-| Case | Behavior |
-|---|---|
-| **Same user refreshes page** | Marker matches → no wipe. `backgroundSync()` pulls latest data. |
-| **User A signs out, User B signs in** | Auth fires SIGNED_OUT → wipe + remove marker. Then auth fires authenticated (B) → marker empty / differs → wipe (already clean), set marker to B, pull B's data. |
-| **Offline + cached session** | `getUser()` returns cached user. Normal flow. |
-| **Offline + no session** | `getUser()` errors → bail. User sees login page. |
-| **Supabase not configured** | `state === 'disabled'` — no auth lifecycle runs. App works offline. |
-| **Unsaved changes on sign-out** | Sync queue entries for the old user are discarded (cleared with everything else). Acceptable for 2-user household — unsaved changes are lost on user switch. |
-| **First sign-in (fresh install)** | No marker, no local data. `backgroundSync()` pulls their (empty) Supabase data. User starts clean. |
-| **First sign-in after migration (existing install)** | DB v8 migration clears old shared cache. No marker. `backgroundSync()` pulls their (empty) Supabase data (TRUNCATE wiped everything). User starts clean. |
+Earlier sections document the original v8 isolation migration and its rollout;
+they are historical implementation details, not the current sign-out or
+account-switch procedure.
 
 ---
 
-## 6. What does NOT change
+## 5. Fixed behavior: unowned safety-only caches fail closed
 
-- All existing IDB CRUD functions (`addAccount`, `getAllTransactions`, etc.) — they read/write local cache, no user awareness needed
-- `src/types/index.d.ts` — interfaces stay the same (no `userId` field in local types)
-- UI components — no changes; data comes from the same hooks/context
-- Offline-first — IDB is the source of truth for UI; sync is background
-- `src/context/AuthContext.tsx` — clears the saved transaction filter mirror at identity boundaries
+`hasAnyLocalData()` (`src/lib/idb.ts`) opens one `readonly` transaction over
+`ALL_BACKUP_STORES` — the ten financial stores plus `syncQueue`, `syncMeta`, and
+`syncDeletions` — and returns true as soon as any store holds a record.
+The result is used only after the transaction completes. The helper does not
+write, clear, reassign, or repair any record while checking.
+
+On authenticated startup without a `lastUserId` marker,
+`TransactionContext.tsx` calls `hasAnyLocalData()` before assigning ownership.
+The outcomes are:
+
+- **Any record in any of the 13 stores.** Ownership is unverified. Startup sets
+  `isScopeVerified = false`, publishes no financial rows, writes no
+  `lastUserId` marker, and does not start background sync. A safety-only cache
+  (outbox, metadata, or deletion archives with empty financial stores) is
+  therefore retained and left unassigned. Its payloads, owner fields, and queue
+  state are unchanged.
+- **No record in all 13 stores.** The cache is truly empty; startup may claim it
+  by writing `lastUserId` for the signed-in user, verify the scope, and start
+  sync.
+- **The check itself fails** (for example, the database is unavailable). Startup
+  treats that as an error, not as an empty cache: it does not claim ownership or
+  mark the scope verified.
+
+Export, import, restore, and AutoBackup all require `isScopeVerified`. A
+safety-only cache that fails ownership verification keeps those tools locked:
+the retained safety records stay local, hidden, and unexportable while the scope
+is unverified. A matching-owner scope can still export all
+13 stores, including `syncQueue`, `syncMeta`, and `syncDeletions`. The export
+snapshot does not encode its owner, and restoring it does not transfer cloud
+ownership (see [Backup / Restore](backup-restore.md#sensitive-data)).
+
+### Regression coverage
+
+Focused tests assert this client behavior:
+
+- `src/lib/phase3a-idb.test.ts` — `hasAnyLocalData()` returns true for a
+  safety-only cache and for each safety store seeded alone, returns false only
+  when all 13 stores are empty, leaves records unchanged, and rejects instead of
+  reporting empty when the database is unavailable.
+- `src/context/TransactionContext.startup.test.tsx` — a new user is refused an
+  unowned cache seeded with `syncQueue`, `syncMeta`, or `syncDeletions`; a truly
+  empty database is claimed; AutoBackup creates or replaces no snapshot while
+  the scope is refused.
+- `src/app/settings/page.scope.test.tsx` — every data-tool action stays locked
+  for an unowned safety-only cache, and a matching owner can export all 13
+  stores through Settings.
+
+These tests describe local client behavior only. They do not add server-managed
+revisions, atomic operation receipts, or a guarantee that older clients respect
+the same ownership check. Phase 3B server protocol work remains outstanding.
 
 ---
 
-## 7. Rollout order
+## 6. Scope and current constraints
 
-1. Apply `002_user_isolation.sql` to Supabase (wipes shared data)
-2. Deploy updated app code (DB v8 migration clears local caches)
-3. Users sign in → each sees their own empty data
-4. Import/enter data per user
+- Local CRUD remains IndexedDB-backed; authenticated mutations are permitted only after the cache owner is verified.
+- Queue entries carry an owner when available; unknown-owner work stays quarantined.
+- UI data remains local-first, but a cache with mismatched ownership, or unknown
+  ownership with a record in any of the 13 stores, is hidden rather than loaded
+  and is never reassigned to the signed-in account. §5 covers the safety-only
+  case.
+- Sign-out retains local records and recovery metadata; it does not guarantee an attempted sync has completed.
+- `AuthContext` also clears the saved transaction-filter mirror at identity boundaries.
+
+---
+
+## 7. Historical rollout record
+
+The original shared-data isolation rollout was:
+
+1. Apply `002_user_isolation.sql` to Supabase (the migration truncates shared data).
+2. Deploy the then-current app (DB v8 migration cleared old local caches).
+3. Users sign in and import or enter data per user.
+
+This is historical deployment information, not a current Phase 3A instruction.

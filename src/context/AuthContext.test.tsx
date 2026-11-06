@@ -1,14 +1,18 @@
 import React from 'react';
 import { render, act, cleanup, fireEvent, screen } from '@testing-library/react';
-import { AuthProvider, AuthContext } from './AuthContext';
+import { AuthProvider, AuthContext, useAuth } from './AuthContext';
 import { AuthGuard } from '@/components/auth/AuthGuard';
 import { TransactionList } from '@/components/summary/TransactionList';
 import { FILTERS_STORAGE_KEY } from '@/lib/transaction-filters';
 
+type MockSessionResult = { data: { session: { user: { id: string } } | null } };
+
 let authChanged: (event: string, session: { user: { id: string } } | null) => void;
+let mockSessionRequest: (() => Promise<MockSessionResult>) | null = null;
 jest.mock('@/lib/supabase', () => ({
   supabase: { auth: {
-    getSession: () => new Promise(() => {}),
+    getSession: () =>
+      mockSessionRequest ? mockSessionRequest() : new Promise(() => {}),
     signOut: async () => authChanged('SIGNED_OUT', null),
     onAuthStateChange: (callback: typeof authChanged) => {
       authChanged = callback;
@@ -33,6 +37,7 @@ jest.mock('@/context/TransactionContext', () => ({
 jest.mock('@/components/forms/EditTransactionModal', () => ({ EditTransactionModal: () => null }));
 
 beforeEach(() => {
+  mockSessionRequest = null;
   localStorage.clear();
   window.history.replaceState(null, '', '/transactions');
   mockReplace.mockClear();
@@ -43,6 +48,23 @@ afterEach(cleanup);
 
 function session(id: string | null) {
   act(() => authChanged('change', id ? { user: { id } } : null));
+}
+
+function deferredSession() {
+  const { promise, resolve, reject } =
+    Promise.withResolvers<MockSessionResult>();
+  mockSessionRequest = () => promise;
+  return { resolve, reject };
+}
+
+function AuthProbe() {
+  const { state, user } = useAuth();
+  return <span>{`${state}:${user?.id ?? 'none'}`}</span>;
+}
+
+function AuthGenerationProbe() {
+  const { authGeneration } = useAuth();
+  return <span data-testid="auth-generation">{authGeneration}</span>;
 }
 
 test('sign-out removes private filters before the next login', () => {
@@ -129,4 +151,58 @@ test('offline-disabled mode restores filters and keeps explicit URLs authoritati
   view.rerender(tree('explicit'));
   expect(window.location.search).toBe('?q=explicit&group=date');
   expect(localStorage.getItem(FILTERS_STORAGE_KEY)).toBe('q=explicit');
+});
+
+test('repeated same-user events keep the generation stable while A → signed out → A advances it', () => {
+  render(<AuthProvider><AuthGenerationProbe /></AuthProvider>);
+
+  session('a');
+  const signedIn = Number(
+    screen.getByTestId('auth-generation').textContent,
+  );
+  session('a');
+  expect(
+    Number(screen.getByTestId('auth-generation').textContent),
+  ).toBe(signedIn);
+
+  session(null);
+  const signedOut = Number(
+    screen.getByTestId('auth-generation').textContent,
+  );
+  expect(signedOut).toBeGreaterThan(signedIn);
+
+  session('a');
+  expect(
+    Number(screen.getByTestId('auth-generation').textContent),
+  ).toBeGreaterThan(signedOut);
+});
+
+test('a stale initial session response cannot re-authenticate after a sign-out', async () => {
+  const stale = deferredSession();
+  render(<AuthProvider><AuthProbe /></AuthProvider>);
+  expect(screen.getByText('loading:none')).toBeTruthy();
+
+  act(() => authChanged('SIGNED_OUT', null));
+  expect(screen.getByText('unauthenticated:none')).toBeTruthy();
+
+  await act(async () => {
+    stale.resolve({ data: { session: { user: { id: 'a' } } } });
+  });
+
+  expect(screen.getByText('unauthenticated:none')).toBeTruthy();
+});
+
+test('a stale initial session rejection cannot sign out a newer signed-in user', async () => {
+  const stale = deferredSession();
+  render(<AuthProvider><AuthProbe /></AuthProvider>);
+  expect(screen.getByText('loading:none')).toBeTruthy();
+
+  act(() => authChanged('SIGNED_IN', { user: { id: 'b' } }));
+  expect(screen.getByText('authenticated:b')).toBeTruthy();
+
+  await act(async () => {
+    stale.reject(new Error('initial session unavailable'));
+  });
+
+  expect(screen.getByText('authenticated:b')).toBeTruthy();
 });

@@ -14,6 +14,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getAllCashDenominations, addCashDenomination, deleteCashDenominationsByDate } from '@/lib/idb';
 import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/common/Button';
+import { useTransactionContext } from '@/context/TransactionContext';
 
 /** Standard Philippine peso denominations */
 const DENOMINATIONS = [1000, 500, 200, 100, 50, 20, 10, 5, 1];
@@ -26,6 +27,7 @@ interface CashDenominationInputProps {
 }
 
 export function CashDenominationInput({ date, onTotalChange }: CashDenominationInputProps) {
+  const { isScopeVerified } = useTransactionContext();
   const [counts, setCounts] = useState<Record<number, number>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -38,6 +40,10 @@ export function CashDenominationInput({ date, onTotalChange }: CashDenominationI
 
   // Load existing denominations for this date on mount / date change
   useEffect(() => {
+    if (!isScopeVerified) {
+      setCounts({});
+      return;
+    }
     getAllCashDenominations().then((records) => {
       const filtered = records.filter((r) => r.date === date);
       const loaded: Record<number, number> = {};
@@ -47,7 +53,7 @@ export function CashDenominationInput({ date, onTotalChange }: CashDenominationI
       }
       setCounts({ ...loaded });
     });
-  }, [date]);
+  }, [date, isScopeVerified]);
 
   const total = DENOMINATIONS.reduce((sum, d) => sum + d * (counts[d] ?? 0), 0);
 
@@ -63,6 +69,7 @@ export function CashDenominationInput({ date, onTotalChange }: CashDenominationI
   }, []);
 
   const handleSave = async () => {
+    if (!isScopeVerified) return;
     setSaving(true);
     try {
       // ponytail: cleared existing records for this date before save to prevent duplicates
