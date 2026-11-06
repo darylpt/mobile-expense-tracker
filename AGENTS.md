@@ -5,16 +5,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
 <!-- END:nextjs-agent-rules -->
 
 <!-- BEGIN:delegation-rules -->
-# Delegation Enforcement (HARD RULE)
+# OMP Delegation and Review (HARD RULE)
 
-The Builder MUST NOT directly edit source code files (`src/**`, `lib/**`, `components/**`, etc.) for any non-trivial change. The ONLY exceptions where Builder may edit directly:
-- `specs/*.yaml`, `specs/*.md` (state files, specs)
-- `CLAUDE.md`, `AGENTS.md` (config files)
-- Trivially obvious one-liners (typo fixes, version bumps)
+Before source work, read [DEVELOPMENT_SOP.md](DEVELOPMENT_SOP.md), the authoritative OMP build procedure. It replaces the unavailable legacy OpenCode SOP; do not reconstruct or claim to follow that old procedure.
 
-For ALL other code changes, the Builder MUST invoke `@coder` via the Task tool for implementation and `@critic` via the Task tool for review. This is the 8-step build-epic cycle per `docs/WORKFLOW-SOP-v2.md`.
+For non-trivial application source changes (`src/**`, `lib/**`, `components/**`, server code or migrations), the orchestrator delegates implementation through OMP's default `task` agent and independent review through `reviewer`. Use the SOP's [native Eval-to-task dispatch](DEVELOPMENT_SOP.md#native-task-dispatch) for Go-backed Luna; direct structured calls currently fill absent optional fields incorrectly. Native model routing is in [`.omp/config.yml`](.omp/config.yml).
 
-VIOLATION: If Builder writes source code directly (outside the exceptions above), the output is considered non-compliant and must be reverted and redone through the proper cycle.
+The orchestrator may directly edit specs, documentation and agent configuration, and make trivially obvious source one-liners such as typo fixes or version bumps. These exceptions do not waive the documentation, versioning or verification rules below.
+
+If required OMP delegation or review is unavailable, stop before non-trivial source edits and report the missing capability. Missing review leaves the task incomplete; do not reset or discard unrelated user work.
 <!-- END:delegation-rules -->
 
 <!-- BEGIN:documentation-rules -->
@@ -50,3 +49,26 @@ Bump rules:
 
 VIOLATION: Any commit touching source or specs without a matching version bump in all three files is non-compliant and must be amended.
 <!-- END:versioning-rules -->
+
+## Local feature commits
+
+After a future feature or fix passes its gates, the lead makes the task-owned local commit under [the SOP's local commit policy](DEVELOPMENT_SOP.md#local-commits). Large changes use verified logical checkpoints. Preserve unrelated work, apply the version rules above to every source/spec commit, and keep remote operations separately authorized.
+
+
+## UI / Frontend Task Execution Pipeline
+
+When executing `/poteto-mode` for UI tasks:
+
+1. **Pass 1 (UX Architecture):** 
+   - Skill: `ui-ux-pro-max-skill`
+   - Focus: Component layout, state handling, copywriting, WCAG compliance.
+
+2. **Pass 2 (Aesthetic & Visual Identity):** 
+   - Skill: `frontend-design`
+   - Focus: Color palette, typography scale, visual hierarchy. 
+   - Guardrails: No generic purple gradients, no tracked-out ALL-CAPS headers, no generic card overload.
+
+3. **Pass 3 (Senior Engineering & Verification):** 
+   - Skill: `senior-frontend`
+   - Focus: Production-grade React, TypeScript, Tailwind CSS, clean modular structure, zero console logs.
+   - Verification: Run linting/type-check steps before final delivery.

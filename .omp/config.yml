@@ -1,0 +1,34 @@
+modelRoleStorage: project
+defaultThinkingLevel: medium
+modelRoles:
+  default: opencode-go/gpt-6-luna
+  task: opencode-go/deepseek-v4.1-flash:high
+  smol: opencode-go/deepseek-v4.1-flash:low
+  plan: opencode-go/gpt-6-luna
+  slow: openai-codex/gpt-6.1-sol:high
+  advisor: opencode-go/gpt-6-luna
+advisor:
+  enabled: false
+plan:
+  defaultOnStartup: false
+prewalk:
+  enabled: false
+  auto: off
+retry:
+  modelFallback: false
+task:
+  enableLsp: true
+  maxConcurrency: 1
+  maxRecursionDepth: 1
+  completionProbe: false
+  prewalk: false
+  perCallModel: off
+  agentModelOverrides:
+    task: "@task"
+    scout: "@smol"
+    sonic: "@smol"
+    poteto-agent: "@task"
+    comment-sicko: "@smol"
+    reviewer: "@default"
+    security-reviewer: "@default"
+    seance: "@default"
