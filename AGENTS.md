@@ -9,7 +9,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 Before source work, read [DEVELOPMENT_SOP.md](DEVELOPMENT_SOP.md), the authoritative OMP build procedure. It replaces the unavailable legacy OpenCode SOP; do not reconstruct or claim to follow that old procedure.
 
-For non-trivial application source changes (`src/**`, `lib/**`, `components/**`, server code or migrations), the orchestrator delegates implementation through OMP's default `task` agent and independent review through `reviewer`. Use the SOP's [native Eval-to-task dispatch](DEVELOPMENT_SOP.md#native-task-dispatch) for Go-backed Luna; direct structured calls currently fill absent optional fields incorrectly. Native model routing is in [`.omp/config.yml`](.omp/config.yml).
+For non-trivial application source changes (`src/**`, `lib/**`, `components/**`, server code or migrations), the orchestrator delegates implementation through OMP's default `task` agent and independent review through `reviewer`. Use the SOP's [native Eval-to-task dispatch](DEVELOPMENT_SOP.md#native-task-dispatch) to preserve absent optional task fields. Native model routing is in [`.omp/config.yml`](.omp/config.yml).
 
 The orchestrator may directly edit specs, documentation and agent configuration, and make trivially obvious source one-liners such as typo fixes or version bumps. These exceptions do not waive the documentation, versioning or verification rules below.
 

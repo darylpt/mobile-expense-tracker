@@ -8,12 +8,12 @@ Use OMP's native `task` facility. Start from Household Assistant for cross-repos
 
 | Responsibility | OMP dispatch | Model route |
 | --- | --- | --- |
-| Orchestrator | Main session | Luna through OpenCode Go |
+| Orchestrator | Main session | Luna through ChatGPT-backed `openai-codex` |
 | Coder | Default task agent; omit `agent` | DeepSeek V4.1 Flash through OpenCode Go |
-| Critic | `agent: "reviewer"` inside a `tasks[]` item | Luna through OpenCode Go, in an independent review context |
+| Critic | `agent: "reviewer"` inside a `tasks[]` item | Luna through ChatGPT-backed `openai-codex`, in an independent review context |
 | Discovery | `agent: "scout"` | DeepSeek V4.1 Flash through OpenCode Go |
 
-The role names coder and critic describe responsibilities, not agent aliases to install. Do not invoke the legacy `@coder` or `@critic`. Omit per-call `model`; native agent overrides resolve it. Global settings are not modified. Project configuration does not switch an already-running or resumed conversation's model; use `omp --model opencode-go/gpt-6-luna` for an explicit new Go-backed lead.
+The role names coder and critic describe responsibilities, not agent aliases to install. Do not invoke the legacy `@coder` or `@critic`. Omit per-call `model`; native agent overrides resolve it. Global settings are not modified. Project configuration does not switch an already-running or resumed conversation's model; use `omp --model openai-codex/gpt-6-luna` for an explicit new ChatGPT-backed lead. DeepSeek remains on OpenCode Go.
 
 For direct launches in this repository, [the local default task definition](.omp/agents/task.md) limits the coder's built-in tools to file operations and language-server queries, with no shell, Eval or child delegation. Luna owns command execution and integrated checks. This is not a filesystem sandbox; inherited MCP tools remain governed by their host configuration. The built-in tool restriction is project-scoped; when coordinating from Household Assistant, carry the same coder scope in the brief and verify actual actions rather than assuming sibling agent definitions were loaded.
 
@@ -22,7 +22,7 @@ Sol remains an on-demand read-only planner or consultant through Household Assis
 
 ## Native task dispatch
 
-For Go-backed Luna, invoke OMP's native task tool through Eval's supported session-tool bridge. Direct structured `task` calls in the tested host/provider combination filled absent optional fields with `model: ""` or `model: []`; OMP rejected those as forbidden per-call overrides. The bridge preserves absent fields without changing model permissions. Keep `task.perCallModel: off`; do not enable overrides or suppress dispatch errors.
+Invoke OMP's native task tool through Eval's supported session-tool bridge. Earlier direct structured `task` calls with Go-backed Luna filled absent optional fields with `model: ""` or `model: []`; OMP rejected those as forbidden per-call overrides. Retain the bridge to preserve absent fields without changing model permissions. Keep `task.perCallModel: off`; do not enable overrides or suppress dispatch errors.
 
 Example read-only dispatch in a JavaScript Eval cell:
 

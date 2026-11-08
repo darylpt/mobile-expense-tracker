@@ -6,6 +6,6 @@ Before source work, follow [the OMP development procedure](../DEVELOPMENT_SOP.md
 - [Project state](../specs/state.yaml) records the current phase and story; recorded metrics are not a fresh test run.
 - [The specs index](../specs/README.md) routes feature-specific contracts.
 - For Household Assistant expense integration or API work, read [the integration skill](skills/expense-integration/SKILL.md) before source changes. Its standalone-release and approved-contract gates remain in force.
-- [Native OMP configuration](../.omp/config.yml) routes the coder to DeepSeek and the independent critic to Luna, both through OpenCode Go. Follow the SOP's [Eval-to-task dispatch](../DEVELOPMENT_SOP.md#native-task-dispatch) so Go-backed Luna preserves absent optional task fields.
+- [Native OMP configuration](../.omp/config.yml) routes the coder to DeepSeek through OpenCode Go and the independent critic to Luna through ChatGPT-backed `openai-codex`. Follow the SOP's [Eval-to-task dispatch](../DEVELOPMENT_SOP.md#native-task-dispatch) to preserve absent optional task fields.
 
 Use [README.md](../README.md) and the owning feature specs for current architecture and commands. Legacy OpenCode files do not define the OMP implementation procedure.
