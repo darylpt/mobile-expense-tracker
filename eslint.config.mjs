@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated agent working copy; repository-owned files remain linted.
+    ".opencode-local/**",
   ]),
 ]);
 

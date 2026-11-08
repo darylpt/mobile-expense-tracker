@@ -6,7 +6,7 @@ When Supabase is configured, changes sync across devices automatically.
 
 **Status:** Phase 1 and Phase 2 complete. Active use since June 2026. Current release: [`APP_VERSION`](src/lib/version.ts).
 
-Development agents use OMP. Before source work, read [AGENTS.md](AGENTS.md) and the [OMP development procedure](DEVELOPMENT_SOP.md), including its native Eval-to-task dispatch for Go-backed Luna. The local [OMP configuration](.omp/config.yml) routes the coder to DeepSeek V4.1 Flash and the orchestrator/independent critic to Luna through OpenCode Go. The retired OpenCode coder/critic aliases are not required.
+Development agents use OMP. Before source work, read [AGENTS.md](AGENTS.md) and the [OMP development procedure](DEVELOPMENT_SOP.md), including its native Eval-to-task dispatch. The local [OMP configuration](.omp/config.yml) routes the task role to ChatGPT-backed GPT Luna at high effort and the smol/discovery roles to GPT Luna at low effort; the orchestrator and independent critic also use GPT Luna through ChatGPT-backed `openai-codex`. The retired OpenCode coder/critic aliases are not required. Canonical `npm test` and `npm run lint` discovery exclude the generated `.opencode-local/` agent workspace and continue to cover repository-owned files.
 
 ---
 

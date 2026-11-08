@@ -9,11 +9,11 @@ Use OMP's native `task` facility. Start from Household Assistant for cross-repos
 | Responsibility | OMP dispatch | Model route |
 | --- | --- | --- |
 | Orchestrator | Main session | Luna through ChatGPT-backed `openai-codex` |
-| Coder | Default task agent; omit `agent` | DeepSeek V4.1 Flash through OpenCode Go |
+| Coder | Default task agent; omit `agent` | GPT Luna through ChatGPT-backed `openai-codex` (high effort) |
 | Critic | `agent: "reviewer"` inside a `tasks[]` item | Luna through ChatGPT-backed `openai-codex`, in an independent review context |
-| Discovery | `agent: "scout"` | DeepSeek V4.1 Flash through OpenCode Go |
+| Discovery | `agent: "scout"` | GPT Luna through ChatGPT-backed `openai-codex` (low effort) |
 
-The role names coder and critic describe responsibilities, not agent aliases to install. Do not invoke the legacy `@coder` or `@critic`. Omit per-call `model`; native agent overrides resolve it. Global settings are not modified. Project configuration does not switch an already-running or resumed conversation's model; use `omp --model openai-codex/gpt-6-luna` for an explicit new ChatGPT-backed lead. DeepSeek remains on OpenCode Go.
+The role names coder and critic describe responsibilities, not agent aliases to install. Do not invoke the legacy `@coder` or `@critic`. Omit per-call `model`; native agent overrides resolve it. Project-local model roles take precedence over the global map. A session-only override is not persistent; saving a global role does not override this repository's project-local setting. Project configuration does not switch an already-running or resumed conversation's model; use `omp --model openai-codex/gpt-6-luna` for an explicit new ChatGPT-backed lead. The project task and smol roles resolve to ChatGPT-backed GPT Luna.
 
 For direct launches in this repository, [the local default task definition](.omp/agents/task.md) limits the coder's built-in tools to file operations and language-server queries, with no shell, Eval or child delegation. Luna owns command execution and integrated checks. This is not a filesystem sandbox; inherited MCP tools remain governed by their host configuration. The built-in tool restriction is project-scoped; when coordinating from Household Assistant, carry the same coder scope in the brief and verify actual actions rather than assuming sibling agent definitions were loaded.
 
