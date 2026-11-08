@@ -7,9 +7,11 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useTransactionContext, formatAmount } from '@/context/TransactionContext';
+import { useAuth } from '@/context/AuthContext';
+import { getAuthGeneration } from '@/lib/auth-scope';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useCategories } from '@/hooks/useCategories';
 import { getAllBudgetTargets, setBudgetTarget } from '@/lib/idb';
@@ -20,6 +22,38 @@ import {
   getNextMonthYear,
 } from '@/lib/utils';
 import { Button } from '@/components/common/Button';
+
+/** Identity of one summary scope instance. Shape is irrelevant; only identity is. */
+interface SummaryScopeToken {
+  readonly kind: 'monthly-summary-scope';
+}
+
+interface SummaryBucket {
+  /** Auth descriptor this bucket belongs to. */
+  readonly key: string;
+  /** Unique per scope instance; never reused across transitions. */
+  readonly token: SummaryScopeToken;
+  readonly budgetTargets: Record<string, number>;
+  readonly editingBudgets: boolean;
+  readonly budgetEdits: Record<string, string>;
+}
+
+type SummaryPatch = Partial<
+  Pick<SummaryBucket, 'budgetTargets' | 'editingBudgets' | 'budgetEdits'>
+>;
+
+/**
+ * True only while work captured under `token`/`generation` is still the live
+ * scope. Budget reads and save continuations share this fence.
+ */
+function isScopeCurrent(
+  token: SummaryScopeToken,
+  generation: number,
+  liveToken: SummaryScopeToken,
+): boolean {
+  return getAuthGeneration() === generation && liveToken === token;
+}
+
 
 export function MonthlySummaryCard() {
   const {
@@ -34,11 +68,71 @@ export function MonthlySummaryCard() {
   const { getCategoriesByType } = useCategories();
   const ctx = useTransactionContext();
   const { hideAmounts, isScopeVerified } = ctx;
-  const [editingBudgets, setEditingBudgets] = useState(false);
-  const [budgetEdits, setBudgetEdits] = useState<Record<string, string>>({});
+  const { state: authState, user, authGeneration = 0 } = useAuth();
 
-  // ── Budget target persistence ───────────────────────────────
-  const [budgetTargets, setBudgetTargets] = useState<Record<string, number>>({});
+  const userId = user?.id ?? '';
+  // IndexedDB is readable only once the provider verified local ownership.
+  // Disabled (no Supabase) mode is local-only, so verification alone owns it.
+  const canReadLocalData =
+    isScopeVerified &&
+    (authState === 'disabled' ||
+      (authState === 'authenticated' && userId !== ''));
+
+  // Identity + ownership descriptor for this render. Month changes are not
+  // part of the scope: they refetch targets but must not erase drafts.
+  const scopeKey = `${authState}\u0000${userId}\u0000${authGeneration}\u0000${
+    isScopeVerified ? 'verified' : 'locked'
+  }`;
+
+  const [bucketState, setBucketState] = useState<SummaryBucket>(() => ({
+    key: scopeKey,
+    token: { kind: 'monthly-summary-scope' },
+    budgetTargets: {},
+    editingBudgets: false,
+    budgetEdits: {},
+  }));
+
+  // Descriptor change: reset during render and return the empty/locked bucket
+  // for this very render. Budget targets, open drafts, and editor state never
+  // survive an identity or verification transition.
+  let bucket = bucketState;
+  if (bucketState.key !== scopeKey) {
+    bucket = {
+      key: scopeKey,
+      token: { kind: 'monthly-summary-scope' },
+      budgetTargets: {},
+      editingBudgets: false,
+      budgetEdits: {},
+    };
+    setBucketState(bucket);
+  }
+  const scopeToken = bucket.token;
+  const budgetTargets = bucket.budgetTargets;
+  const editingBudgets = bucket.editingBudgets;
+  const budgetEdits = bucket.budgetEdits;
+
+  // Latest committed scope token, readable from async continuations.
+  const scopeTokenRef = useRef(scopeToken);
+  useLayoutEffect(() => {
+    scopeTokenRef.current = scopeToken;
+  }, [scopeToken]);
+
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // A publication is applied only while its bucket is still the live one.
+  const updateBucket = useCallback(
+    (token: SummaryScopeToken, patch: SummaryPatch) => {
+      setBucketState((previous) =>
+        previous.token === token ? { ...previous, ...patch } : previous,
+      );
+    },
+    [],
+  );
+
   // ponytail: bump this counter after save to re-fetch without adding monthStr to deps that don't change
   const [budgetVersion, setBudgetVersion] = useState(0);
 
@@ -51,33 +145,42 @@ export function MonthlySummaryCard() {
   // Fetch budget targets from IndexedDB and resolve effective values
   // ponytail: re-fetches on month change, which is O(n) with n < 200
   useEffect(() => {
-    if (!isScopeVerified) {
-      setBudgetTargets({});
-      return;
-    }
+    if (!canReadLocalData) return;
+
+    const token = scopeToken;
+    const generation = authGeneration;
     let cancelled = false;
-    async function load() {
-      const all = await getAllBudgetTargets();
-      if (cancelled) return;
+    const isCurrent = () =>
+      !cancelled &&
+      mountedRef.current &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
 
-      const overrides = new Map<string, number>();
-      const globals = new Map<string, number>();
-      for (const t of all) {
-        if (t.month === monthStr) overrides.set(t.category, t.amount);
-        else if (t.month === null) globals.set(t.category, t.amount);
-      }
+    getAllBudgetTargets().then(
+      (all) => {
+        if (!isCurrent()) return;
 
-      const cats = getCategoriesByType('expense');
-      const map: Record<string, number> = {};
-      for (const c of cats) {
-        // ponytail: override wins if it exists, otherwise fall back to global
-        map[c.name] = overrides.has(c.name) ? overrides.get(c.name)! : (globals.get(c.name) ?? 0);
-      }
-      setBudgetTargets(map);
-    }
-    load();
+        const overrides = new Map<string, number>();
+        const globals = new Map<string, number>();
+        for (const t of all) {
+          if (t.month === monthStr) overrides.set(t.category, t.amount);
+          else if (t.month === null) globals.set(t.category, t.amount);
+        }
+
+        const cats = getCategoriesByType('expense');
+        const map: Record<string, number> = {};
+        for (const c of cats) {
+          // ponytail: override wins if it exists, otherwise fall back to global
+          map[c.name] = overrides.has(c.name) ? overrides.get(c.name)! : (globals.get(c.name) ?? 0);
+        }
+        updateBucket(token, { budgetTargets: map });
+      },
+      () => {
+        // A failed read leaves the empty bucket in place.
+      },
+    );
+
     return () => { cancelled = true; };
-  }, [monthStr, getCategoriesByType, budgetVersion, isScopeVerified]);
+  }, [monthStr, getCategoriesByType, budgetVersion, canReadLocalData, scopeToken, authGeneration, updateBucket]);
 
   // Compute income breakdown with all income categories (including zero-amount)
   const incomeBreakdown = useMemo(
@@ -101,29 +204,46 @@ export function MonthlySummaryCard() {
   // ── Editor handlers ─────────────────────────────────────────
 
   const handleEditBudgets = () => {
+    if (!canReadLocalData) return;
+    if (!isScopeCurrent(scopeToken, authGeneration, scopeTokenRef.current)) {
+      return;
+    }
     const cats = getCategoriesByType('expense');
     if (cats.length === 0) return;
     const edits: Record<string, string> = {};
     for (const c of cats) {
       edits[c.name] = String(budgetTargets[c.name] ?? 0);
     }
-    setBudgetEdits(edits);
-    setEditingBudgets(true);
+    updateBucket(scopeToken, { budgetEdits: edits, editingBudgets: true });
   };
 
   const handleSaveBudgets = async () => {
-    if (!isScopeVerified) return;
-    for (const [cat, val] of Object.entries(budgetEdits)) {
+    if (!canReadLocalData) return;
+
+    const token = scopeToken;
+    const generation = authGeneration;
+    const editsSnapshot = budgetEdits;
+    const isCurrent = () =>
+      mountedRef.current &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
+    if (!isCurrent()) return;
+
+    for (const [cat, val] of Object.entries(editsSnapshot)) {
+      if (!isCurrent()) return;
       await setBudgetTarget(cat, parseFloat(val) || 0);
     }
-    setEditingBudgets(false);
+    if (!isCurrent()) return;
+    updateBucket(token, { editingBudgets: false });
     setBudgetVersion((v) => v + 1); // trigger re-fetch
   };
 
   const handlePrevMonth = () => setMonthYear(getPreviousMonthYear(monthYear));
   const handleNextMonth = () => setMonthYear(getNextMonthYear(monthYear));
 
-  if (isLoading) {
+  // Fail closed before any summary, account, or budget output: the
+  // transaction hook derives its values directly from the context, so its
+  // rows are not ownership proof during a locked render.
+  if (!canReadLocalData || isLoading) {
     return <LoadingSkeleton />;
   }
 
@@ -233,7 +353,9 @@ export function MonthlySummaryCard() {
                     min="0"
                     value={value}
                     onChange={(e) =>
-                      setBudgetEdits({ ...budgetEdits, [cat]: e.target.value })
+                      updateBucket(scopeToken, {
+                        budgetEdits: { ...budgetEdits, [cat]: e.target.value },
+                      })
                     }
                     className="w-full rounded-lg border border-zinc-300 bg-white py-1.5 pl-8 pr-3 text-sm text-zinc-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400"
                   />
@@ -242,7 +364,7 @@ export function MonthlySummaryCard() {
             ))}
           </div>
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setEditingBudgets(false)}>
+            <Button variant="ghost" size="sm" onClick={() => updateBucket(scopeToken, { editingBudgets: false })}>
               Cancel
             </Button>
             <Button variant="primary" size="sm" onClick={handleSaveBudgets}>

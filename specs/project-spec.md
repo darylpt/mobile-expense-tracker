@@ -342,7 +342,7 @@ financial stores and three safety stores are optional.
 | `src/lib/reconciliation.test.ts` | Expected balance computation |
 | `src/hooks/useTransactions.test.ts` | Transaction add/delete through the hook |
 | `src/lib/holdings.test.ts` | Share cost basis, realized/unrealized gains, dividend totals, and aggregates |
-| `src/lib/stock-prices.test.ts` | Price response parsing, HTTP/network failures, and ticker normalization |
+| `src/lib/stock-prices.test.ts` | Price response parsing, HTTP/network failures, ticker normalization, and live scope admission before each stock/outbox write |
 | `src/lib/utils.test.ts` | Category breakdown aggregation, percentages, and ordering |
 | `src/lib/dividends.test.ts` | Legacy/expanded dividend sync compatibility |
 | `src/components/summary/PortfolioSummaryCard.test.tsx` | Portfolio summary rerender behavior and empty-state handling |
@@ -365,6 +365,7 @@ financial stores and three safety stores are optional.
 | `e2e/payout-calculator.spec.ts` | Payout calculator flows |
 | `e2e/budget-target-persistence.spec.ts` | Budget target reload persistence |
 | `e2e/transaction-filter-persistence.spec.ts` | Filter selection, direct-URL selection/clearing, tab restore, and full-load/reload restore against dev and the static export |
+| `e2e/stocks-price-refresh.spec.ts` | Successful price refresh persistence and unmounted refresh scope isolation with an intercepted Phisix response |
 
 `e2e/fixtures.ts` seeds through the running app: `seedIndexedDB` opens `/`, waits for the empty state so IndexedDB initializes at the current version, then writes fixtures without pinning an older version.
 
@@ -479,6 +480,17 @@ Portfolio dividend totals retain the expanded `qty × rate − fee` calculation 
 - Bare ticker, no `.PS` suffix
 - Batch fetch from `/stocks.json`, matched against user's portfolio
 - Fetch on button press only (no polling)
+- `refreshAllPrices(isCurrent)` requires the Stocks page's live scope
+  predicate. The service rechecks it before starting, after the local read,
+  after the network and JSON awaits, and immediately before each stock write;
+  invalidation stops the run with no results, so no price write or refresh
+  outbox entry is admitted for a revoked page scope. The predicate covers
+  verification revocation with an unchanged identity generation, a fresh page
+  scope after re-verification, a shared identity change before rerender, and
+  unmount. Verified Supabase-disabled (local-only) mode passes the same live
+  predicate. A write already admitted before invalidation may still settle;
+  this is admission-time protection, not rollback or server concurrency
+  control. See [User Data Isolation §4](./user-data-isolation.md#4-auth-lifecycle-transactioncontexttsx).
 - Manual price override for funds (type = `'fund'`)
 
 ### 13.3 Screens

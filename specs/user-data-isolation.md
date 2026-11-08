@@ -168,6 +168,20 @@ For saved transaction filter isolation, see the [filter persistence contract](tr
   generation. A continuation from a previous generation cannot repopulate
   transactions, accounts, or categories, publish a stale error/loading state, or
   trigger a refresh after sign-out or same-user re-login.
+- Stock-price refresh takes a required `isCurrent` predicate from the Stocks
+  page. The service checks it before starting, after the local stock read,
+  after the network response and JSON body awaits, and immediately before each
+  `updateStock` call. A false result stops the refresh and returns no results,
+  so a price write plus its outbox entry is never started for a revoked page
+  scope. The predicate is sensitive to verification revocation alone (same
+  identity generation), to a new page scope after re-verification, to a changed
+  shared identity generation before the page rerenders, and to unmount. In
+  verified Supabase-disabled mode the same predicate is live, because
+  local-only access is authorized by verification. A write admitted while the
+  predicate was true is not cancelled or rolled back: `updateStock` performs
+  its own asynchronous stock + outbox transaction, so the guarantee is
+  admission-time only. There is no transaction-time cancellation or
+  server-side concurrency guarantee.
 - `AuthGuard` renders no private children while unauthenticated (the redirect
   effect runs first) and keys the authenticated subtree by generation, forcing a
   remount on every identity transition.
@@ -225,6 +239,20 @@ snapshot does not encode its owner, and restoring it does not transfer cloud
 ownership (see [Backup / Restore](backup-restore.md#sensitive-data)).
 
 ### Regression coverage
+- `src/lib/stock-prices.test.ts` — `refreshAllPrices` uses real fake-IndexedDB
+  stock records and real sync-queue insertion while only the Phisix response is
+  mocked. Cases cover an initially invalid scope, invalidation during the local
+  read, during a deferred network response, during a deferred JSON body, and
+  between two stock writes; a fully valid refresh updates both prices and their
+  queue entries.
+- `src/app/stocks/page.scope.test.tsx` — the page passes its live scope
+  predicate to the refresh service and keeps it false after verification
+  revocation, re-verification, a shared identity publication without a
+  rerender, and unmount; it is true in verified Supabase-disabled mode.
+- `e2e/stocks-price-refresh.spec.ts` — a successful refresh is displayed and
+  persists across reload; a deferred refresh followed by client-side
+  navigation away, response release, and return leaves the stock and outbox
+  unchanged.
 
 Focused tests assert this client behavior:
 

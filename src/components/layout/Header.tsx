@@ -142,12 +142,17 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const syncTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
-  const refreshStatus = useCallback(async () => {
-    try {
-      setSyncStatus(await getSyncStatus());
-    } catch {
-      setSyncStatus(null);
-    }
+  const refreshStatus = useCallback(() => {
+    // Publish only from promise callbacks: the effect below starts this read
+    // but must not synchronously update state during commit.
+    return getSyncStatus().then(
+      (status) => {
+        setSyncStatus(status);
+      },
+      () => {
+        setSyncStatus(null);
+      },
+    );
   }, []);
 
   useEffect(() => {

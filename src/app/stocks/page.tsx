@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/common/Button';
 import { HoldingsTable } from '@/components/stocks/HoldingsTable';
@@ -11,6 +11,8 @@ import { DividendForm } from '@/components/forms/DividendForm';
 import { PortfolioSummaryCard } from '@/components/summary/PortfolioSummaryCard';
 import { useStocks } from '@/hooks/useStocks';
 import { useTransactionContext } from '@/context/TransactionContext';
+import { useAuth } from '@/context/AuthContext';
+import { getAuthGeneration } from '@/lib/auth-scope';
 import { getAllStockTransactions, addStockTransaction, deleteStockTransaction, updateStockTransaction } from '@/lib/idb';
 import { getAllDividends, addDividend, deleteDividend, updateDividend } from '@/lib/idb';
 import { refreshAllPrices } from '@/lib/stock-prices';
@@ -21,19 +23,52 @@ import type { StockTransaction, Dividend } from '@/types';
 
 type Section = 'holdings' | 'transactions' | 'dividends';
 
+/** Identity of one page scope instance. Shape is irrelevant; only identity is. */
+interface StocksPageScopeToken {
+  readonly kind: 'stocks-page-scope';
+}
+
+interface StocksPageBucket {
+  /** Auth descriptor this bucket belongs to. */
+  readonly key: string;
+  /** Unique per scope instance; never reused across transitions. */
+  readonly token: StocksPageScopeToken;
+  readonly transactions: StockTransaction[];
+  readonly dividends: Dividend[];
+  readonly holdings: HoldingsResult | null;
+  readonly isLoading: boolean;
+  readonly refreshing: boolean;
+  /** Ticker-bearing copy result; never survives a scope transition. */
+  readonly priceMsg: string | null;
+}
+
+type StocksPagePatch = Partial<
+  Pick<
+    StocksPageBucket,
+    'transactions' | 'dividends' | 'holdings' | 'isLoading' | 'refreshing' | 'priceMsg'
+  >
+>;
+
+/**
+ * True only while work captured under `token`/`generation` is still the live
+ * scope. Every async continuation and retained callback shares this fence.
+ */
+function isScopeCurrent(
+  token: StocksPageScopeToken,
+  generation: number,
+  liveToken: StocksPageScopeToken,
+): boolean {
+  return getAuthGeneration() === generation && liveToken === token;
+}
+
 export default function StocksPage() {
   const { stocks, isLoading: stocksLoading, refreshStocks, addStock, updateStock, deleteStock, moveStockTo } = useStocks();
   const { isScopeVerified } = useTransactionContext();
-  const [transactions, setTransactions] = useState<StockTransaction[]>([]);
-  const [dividends, setDividends] = useState<Dividend[]>([]);
-  const [holdings, setHoldings] = useState<HoldingsResult | null>(null);
+  const { state: authState, user, authGeneration = 0 } = useAuth();
   const [activeSection, setActiveSection] = useState<Section>('holdings');
   const [showTxForm, setShowTxForm] = useState(false);
   const [showDivForm, setShowDivForm] = useState(false);
   const [showManage, setShowManage] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [priceMsg, setPriceMsg] = useState<string | null>(null);
-  const [dataLoading, setDataLoading] = useState(true);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -41,124 +76,267 @@ export default function StocksPage() {
     return () => { mountedRef.current = false; };
   }, []);
 
-  // ponytail: load initial data once stocks are ready
+  const userId = user?.id ?? '';
+  // IndexedDB is readable only once the provider verified local ownership.
+  // Disabled (no Supabase) mode is local-only, so verification alone owns it.
+  const canReadLocalData =
+    isScopeVerified &&
+    (authState === 'disabled' ||
+      (authState === 'authenticated' && userId !== ''));
+
+  // Identity + ownership descriptor for this render. Generation advances on
+  // every identity transition; the marker distinguishes verification flips.
+  const scopeKey = `${authState}\u0000${userId}\u0000${authGeneration}\u0000${
+    isScopeVerified ? 'verified' : 'locked'
+  }`;
+
+  const [bucketState, setBucketState] = useState<StocksPageBucket>(() => ({
+    key: scopeKey,
+    token: { kind: 'stocks-page-scope' },
+    transactions: [],
+    dividends: [],
+    holdings: null,
+    isLoading: canReadLocalData,
+    refreshing: false,
+    priceMsg: null,
+  }));
+
+  // Descriptor change: reset during render and return the safe empty/locked
+  // bucket for this very render. No previous-scope row, loading flag, or
+  // ticker message is ever observable, even before the passive load effect
+  // runs. A fresh token means old continuations cannot regain authority if
+  // the descriptor later becomes equal again (A verified -> locked -> A
+  // verified).
+  let bucket = bucketState;
+  if (bucketState.key !== scopeKey) {
+    bucket = {
+      key: scopeKey,
+      token: { kind: 'stocks-page-scope' },
+      transactions: [],
+      dividends: [],
+      holdings: null,
+      isLoading: canReadLocalData,
+      refreshing: false,
+      priceMsg: null,
+    };
+    setBucketState(bucket);
+  }
+  const scopeToken = bucket.token;
+  const { transactions, dividends, holdings, priceMsg } = bucket;
+
+  // Latest committed scope token, readable from async continuations.
+  const scopeTokenRef = useRef(scopeToken);
+  useLayoutEffect(() => {
+    scopeTokenRef.current = scopeToken;
+  }, [scopeToken]);
+
+  // A publication is applied only while its bucket is still the live one.
+  const updateBucket = useCallback(
+    (token: StocksPageScopeToken, patch: StocksPagePatch) => {
+      setBucketState((previous) =>
+        previous.token === token ? { ...previous, ...patch } : previous,
+      );
+    },
+    [],
+  );
+
+  // ponytail: load initial data once stocks are ready. No local read starts
+  // while the scope is locked or the stocks hook is still loading.
   useEffect(() => {
-    if (!isScopeVerified) {
-      setTransactions([]);
-      setDividends([]);
-      setHoldings(null);
-      setDataLoading(false);
-      return;
-    }
-    if (stocksLoading) return;
-    (async () => {
-      const [txs, divs] = await Promise.all([
-        getAllStockTransactions(),
-        getAllDividends(),
-      ]);
-      if (!mountedRef.current) return;
-      setTransactions(txs);
-      setDividends(divs);
-      const result = computeHoldings(stocks, txs, divs);
-      setHoldings(result);
-      setDataLoading(false);
-    })();
-  }, [stocksLoading, stocks, isScopeVerified]);
+    if (!canReadLocalData || stocksLoading) return;
+
+    const token = scopeToken;
+    const generation = authGeneration;
+    let cancelled = false;
+    const isCurrent = () =>
+      !cancelled &&
+      mountedRef.current &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
+
+    Promise.all([getAllStockTransactions(), getAllDividends()])
+      .then(([txs, divs]) => {
+        if (!isCurrent()) return;
+        updateBucket(token, {
+          transactions: txs,
+          dividends: divs,
+          holdings: computeHoldings(stocks, txs, divs),
+          isLoading: false,
+        });
+      })
+      .catch(() => {
+        if (!isCurrent()) return;
+        updateBucket(token, { isLoading: false });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stocksLoading, stocks, canReadLocalData, scopeToken, authGeneration, updateBucket]);
 
   const reloadData = useCallback(async () => {
-    if (!isScopeVerified) return;
+    if (!canReadLocalData) return;
+
+    const token = scopeToken;
+    const generation = authGeneration;
+    const isCurrent = () =>
+      mountedRef.current &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
+    if (!isCurrent()) return;
+
     const [txs, divs] = await Promise.all([
       getAllStockTransactions(),
       getAllDividends(),
     ]);
-    if (!mountedRef.current) return;
-    setTransactions(txs);
-    setDividends(divs);
-    const result = computeHoldings(stocks, txs, divs);
-    setHoldings(result);
-  }, [stocks, isScopeVerified]);
+    if (!isCurrent()) return;
+    updateBucket(token, {
+      transactions: txs,
+      dividends: divs,
+      holdings: computeHoldings(stocks, txs, divs),
+    });
+  }, [stocks, canReadLocalData, scopeToken, authGeneration, updateBucket]);
 
-  // Reload from IDB after a background sync pulls fresh remote data
+  // Reload from IDB after a background sync pulls fresh remote data. The
+  // retained handler is fenced so a transition that has not rerendered yet
+  // still cannot read or publish for the old scope.
   useEffect(() => {
     const handler = () => {
+      if (!canReadLocalData) return;
+      if (!isScopeCurrent(scopeToken, authGeneration, scopeTokenRef.current)) {
+        return;
+      }
       refreshStocks();
       reloadData();
     };
     window.addEventListener('sync-complete', handler);
     return () => window.removeEventListener('sync-complete', handler);
-  }, [refreshStocks, reloadData]);
+  }, [refreshStocks, reloadData, canReadLocalData, scopeToken, authGeneration]);
+
 
   const handleRefreshPrices = async () => {
-    setRefreshing(true);
-    setPriceMsg(null);
+    if (!canReadLocalData) return;
+    const token = scopeToken;
+    const generation = authGeneration;
+    const isCurrent = () =>
+      mountedRef.current &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
+    if (!isCurrent()) return;
+
+    updateBucket(token, { refreshing: true, priceMsg: null });
     try {
-      const results = await refreshAllPrices();
+      const results = await refreshAllPrices(isCurrent);
+      if (!isCurrent()) return;
       const failed = results.filter(r => r.price === null);
+      let message: string;
       if (results.length === 0) {
-        setPriceMsg('No stocks to refresh. Add a stock first.');
+        message = 'No stocks to refresh. Add a stock first.';
       } else if (failed.length === results.length) {
-        setPriceMsg('Could not fetch any prices. Check your connection or try again later.');
+        message = 'Could not fetch any prices. Check your connection or try again later.';
       } else if (failed.length > 0) {
-        setPriceMsg(`Prices updated, but ${failed.length} ticker(s) failed: ${failed.map(f => f.ticker).join(', ')}`);
+        message = `Prices updated, but ${failed.length} ticker(s) failed: ${failed.map(f => f.ticker).join(', ')}`;
       } else {
-        setPriceMsg('All prices updated.');
+        message = 'All prices updated.';
       }
+      updateBucket(token, { priceMsg: message });
       await refreshStocks();
+      if (!isCurrent()) return;
       await reloadData();
     } catch {
-      setPriceMsg('Price refresh failed.');
+      if (isCurrent()) updateBucket(token, { priceMsg: 'Price refresh failed.' });
     } finally {
-      setRefreshing(false);
+      if (isCurrent()) updateBucket(token, { refreshing: false });
     }
   };
 
   const handleAddTx = async (tx: Omit<StockTransaction, 'id' | 'createdAt' | 'updatedAt'>) => {
-    if (!isScopeVerified) return;
+    if (!canReadLocalData) return;
+    const token = scopeToken;
+    const generation = authGeneration;
+    const isCurrent = () =>
+      mountedRef.current &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
+    if (!isCurrent()) return;
     await addStockTransaction(tx);
+    if (!isCurrent()) return;
     setShowTxForm(false);
     await reloadData();
   };
 
   const handleDeleteTx = async (id: string) => {
-    if (!isScopeVerified || !window.confirm('Delete this transaction?')) return;
+    if (!canReadLocalData || !window.confirm('Delete this transaction?')) return;
+    const token = scopeToken;
+    const generation = authGeneration;
+    const isCurrent = () =>
+      mountedRef.current &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
+    if (!isCurrent()) return;
     await deleteStockTransaction(id);
+    if (!isCurrent()) return;
     await reloadData();
   };
 
   const handleAddDiv = async (d: Omit<Dividend, 'id' | 'createdAt' | 'updatedAt'>) => {
-    if (!isScopeVerified) return;
+    if (!canReadLocalData) return;
+    const token = scopeToken;
+    const generation = authGeneration;
+    const isCurrent = () =>
+      mountedRef.current &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
+    if (!isCurrent()) return;
     await addDividend(d);
+    if (!isCurrent()) return;
     setShowDivForm(false);
     await reloadData();
   };
 
   const handleDeleteDiv = async (id: string) => {
-    if (!isScopeVerified || !window.confirm('Delete this dividend record?')) return;
+    if (!canReadLocalData || !window.confirm('Delete this dividend record?')) return;
+    const token = scopeToken;
+    const generation = authGeneration;
+    const isCurrent = () =>
+      mountedRef.current &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
+    if (!isCurrent()) return;
     await deleteDividend(id);
+    if (!isCurrent()) return;
     await reloadData();
   };
 
   const handleUpdateTx = async (id: string, updates: Partial<StockTransaction>) => {
-    if (!isScopeVerified) return;
+    if (!canReadLocalData) return;
+    const token = scopeToken;
+    const generation = authGeneration;
+    const isCurrent = () =>
+      mountedRef.current &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
+    if (!isCurrent()) return;
     await updateStockTransaction(id, updates);
+    if (!isCurrent()) return;
     await reloadData();
   };
 
   const handleUpdateDiv = async (id: string, updates: Partial<Dividend>) => {
-    if (!isScopeVerified) return;
+    if (!canReadLocalData) return;
+    const token = scopeToken;
+    const generation = authGeneration;
+    const isCurrent = () =>
+      mountedRef.current &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
+    if (!isCurrent()) return;
     await updateDividend(id, updates);
+    if (!isCurrent()) return;
     await reloadData();
   };
 
-  const isLoading = stocksLoading || dataLoading;
+  const isLoading = stocksLoading || bucket.isLoading;
   const hasStocks = stocks.length > 0;
+
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
       <Header title="Stocks" />
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-20 pt-6 sm:px-6 sm:pb-0 sm:pt-8">
-        {isLoading ? (
+        {isLoading || !canReadLocalData ? (
           <div className="py-12 text-center text-sm text-zinc-600 dark:text-zinc-400">Loading…</div>
         ) : !hasStocks ? (
           /* Empty state — show manage tickers inline */
@@ -174,17 +352,23 @@ export default function StocksPage() {
                 variant="secondary"
                 size="sm"
                 onClick={handleRefreshPrices}
-                disabled={refreshing}
-                isLoading={refreshing}
+                disabled={bucket.refreshing}
+                isLoading={bucket.refreshing}
               >
-                {refreshing ? 'Refreshing…' : 'Refresh Prices'}
+                {bucket.refreshing ? 'Refreshing…' : 'Refresh Prices'}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setShowManage(!showManage)}>
                 {showManage ? 'Close' : 'Manage Tickers'}
               </Button>
               <button
                 onClick={() => {
-                  if (!holdings) return;
+                  if (!holdings || !canReadLocalData) return;
+                  const token = scopeToken;
+                  const generation = authGeneration;
+                  const isCurrent = () =>
+                    mountedRef.current &&
+                    isScopeCurrent(token, generation, scopeTokenRef.current);
+                  if (!isCurrent()) return;
                   const lines: string[] = [
                     `My Portfolio (as of ${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })})`,
                     '',
@@ -207,9 +391,13 @@ export default function StocksPage() {
                     `Total Realized G/L:  ${formatCurrency(holdings.totalRealizedGainLoss)}`,
                   ];
                   navigator.clipboard.writeText(lines.join('\n')).then(() => {
-                    setPriceMsg('Portfolio summary copied!');
+                    if (isCurrent()) {
+                      updateBucket(token, { priceMsg: 'Portfolio summary copied!' });
+                    }
                   }).catch(() => {
-                    setPriceMsg('Failed to copy');
+                    if (isCurrent()) {
+                      updateBucket(token, { priceMsg: 'Failed to copy' });
+                    }
                   });
                 }}
                 className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
