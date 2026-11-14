@@ -1,12 +1,14 @@
 modelRoleStorage: project
 defaultThinkingLevel: medium
 modelRoles:
-  default: openai-codex/gpt-6-luna
-  task: openai-codex/gpt-6-luna:high
-  smol: openai-codex/gpt-6-luna:low
+  default: openai-codex/gpt-6-luna:high
+  task: opencode-go/deepseek-v4.1-flash:high
+  smol: opencode-go/deepseek-v4.1-flash
   plan: openai-codex/gpt-6-luna
   slow: openai-codex/gpt-6.1-sol:high
-  advisor: openai-codex/gpt-6-luna
+  advisor: openai-codex/gpt-6.1-sol
+  commit: opencode-go/deepseek-v4.1-flash
+  tiny: opencode-go/deepseek-v4.1-flash
 advisor:
   enabled: false
 plan:
