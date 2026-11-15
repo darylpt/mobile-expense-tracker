@@ -188,10 +188,16 @@ SHA-256 via `crypto.subtle`. Constant-time comparison prevents timing attacks.
 if (authState === 'loading')  → <FullPageSpinner />           // checking
 if (isLocked)                 → <PinScreen />                  // privacy lock (local, works offline too)
 if (authState === 'disabled') → <>{children}</>               // no auth (lock enforced above)
-if (unauthenticated && !/login) → navigate /login
-if (authenticated && /login && !locked) → navigate /
+const isLoginRoute = pathname === '/login' || pathname === '/login/'
+if (unauthenticated && !isLoginRoute) → replace('/login') and render no children
+if (unauthenticated && isLoginRoute) → render the public login page
+if (authenticated && isLoginRoute && !locked) → replace('/')
 else → <>{children}</>
 ```
+
+With `trailingSlash: true`, Next.js can report `/login/`; only the exact
+`/login` and `/login/` paths are public. Login-like prefixes and descendants
+remain protected.
 
 Lock state initializes eagerly when Supabase is absent so a configured PIN
 still gates the app offline. Authenticated users get lock state resolved
