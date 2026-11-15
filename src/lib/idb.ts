@@ -1371,6 +1371,14 @@ export async function updateDividend(id: string, updates: Partial<Dividend>): Pr
 
 /** Shape of a full backup JSON. */
 export interface BackupData {
+  version: 2;
+  exportedAt: string;
+  /** Records keyed by IndexedDB store name; every store the app owns. */
+  data: Record<string, unknown[]>;
+}
+
+/** Six-store file written by builds before 0.19.8. */
+export interface LegacyBackupV1 {
   version: 1;
   exportedAt: string;
   data: {
@@ -1383,14 +1391,81 @@ export interface BackupData {
   };
 }
 
-const ALL_STORES = [
-  STORES.TRANSACTIONS,
+/** Every store the app owns, in dependency-friendly order. */
+const BACKUP_STORES = Object.values(STORES);
+
+/** Legacy field name → store name, for version-1 files. */
+const LEGACY_STORE_FIELDS: Record<keyof LegacyBackupV1['data'], string> = {
+  transactions: STORES.TRANSACTIONS,
+  accounts: STORES.ACCOUNTS,
+  categories: STORES.CATEGORIES,
+  cashDenominations: STORES.CASH_DENOMINATIONS,
+  payouts: STORES.PAYOUTS,
+  budgetTargets: STORES.BUDGET_TARGETS,
+};
+
+/** Financial stores whose restored records must be pushed to the cloud. */
+const REENQUEUE_ORDER = [
   STORES.ACCOUNTS,
   STORES.CATEGORIES,
   STORES.CASH_DENOMINATIONS,
   STORES.PAYOUTS,
   STORES.BUDGET_TARGETS,
+  STORES.BALANCE_SNAPSHOTS,
+  STORES.STOCKS,
+  STORES.STOCK_TRANSACTIONS,
+  STORES.DIVIDENDS,
+  STORES.TRANSACTIONS,
 ] as const;
+
+/** Map any supported file to records keyed by store name. */
+export function normalizeBackup(input: BackupData | LegacyBackupV1): Record<string, unknown[]> {
+  if (input.version === 2) return input.data;
+  const data: Record<string, unknown[]> = {};
+  for (const [field, store] of Object.entries(LEGACY_STORE_FIELDS)) {
+    const records = (input.data as Record<string, unknown[] | undefined>)[field];
+    if (Array.isArray(records)) data[store] = records;
+  }
+  return data;
+}
+
+export async function exportAllData(): Promise<BackupData> {
+  const db = await getDB();
+  const tx = db.transaction(BACKUP_STORES, 'readonly');
+  const data: Record<string, unknown[]> = {};
+  for (const store of BACKUP_STORES) {
+    data[store] = (await tx.objectStore(store).getAll()) as unknown[];
+  }
+  await tx.done;
+  return { version: 2, exportedAt: new Date().toISOString(), data };
+}
+
+/**
+ * Import a full backup — replaces only the stores the file carries, so a
+ * six-store legacy file cannot wipe safety stores it never captured.
+ */
+export async function importAllData(backup: BackupData | LegacyBackupV1): Promise<void> {
+  const data = normalizeBackup(backup);
+  const provided = BACKUP_STORES.filter((store) => Array.isArray(data[store]));
+  const db = await getDB();
+  const tx = db.transaction(provided, 'readwrite');
+  for (const store of provided) {
+    const objectStore = tx.objectStore(store);
+    await objectStore.clear();
+    for (const record of data[store]) await objectStore.add(record as never);
+  }
+  await tx.done;
+
+  // Re-enqueue restored financial records so they reach Supabase.
+  for (const store of REENQUEUE_ORDER) {
+    if (!provided.includes(store)) continue;
+    for (const record of data[store]) {
+      const id = (record as { id?: unknown }).id;
+      if (typeof id !== 'string') continue;
+      await enqueueSyncEntry(store, id, 'create', record);
+    }
+  }
+}
 
 /** Every store that can hold user records: financial data, outbox, markers. */
 const LOCAL_DATA_STORES = Object.values(STORES);
@@ -1412,77 +1487,6 @@ export async function hasAnyLocalData(): Promise<boolean> {
   }
   await tx.done;
   return found;
-}
-
-/**
- * Export every store as a portable JSON blob you can save to disk.
- * Each store gets a full read — no pagination needed (local-only, small data).
- */
-export async function exportAllData(): Promise<BackupData> {
-  const db = await getDB();
-  const tx = db.transaction(ALL_STORES, 'readonly');
-  const [transactions, accounts, categories, cashDenominations, payouts, budgetTargets] =
-    await Promise.all([
-      tx.objectStore(STORES.TRANSACTIONS).getAll(),
-      tx.objectStore(STORES.ACCOUNTS).getAll(),
-      tx.objectStore(STORES.CATEGORIES).getAll(),
-      tx.objectStore(STORES.CASH_DENOMINATIONS).getAll(),
-      tx.objectStore(STORES.PAYOUTS).getAll(),
-      tx.objectStore(STORES.BUDGET_TARGETS).getAll(),
-    ]);
-  await tx.done;
-  return {
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    data: { transactions, accounts, categories, cashDenominations, payouts, budgetTargets },
-  };
-}
-
-/**
- * Import a full backup — clears each store then bulk-adds the supplied records.
- * Runs inside a single readwrite transaction so it's atomic.
- */
-export async function importAllData(backup: BackupData): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction(ALL_STORES, 'readwrite');
-  const stores = {
-    [STORES.TRANSACTIONS]: tx.objectStore(STORES.TRANSACTIONS),
-    [STORES.ACCOUNTS]: tx.objectStore(STORES.ACCOUNTS),
-    [STORES.CATEGORIES]: tx.objectStore(STORES.CATEGORIES),
-    [STORES.CASH_DENOMINATIONS]: tx.objectStore(STORES.CASH_DENOMINATIONS),
-    [STORES.PAYOUTS]: tx.objectStore(STORES.PAYOUTS),
-    [STORES.BUDGET_TARGETS]: tx.objectStore(STORES.BUDGET_TARGETS),
-  };
-  // Clear each store
-  for (const s of Object.values(stores)) await s.clear();
-  // Bulk-add
-  for (const record of backup.data.transactions) await stores[STORES.TRANSACTIONS].add(record);
-  for (const record of backup.data.accounts) await stores[STORES.ACCOUNTS].add(record);
-  for (const record of backup.data.categories) await stores[STORES.CATEGORIES].add(record);
-  for (const record of backup.data.cashDenominations) await stores[STORES.CASH_DENOMINATIONS].add(record);
-  for (const record of backup.data.payouts) await stores[STORES.PAYOUTS].add(record);
-  for (const record of backup.data.budgetTargets) await stores[STORES.BUDGET_TARGETS].add(record);
-  await tx.done;
-
-  // Enqueue sync entries so restored data gets pushed to Supabase
-  for (const record of backup.data.accounts) {
-    enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record);
-  }
-  for (const record of backup.data.categories) {
-    enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record);
-  }
-  for (const record of backup.data.transactions) {
-    enqueueSyncEntry(STORES.TRANSACTIONS, record.id, 'create', record);
-  }
-  for (const record of backup.data.cashDenominations) {
-    enqueueSyncEntry(STORES.CASH_DENOMINATIONS, record.id, 'create', record);
-  }
-  for (const record of backup.data.payouts) {
-    enqueueSyncEntry(STORES.PAYOUTS, record.id, 'create', record);
-  }
-  for (const record of backup.data.budgetTargets) {
-    enqueueSyncEntry(STORES.BUDGET_TARGETS, record.id, 'create', record);
-  }
 }
 
 /**
