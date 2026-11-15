@@ -68,9 +68,20 @@ export async function fetchStockPrice(ticker: string): Promise<{ price: number; 
  *
  * Fetches the full PSE board from /stocks.json and matches against the
  * user's portfolio by uppercase ticker.
+ *
+ * `isCurrent` is the caller's live scope predicate. It is checked before the
+ * local read, after each await (local read, network response, JSON body), and
+ * immediately before every admitted stock write. Once it turns false the
+ * refresh stops and returns no results; a write already admitted while the
+ * scope was current may still finish.
  */
-export async function refreshAllPrices(): Promise<StockPriceResult[]> {
+export async function refreshAllPrices(
+  isCurrent: () => boolean,
+): Promise<StockPriceResult[]> {
+  if (!isCurrent()) return [];
+
   const stocks = await getAllStocks();
+  if (!isCurrent()) return [];
   if (stocks.length === 0) return [];
 
   const results: StockPriceResult[] = [];
@@ -78,6 +89,7 @@ export async function refreshAllPrices(): Promise<StockPriceResult[]> {
   let allStocks: Array<{ symbol: string; price: { currency: string; amount: number } }>;
   try {
     const res = await fetch(`${BASE}/stocks.json`);
+    if (!isCurrent()) return [];
     if (!res.ok) {
       const networkErr = `Phisix returned HTTP ${res.status}`;
       for (const stock of stocks) {
@@ -86,8 +98,10 @@ export async function refreshAllPrices(): Promise<StockPriceResult[]> {
       return results;
     }
     const data = await res.json();
+    if (!isCurrent()) return [];
     allStocks = data?.stocks ?? [];
   } catch (err) {
+    if (!isCurrent()) return [];
     console.warn('[stock-prices] Network error fetching all stocks:', err);
     for (const stock of stocks) {
       results.push({ ticker: stock.ticker, price: null, currency: null, error: 'Network error' });
@@ -115,6 +129,10 @@ export async function refreshAllPrices(): Promise<StockPriceResult[]> {
       results.push({ ticker: stock.ticker, price: null, currency: null, error: 'Invalid price' });
       continue;
     }
+
+    // Admission check: never start a stock + outbox write after the page
+    // scope has been revoked. Admitted writes are not rolled back.
+    if (!isCurrent()) return [];
 
     await updateStock({
       id: stock.id,

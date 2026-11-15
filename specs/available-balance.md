@@ -64,6 +64,19 @@ interface BalanceSnapshot {
 }
 ```
 
+## Local identity scope
+
+Available Balance reads and edits `balanceSnapshots` and cash-denomination
+records only while the current local data scope is verified. Sign-out, account
+change, verification revocation, and unmount hide the saved values; stale reads
+and callbacks cannot publish into a later scope or start new writes. Existing
+IndexedDB records are retained, not transferred or cleared.
+
+This is client-side containment. A write already admitted while the scope was
+verified may finish, and Phase 3A does not provide server-managed revisions,
+atomic operation receipts, or protection from older clients using the direct
+REST protocol.
+
 ## Migration History
 
 - **v8→v9:** Added `balanceSnapshots` store + `createdAt`/`updatedAt` on Account & Category

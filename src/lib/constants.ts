@@ -6,6 +6,9 @@
 export const DB_NAME = 'expense-tracker-db';
 export const DB_VERSION = 14;
 
+/** localStorage key identifying which account's data is cached locally. */
+export const LAST_USER_STORAGE_KEY = 'lastUserId';
+
 /** Object store names */
 export const STORES = {
   TRANSACTIONS: 'transactions',

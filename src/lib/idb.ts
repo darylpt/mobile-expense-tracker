@@ -1360,6 +1360,28 @@ const ALL_STORES = [
   STORES.BUDGET_TARGETS,
 ] as const;
 
+/** Every store that can hold user records: financial data, outbox, markers. */
+const LOCAL_DATA_STORES = Object.values(STORES);
+
+/**
+ * True when any local store holds a record. Used before claiming an unmarked
+ * cache for a signed-in account: an unowned cache with data must fail closed,
+ * so its records are never exposed or reassigned. Reads only; never mutates.
+ */
+export async function hasAnyLocalData(): Promise<boolean> {
+  const db = await getDB();
+  const tx = db.transaction(LOCAL_DATA_STORES, 'readonly');
+  let found = false;
+  for (const storeName of LOCAL_DATA_STORES) {
+    // The whole check stays inside one readonly transaction; the result is
+    // only used after it completes.
+    found = (await tx.objectStore(storeName).count()) > 0;
+    if (found) break;
+  }
+  await tx.done;
+  return found;
+}
+
 /**
  * Export every store as a portable JSON blob you can save to disk.
  * Each store gets a full read — no pagination needed (local-only, small data).

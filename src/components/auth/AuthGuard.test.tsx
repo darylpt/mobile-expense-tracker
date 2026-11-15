@@ -1,9 +1,9 @@
 // ============================================================
-// AuthGuard.test.tsx — fail-closed rendering and public-route matching
+// AuthGuard.test.tsx — fail-closed rendering and generation isolation
 // ============================================================
 
-import React, { type ReactNode } from 'react';
-import { render, screen, cleanup } from '@testing-library/react';
+import React, { useState, type ReactNode } from 'react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { AuthContext } from '@/context/AuthContext';
 import { AuthGuard } from './AuthGuard';
 
@@ -25,6 +25,7 @@ function authValue(overrides: Partial<AuthValue> = {}): AuthValue {
   return {
     state: 'authenticated',
     user: { id: 'user-1', email: 'one@example.com' } as unknown as AuthValue['user'],
+    authGeneration: 0,
     signIn: jest.fn(async () => ({})),
     signInWithOAuth: jest.fn(async () => ({})),
     signOut: jest.fn(async () => {}),
@@ -38,7 +39,16 @@ function authValue(overrides: Partial<AuthValue> = {}): AuthValue {
   } as unknown as AuthValue;
 }
 
-function tree(state: AuthValue, children: ReactNode = <div data-testid="private">private</div>) {
+function PrivateView() {
+  const [taps, setTaps] = useState(0);
+  return (
+    <button data-testid="private" onClick={() => setTaps((value) => value + 1)}>
+      {`private-${taps}`}
+    </button>
+  );
+}
+
+function tree(state: AuthValue, children: ReactNode = <PrivateView />) {
   return (
     <AuthContext.Provider value={state}>
       <AuthGuard>{children}</AuthGuard>
@@ -54,7 +64,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 test('does not render private children while unauthenticated and redirects to login', () => {
-  render(tree(authValue({ state: 'unauthenticated', user: null })));
+  render(tree(authValue({ state: 'unauthenticated', user: null, authGeneration: 1 })));
 
   expect(screen.queryByTestId('private')).toBeNull();
   expect(mockReplace).toHaveBeenCalledWith('/login');
@@ -64,7 +74,7 @@ test('renders the public login route while unauthenticated', () => {
   mockPathname = '/login';
   render(
     tree(
-      authValue({ state: 'unauthenticated', user: null }),
+      authValue({ state: 'unauthenticated', user: null, authGeneration: 1 }),
       <div data-testid="login">login form</div>,
     ),
   );
@@ -77,7 +87,7 @@ test('renders the public login route on a trailing-slash pathname while unauthen
   mockPathname = '/login/';
   render(
     tree(
-      authValue({ state: 'unauthenticated', user: null }),
+      authValue({ state: 'unauthenticated', user: null, authGeneration: 1 }),
       <div data-testid="login">login form</div>,
     ),
   );
@@ -104,7 +114,7 @@ test.each([
   mockPathname = pathname;
   render(
     tree(
-      authValue({ state: 'unauthenticated', user: null }),
+      authValue({ state: 'unauthenticated', user: null, authGeneration: 1 }),
       <div data-testid="login">login form</div>,
     ),
   );
@@ -188,15 +198,36 @@ test('hides private content as soon as the identity becomes unauthenticated', ()
   const { rerender } = render(tree(authValue()));
   expect(screen.getByTestId('private')).toBeTruthy();
 
-  rerender(tree(authValue({ state: 'unauthenticated', user: null })));
+  rerender(tree(authValue({ state: 'unauthenticated', user: null, authGeneration: 1 })));
 
   expect(screen.queryByTestId('private')).toBeNull();
   expect(mockReplace).toHaveBeenCalledWith('/login');
 });
 
+test('remounts the authenticated subtree at a new identity generation', () => {
+  const { rerender } = render(tree(authValue({ authGeneration: 3 })));
+
+  fireEvent.click(screen.getByTestId('private'));
+  fireEvent.click(screen.getByTestId('private'));
+  expect(screen.getByTestId('private').textContent).toBe('private-2');
+
+  rerender(
+    tree(
+      authValue({
+        user: { id: 'user-1', email: 'one@example.com' } as unknown as AuthValue['user'],
+        authGeneration: 4,
+      }),
+    ),
+  );
+
+  expect(screen.getByTestId('private').textContent).toBe('private-0');
+});
+
 test('redirects an authenticated user away from the login route', () => {
   mockPathname = '/login';
-  render(tree(authValue(), <div data-testid="login">login form</div>));
+  render(
+    tree(authValue(), <div data-testid="login">login form</div>),
+  );
 
   expect(mockReplace).toHaveBeenCalledWith('/');
   expect(screen.getByTestId('login')).toBeTruthy();
@@ -204,7 +235,9 @@ test('redirects an authenticated user away from the login route', () => {
 
 test('redirects an authenticated user away from the trailing-slash login route', () => {
   mockPathname = '/login/';
-  render(tree(authValue(), <div data-testid="login">login form</div>));
+  render(
+    tree(authValue(), <div data-testid="login">login form</div>),
+  );
 
   expect(mockReplace).toHaveBeenCalledWith('/');
   expect(screen.getByTestId('login')).toBeTruthy();

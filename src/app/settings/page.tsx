@@ -1203,8 +1203,17 @@ function ToggleRow({
 
 function BackupSection() {
   const fileRef = useRef<HTMLInputElement>(null);
+  const { isScopeVerified } = useTransactionContext();
   const [msg, setMsg] = useState<string | null>(null);
   const [autoBackupTs, setAutoBackupTs] = useState<string | null>(null);
+
+  // Ownership must be proven before cached records are exported, replaced, or
+  // restored: an unverified scope may be another account's retained cache.
+  const requireVerifiedScope = (): boolean => {
+    if (isScopeVerified) return true;
+    setMsg('Local data is locked to another account.');
+    return false;
+  };
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -1212,6 +1221,7 @@ function BackupSection() {
   }, []);
 
   const handleRestoreAutoBackup = async () => {
+    if (!requireVerifiedScope()) return;
     if (!window.confirm('Restore auto-backup? This will replace all current data.')) return;
     try {
       const ab = getAutoBackup();
@@ -1224,6 +1234,7 @@ function BackupSection() {
   };
 
   const handleExport = async () => {
+    if (!requireVerifiedScope()) return;
     try {
       const backup = await exportAllData();
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -1240,6 +1251,7 @@ function BackupSection() {
   };
 
   const handleExportCsv = async () => {
+    if (!requireVerifiedScope()) return;
     try {
       const txs = await getAllTransactions();
       const csv = transactionsToCsv(txs);
@@ -1259,6 +1271,10 @@ function BackupSection() {
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!requireVerifiedScope()) {
+      e.target.value = '';
+      return;
+    }
     if (!window.confirm('Import will REPLACE all current data. Are you sure?')) {
       e.target.value = '';
       return;
