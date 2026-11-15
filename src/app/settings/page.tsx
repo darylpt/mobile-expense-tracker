@@ -32,7 +32,7 @@ import { formatCurrency, formatImportError } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
 import { parseCsv, type ParsedCsv } from '@/lib/csv-import';
 import { getSyncQueueCount, resyncAll } from '@/lib/idb';
-import { backgroundSync, resolveReplacementConflict } from '@/lib/sync';
+import { backgroundSync, resolveReplacementConflict, retryPausedEntries } from '@/lib/sync';
 import {
   LOCAL_DATASET_OWNER,
   type DatasetReplacementMarker,
@@ -1617,6 +1617,31 @@ function SyncSection() {
     }
   };
 
+  const handleRetryPaused = async () => {
+    setIsSyncing(true);
+    setSyncMsg(null);
+    try {
+      const resumed = await retryPausedEntries();
+      if (resumed === 0) {
+        setSyncMsg('No paused uploads.');
+        return;
+      }
+      setSyncMsg(`Retrying ${resumed} paused upload${resumed === 1 ? '' : 's'}…`);
+      await backgroundSync();
+      const remaining = await getSyncQueueCount();
+      setSyncMsg(
+        remaining === 0
+          ? 'Paused work synced.'
+          : `${remaining} entr${remaining === 1 ? 'y' : 'ies'} still queued.`,
+      );
+    } catch {
+      setSyncMsg('Retry failed — check connection.');
+    } finally {
+      setIsSyncing(false);
+      router.refresh();
+    }
+  };
+
   const handleResync = async () => {
     if (!window.confirm('Re-enqueue all local data for sync? This will clear the current sync queue and push everything again.')) return;
     setIsSyncing(true);
@@ -1653,6 +1678,9 @@ function SyncSection() {
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" size="sm" onClick={handleSync} disabled={isSyncing}>
           {isSyncing ? 'Syncing…' : 'Sync now'}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={handleRetryPaused} disabled={isSyncing}>
+          Retry paused uploads
         </Button>
         <Button variant="ghost" size="sm" onClick={handleResync} disabled={isSyncing}
           className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">

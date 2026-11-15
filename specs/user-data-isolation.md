@@ -228,16 +228,8 @@ is bound to the rendered identity instead.
 
 ## 8. Known gaps
 
-These are still the pre-Phase-3A protocol on `main`, and the identity-scope work
-does not change them:
+Still pre-Phase-3A on this branch:
 
-- **Retry exhaustion drops work.** `src/lib/sync.ts` deletes a queue entry once
-  `retryCount >= 5`; the payload and error history are lost.
-- **Pull can overwrite pending local edits.** `pullStore()` merges remote rows
-  without consulting the outbox, so a newer remote row can replace an unpushed
-  local change.
-- **Remote tombstones remove local rows without an archive.** Nothing keeps a
-  recoverable snapshot of a record deleted because the cloud row was deleted.
 - **Acknowledgement is optimistic.** A write is treated as applied without a
   read-back comparison against the intended payload.
 - **The optimistic local delete removes the row before the server agrees**, and
@@ -248,8 +240,21 @@ does not change them:
 - **No server-managed revisions, atomic receipts, or older-client protection.**
   RLS scopes rows; it does not make concurrent writes safe.
 
-Same-user sign-out → sign-in recovery has not been exercised in a browser, and
-no authenticated two-client run has been performed against this integration.
+Closed by the outbox slice:
+
+- Failed work is **paused, not deleted**, after repeated failures — the entry,
+  its payload, and its last error stay in `syncQueue`, and Settings → Cloud Sync
+  re-arms them through `retryPausedEntries()`.
+- A pull **cannot overwrite queued local work** in any store, managed or not.
+- A remote tombstone or a superseded generation **archives the local row** in the
+  `syncDeletions` store before removing it, so the record is recoverable.
+- A background cycle never retries paused entries, so a failing server cannot
+  loop forever.
+
+Still open: `syncDeletions` is not part of the JSON backup/export, `resyncAll()`
+clears the queue before re-enqueueing, and same-user sign-out → sign-in recovery
+has not been exercised in a browser. No authenticated two-client run has been
+performed.
 
 ## 9. Regression coverage
 

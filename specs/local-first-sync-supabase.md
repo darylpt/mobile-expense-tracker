@@ -172,10 +172,24 @@ syncQueue {
     timestamp: number;       // monotonic counter (syncSeqCounter)
     retryCount: number;
     datasetGeneration?: number; // managed writes carry the hydrated generation
+    state?: 'pending' | 'paused'; // paused work waits for an explicit retry
+    lastError?: string | null;    // retained with the payload
   }
   indexes: { byTimestamp: number }
 }
 ```
+
+Failed work is never deleted for failing. After five failed attempts the entry
+keeps its payload and error and moves to `state: 'paused'`; background cycles
+skip it, and Settings → Cloud Sync → “Retry paused uploads” resets it to
+`pending` with `retryCount: 0`.
+
+### Deletion archive
+
+`STORES.SYNC_DELETIONS` (DB v15) keeps a recoverable copy of any local record a
+pull removes because the cloud row was tombstoned or belongs to a superseded
+dataset generation. Entries record `storeName`, `recordId`, the local payload,
+`reason`, and the remote `deleted_at`.
 
 ### Atomic Enqueue
 
@@ -338,7 +352,7 @@ async function pullStore(storeName, userId):
 | **Offline launch** | IDB loads instantly. Sync queue accumulates. No crash. |
 | **Online→offline mid-sync** | Current queue entry fails (warn, retry later). No partial data. |
 | **Same record edited on 2 devices offline** | See [Conflict Resolution](#conflict-resolution-last-writer-wins); rejected managed edits remain available for explicit resolution. |
-| **Sync queue overflow** | Non-managed failures are dropped after 5 retries with a console warning. Managed network failures remain queued for retry; managed write conflicts remain queued for explicit resolution. |
+| **Sync queue overflow** | Non-managed failures pause after 5 attempts with the payload and error retained; a background cycle never retries paused entries. Managed network failures remain queued for retry; managed write conflicts remain queued for explicit resolution. |
 | **FK violation (23503)** | Dependency ordering ensures accounts → categories → … → transactions. resyncAll re-enqueues in correct order. |
 | **First-time setup** | App works fully offline. Sync silently no-ops until Supabase configured. |
 | **Sign-out with pending sync** | backgroundSync() runs first; if it fails and queue non-empty, user is warned before proceeding. |
