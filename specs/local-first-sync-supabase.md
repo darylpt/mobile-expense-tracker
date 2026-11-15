@@ -184,6 +184,11 @@ keeps its payload and error and moves to `state: 'paused'`; background cycles
 skip it, and Settings → Cloud Sync → “Retry paused uploads” resets it to
 `pending` with `retryCount: 0`.
 
+`last_sync_time` advances only when the queue is empty **and** the dataset
+replacement marker is `applied`. A pending, failed, or conflicting replacement
+is reported instead of “Synced!”, so an empty queue never by itself claims the
+cloud state is settled.
+
 ### Deletion archive
 
 `STORES.SYNC_DELETIONS` (DB v15) keeps a recoverable copy of any local record a

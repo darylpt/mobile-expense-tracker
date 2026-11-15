@@ -1584,10 +1584,30 @@ Date,Amount,Description,Type,Category,From Account,To Account
 // ============================================================
 
 function SyncSection() {
-  const { state: authState } = useAuth();
+  const { state: authState, user } = useAuth();
   const router = useRouter();
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  /**
+   * An empty queue is not a finished sync: a pending, failed, or conflicting
+   * dataset replacement still leaves cloud state unresolved.
+   */
+  const replacementBlocker = async (): Promise<string | null> => {
+    if (!user) return null;
+    const marker = await getDatasetReplacementMarker(user.id);
+    if (!marker) return null;
+    if (marker.status === 'conflict') {
+      return 'Cloud replacement conflict — review it below.';
+    }
+    if (marker.status === 'failed') {
+      return marker.lastError
+        ? `Cloud replacement is blocked: ${marker.lastError}`
+        : 'Cloud replacement is blocked.';
+    }
+    if (marker.status === 'pending') return 'Cloud replacement is still pending.';
+    return null;
+  };
   const [lastSync, setLastSync] = useState<string | null>(() => {
     const stored = localStorage.getItem('last_sync_time');
     return stored ? formatSyncTime(Number(stored)) : null;
@@ -1602,6 +1622,11 @@ function SyncSection() {
       await backgroundSync();
       const remaining = await getSyncQueueCount();
       if (remaining === 0) {
+        const blocker = await replacementBlocker();
+        if (blocker) {
+          setSyncMsg(blocker);
+          return;
+        }
         const now = Date.now();
         localStorage.setItem('last_sync_time', String(now));
         setLastSync(formatSyncTime(now));
@@ -1629,11 +1654,11 @@ function SyncSection() {
       setSyncMsg(`Retrying ${resumed} paused upload${resumed === 1 ? '' : 's'}…`);
       await backgroundSync();
       const remaining = await getSyncQueueCount();
-      setSyncMsg(
-        remaining === 0
-          ? 'Paused work synced.'
-          : `${remaining} entr${remaining === 1 ? 'y' : 'ies'} still queued.`,
-      );
+      if (remaining === 0) {
+        setSyncMsg((await replacementBlocker()) ?? 'Paused work synced.');
+      } else {
+        setSyncMsg(`${remaining} entr${remaining === 1 ? 'y' : 'ies'} still queued.`);
+      }
     } catch {
       setSyncMsg('Retry failed — check connection.');
     } finally {
@@ -1652,6 +1677,11 @@ function SyncSection() {
       await backgroundSync();
       const remaining = await getSyncQueueCount();
       if (remaining === 0) {
+        const blocker = await replacementBlocker();
+        if (blocker) {
+          setSyncMsg(blocker);
+          return;
+        }
         const now = Date.now();
         localStorage.setItem('last_sync_time', String(now));
         setLastSync(formatSyncTime(now));

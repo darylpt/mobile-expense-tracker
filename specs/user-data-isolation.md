@@ -256,6 +256,9 @@ clears the queue before re-enqueueing, and same-user sign-out → sign-in recove
 has not been exercised in a browser. No authenticated two-client run has been
 performed.
 
+Sync completion is now reported honestly: `last_sync_time` advances only when the
+queue is empty and the dataset replacement marker is `applied`.
+
 ## 9. Regression coverage
 
 - `src/lib/auth-scope.test.ts` — generation publication, exact scope capture, invalidation

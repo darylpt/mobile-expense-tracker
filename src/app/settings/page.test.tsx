@@ -113,3 +113,20 @@ it('re-arms paused uploads from the cloud sync controls', async () => {
   await screen.findByText('Paused work synced.');
   expect(backgroundSync).toHaveBeenCalled();
 });
+
+it('does not claim a completed sync while a replacement conflict is unresolved', async () => {
+  mockMarker = {
+    ...mockMarker!,
+    status: 'conflict',
+    remoteGeneration: 2,
+    lastError: 'Local edits waiting.',
+  };
+
+  render(<SettingsPage />);
+  fireEvent.click(screen.getAllByRole('button', { name: /Preferences/ })[0]);
+  fireEvent.click(await screen.findByRole('button', { name: 'Sync now' }));
+
+  await screen.findByText('Cloud replacement conflict — review it below.');
+  expect(screen.queryByText('Synced!')).toBeNull();
+  expect(localStorage.getItem('last_sync_time')).toBeNull();
+});
