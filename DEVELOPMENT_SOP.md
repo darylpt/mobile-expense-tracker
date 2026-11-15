@@ -64,7 +64,16 @@ For application source changes, run the existing commands from this repository:
 - `npm test -- --runInBand`
 - `npm run build`
 
-Use the relevant existing browser suite, `npm run test:e2e` or `npm run test:e2e:prod`, when required by the affected contract. Exercise the actual UI or public operation with isolated users and records; check cross-user isolation when identity, persistence, backup or sync changes. A real ledger is never a fixture. Record failures as observed and diagnose them rather than rerunning a failing check merely to confirm it.
+For every browser-visible source change, use the relevant existing Playwright suite, `npm run test:e2e` or `npm run test:e2e:prod`, after implementation/review fixes settle and before the affected checkpoint commit. Select tests/projects using the actual Playwright configuration rather than inventing names. Use the production-export suite when that is the affected contract. Exercise the actual UI with isolated users and records; check cross-user isolation when identity, persistence, backup or sync changes. A real ledger is never a fixture. Record failures as observed and diagnose them rather than rerunning a failing check merely to confirm it.
+
+## Browser timing and fast hooks
+
+Apply these gates to direct Expense Tracker work as well as tasks routed from Household Assistant. After a relevant correction, repeat the affected browser journey and any invalidated checks before committing. Expand coverage for shared authentication, navigation, styling, IndexedDB/sync or PWA changes, including applicable account isolation, reload, conflict and offline cases. Before a separately authorized merge/release, run the broader existing suite and required supported-browser coverage; do not run the full suite after every edit or worker message.
+
+The lead records the actual command, isolated setup, browsers/viewports, observable assertions, failures and omitted coverage. Screenshots alone do not prove behavior; check visible and persisted/reloaded results. Documentation/configuration-only changes do not require an application browser run. Domain checks, docs and synchronized source/spec version bumps remain required for their affected scope.
+
+Fast staged-file hooks, when configured and installed, run at commit time after those gates. Keep the full Jest/database/Playwright suites outside the hook; inspect hook-made fixes and repeat affected verification. Do not bypass a failed hook or claim protection from an uninstalled hook. This policy does not install a hook framework or adopt a formatter. Shared cross-repository details are in the [completion policy](../../household-assistant/docs/agent-workflow-decision.md#project-wide-completion-gates).
+
 
 ## Local commits
 

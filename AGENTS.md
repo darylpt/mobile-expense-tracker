@@ -50,6 +50,11 @@ Bump rules:
 VIOLATION: Any commit touching source or specs without a matching version bump in all three files is non-compliant and must be amended.
 <!-- END:versioning-rules -->
 
+## Verification before commits
+
+For every browser-visible change, not only `/poteto-mode` tasks, follow the SOP's [browser timing and fast-hook rules](DEVELOPMENT_SOP.md#browser-timing-and-fast-hooks). Independent review, integrated domain checks and targeted Playwright verification precede the checkpoint commit. Broaden regression coverage before release; do not confuse hook configuration with an installed hook or put the full browser/database suite in the commit hook.
+
+
 ## Local feature commits
 
 After a future feature or fix passes its gates, the lead makes the task-owned local commit under [the SOP's local commit policy](DEVELOPMENT_SOP.md#local-commits). Large changes use verified logical checkpoints. Preserve unrelated work, apply the version rules above to every source/spec commit, and keep remote operations separately authorized.
