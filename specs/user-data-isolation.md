@@ -164,6 +164,12 @@ For saved transaction filter isolation, see the [filter persistence contract](tr
 - Sign-out or unauthenticated state: local data, queued operations, and deletion
   snapshots are retained but hidden. Sign-out does not guarantee pending work
   reached Supabase.
+- The Available Balance page and cash-denomination controls start local reads
+  and writes only under a verified, current page scope. Identity changes,
+  verification revocation, and unmount fence stale results and callbacks;
+  retained IndexedDB snapshots remain hidden rather than reassigned. Writes
+  already admitted while authorized may finish. These UI guards do not add
+  server-side revision checks or cancel an in-flight IndexedDB transaction.
 - In-flight reads and lifecycle refreshes capture the `AuthContext` identity
   generation. A continuation from a previous generation cannot repopulate
   transactions, accounts, or categories, publish a stale error/loading state, or
@@ -239,20 +245,6 @@ snapshot does not encode its owner, and restoring it does not transfer cloud
 ownership (see [Backup / Restore](backup-restore.md#sensitive-data)).
 
 ### Regression coverage
-- `src/lib/stock-prices.test.ts` — `refreshAllPrices` uses real fake-IndexedDB
-  stock records and real sync-queue insertion while only the Phisix response is
-  mocked. Cases cover an initially invalid scope, invalidation during the local
-  read, during a deferred network response, during a deferred JSON body, and
-  between two stock writes; a fully valid refresh updates both prices and their
-  queue entries.
-- `src/app/stocks/page.scope.test.tsx` — the page passes its live scope
-  predicate to the refresh service and keeps it false after verification
-  revocation, re-verification, a shared identity publication without a
-  rerender, and unmount; it is true in verified Supabase-disabled mode.
-- `e2e/stocks-price-refresh.spec.ts` — a successful refresh is displayed and
-  persists across reload; a deferred refresh followed by client-side
-  navigation away, response release, and return leaves the stock and outbox
-  unchanged.
 
 Focused tests assert this client behavior:
 
@@ -267,6 +259,20 @@ Focused tests assert this client behavior:
 - `src/app/settings/page.scope.test.tsx` — every data-tool action stays locked
   for an unowned safety-only cache, and a matching owner can export all 13
   stores through Settings.
+- `src/lib/stock-prices.test.ts` — `refreshAllPrices` uses real fake-IndexedDB
+  stock records and real sync-queue insertion while only the Phisix response is
+  mocked. Cases cover an initially invalid scope, invalidation during the local
+  read, during a deferred network response, during a deferred JSON body, and
+  between two stock writes; a fully valid refresh updates both prices and their
+  queue entries.
+- `src/app/stocks/page.scope.test.tsx` — the page passes its live scope
+  predicate to the refresh service and keeps it false after verification
+  revocation, re-verification, a shared identity publication without a
+  rerender, and unmount; it is true in verified Supabase-disabled mode.
+- `e2e/stocks-price-refresh.spec.ts` — a successful refresh is displayed and
+  persists across reload; a deferred refresh followed by client-side
+  navigation away, response release, and return leaves the stock and outbox
+  unchanged.
 
 These tests describe local client behavior only. They do not add server-managed
 revisions, atomic operation receipts, or a guarantee that older clients respect

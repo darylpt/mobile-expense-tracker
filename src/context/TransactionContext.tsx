@@ -155,7 +155,11 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isScopeVerified, setIsScopeVerified] = useState(false);
+  // Ownership proof: the exact rendered identity whose local cache ownership
+  // was verified. Verification is deliberately not a bare boolean — it is
+  // bound to the identity that earned it, so an auth transition cannot inherit
+  // the previous session's verdict.
+  const [verifiedAuth, setVerifiedAuth] = useState<RenderedAuth | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [monthYear, setMonthYear] = useState<MonthYear>(getCurrentMonthYear());
   const [hideAmounts, setHideAmounts] = useState(false);
@@ -174,14 +178,24 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
     liveAuthRef.current = renderedAuth;
   }, [renderedAuth]);
 
+  // Public verdict derived from the bound proof. A render for a new identity is
+  // locked immediately: `verifiedAuth` still refers to the previous identity,
+  // so the first render of the transition reports false even though the
+  // startup effect has not run yet. Previously published rows remain in state
+  // until `refreshTransactions()` resolves; this verdict never presents them as
+  // verified for the new identity.
+  const isScopeVerified = verifiedAuth === renderedAuth;
+
   // Monotonic request sequence scoped to this provider. Within one identity
   // generation, only the most recently authorized read may publish: an older
   // read that settles later must not overwrite newer rows or settle loading.
   const readRequestIdRef = useRef(0);
 
   // Identity whose initial local read has settled. `isScopeVerified` proves
-  // cache ownership, not that startup's first read finished: lifecycle events
-  // must wait for that read before a sync or refresh may use the cache.
+  // cache ownership for the *current* rendered identity (and is re-derived
+  // false the moment that identity changes), not that startup's first read
+  // finished: lifecycle events must wait for that read before a sync or
+  // refresh may use the cache.
   const initialReadAuthRef = useRef<RenderedAuth | null>(null);
 
   // Fetch all data from IndexedDB. A read started for one identity generation
@@ -231,13 +245,14 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
 
     const load = async () => {
       if (authState === 'loading') {
-        setIsScopeVerified(false);
+        setVerifiedAuth(null);
         return;
       }
 
       if (authState === 'disabled') {
-        // No Supabase configured — local-only usage is the owner.
-        setIsScopeVerified(true);
+        // No Supabase configured — local-only usage is the owner. The proof is
+        // the rendered identity of this run, not a blanket verdict.
+        setVerifiedAuth(token.auth);
         await refreshTransactions();
         if (!isCurrent()) return;
         initialReadAuthRef.current = token.auth;
@@ -247,7 +262,7 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
       if (authState === 'unauthenticated') {
         // Hide cached data from the UI without deleting it from IndexedDB.
         if (!isCurrent()) return;
-        setIsScopeVerified(false);
+        setVerifiedAuth(null);
         setTransactions([]);
         setAccounts([]);
         setCategories([]);
@@ -265,7 +280,7 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
       const marker = localStorage.getItem(LAST_USER_KEY);
       if (marker && marker !== userId) {
         // Different account: fail closed. Never expose another account's cache.
-        setIsScopeVerified(false);
+        setVerifiedAuth(null);
         setTransactions([]);
         setAccounts([]);
         setCategories([]);
@@ -281,7 +296,7 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
         if (!isCurrent()) return;
         if (hasData) {
           // Legacy/local-only rows cannot be assigned to an account safely.
-          setIsScopeVerified(false);
+          setVerifiedAuth(null);
           setTransactions([]);
           setAccounts([]);
           setCategories([]);
@@ -299,7 +314,9 @@ export function TransactionProvider({ children }: TransactionProviderProps) {
       // scope here means the shared identity is not authenticated for this
       // account, so local data is never marked verified.
       if (!captureAuthScope()) return;
-      setIsScopeVerified(true);
+      // Bind the proof to the exact identity that passed every ownership
+      // check. A later render for another identity re-derives false.
+      setVerifiedAuth(token.auth);
 
       // Publish the local cache first and settle loading; the network sync must
       // never hold the UI hostage. Ownership is already verified above.

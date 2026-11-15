@@ -10,10 +10,12 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { getBalanceSnapshots, upsertBalanceSnapshot } from '@/lib/idb';
 import Link from 'next/link';
 import { useTransactionContext } from '@/context/TransactionContext';
+import { useAuth } from '@/context/AuthContext';
+import { getAuthGeneration } from '@/lib/auth-scope';
 import { calculateExpectedBalances, type ExpectedBalanceRow } from '@/lib/reconciliation';
 import { getToday, formatCurrency } from '@/lib/utils';
 import { Header } from '@/components/layout/Header';
@@ -22,111 +24,244 @@ import { CashDenominationInput } from '@/components/available-balance/CashDenomi
 /** Account ID for Cash — special-cased for denomination input */
 const CASH_ACCOUNT_ID = 'cash';
 
+type BalanceSnapshotMap = Awaited<ReturnType<typeof getBalanceSnapshots>>;
+
+/** Identity of one scope instance. Shape is irrelevant; only identity is. */
+interface BalanceScopeToken {
+  readonly kind: 'available-balance-scope';
+}
+
+interface BalanceScopeBucket {
+  /** Auth descriptor this bucket belongs to. */
+  readonly key: string;
+  /** Unique per scope instance; never reused across transitions. */
+  readonly token: BalanceScopeToken;
+  readonly balances: BalanceSnapshotMap;
+  readonly phase: 'locked' | 'loading' | 'ready';
+}
+
+/**
+ * True only while work captured under `token`/`generation` is still live.
+ * Async read, migration, and persistence continuations share this fence.
+ */
+function isScopeCurrent(
+  token: BalanceScopeToken,
+  generation: number,
+  liveToken: BalanceScopeToken,
+): boolean {
+  return getAuthGeneration() === generation && liveToken === token;
+}
+
 export default function AvailableBalancePage() {
   const { transactions, accounts, isLoading, isScopeVerified } = useTransactionContext();
-  // Persisted to IndexedDB so values sync across devices via Supabase
-  const [currentBalances, setCurrentBalances] = useState<Record<string, { value: number; updatedAt: number; useSubSplit?: boolean; subSplits?: { id: string; label: string; amount: number }[] }>>(() => {
-    // Will be populated in useEffect below
-    return {};
-  });
-  const [loaded, setLoaded] = useState(false);
+  const { state: authState, user, authGeneration = 0 } = useAuth();
 
-  // One-time migration from localStorage + load from IDB
+  const userId = user?.id ?? '';
+  // IndexedDB is readable only once the provider verified local ownership.
+  // Disabled (no Supabase) mode is local-only, so verification alone owns it.
+  const canReadLocalData =
+    isScopeVerified &&
+    (authState === 'disabled' ||
+      (authState === 'authenticated' && userId !== ''));
+
+  // Identity + ownership descriptor for this render. Generation advances on
+  // every identity transition; the marker distinguishes verification flips.
+  const scopeKey = `${authState}\u0000${userId}\u0000${authGeneration}\u0000${
+    isScopeVerified ? 'verified' : 'locked'
+  }`;
+
+  // Persisted to IndexedDB so values sync across devices via Supabase.
+  // Balances live in a bucket bound to one verified auth scope.
+  const [bucketState, setBucketState] = useState<BalanceScopeBucket>(() => ({
+    key: scopeKey,
+    token: { kind: 'available-balance-scope' },
+    balances: {},
+    phase: canReadLocalData ? 'loading' : 'locked',
+  }));
+
+  // Descriptor change: reset during render and return the safe empty/locked
+  // bucket for this very render. No previous-scope balance, timestamp or
+  // sub-split is ever observable, even before the passive load effect runs.
+  // A fresh token means old continuations cannot regain authority if the
+  // descriptor later becomes equal again (A verified -> locked -> A verified).
+  let bucket = bucketState;
+  if (bucketState.key !== scopeKey) {
+    bucket = {
+      key: scopeKey,
+      token: { kind: 'available-balance-scope' },
+      balances: {},
+      phase: canReadLocalData ? 'loading' : 'locked',
+    };
+    setBucketState(bucket);
+  }
+  const scopeToken = bucket.token;
+  const currentBalances = bucket.balances;
+  const phase = bucket.phase;
+
+  // Latest committed scope token, readable from async continuations.
+  const scopeTokenRef = useRef(scopeToken);
+  useLayoutEffect(() => {
+    scopeTokenRef.current = scopeToken;
+  }, [scopeToken]);
+
+  // A balance update applies only while its bucket is still the live one.
+  const updateBucketBalances = useCallback(
+    (
+      token: BalanceScopeToken,
+      updater: (balances: BalanceSnapshotMap) => BalanceSnapshotMap,
+    ) => {
+      setBucketState((previous) =>
+        previous.token === token
+          ? { ...previous, balances: updater(previous.balances) }
+          : previous,
+      );
+    },
+    [],
+  );
+
+  // One-time migration from localStorage + load from IDB for exactly this
+  // scope. A result captured for one scope instance may never publish
+  // balances or loading for another, nor remove the legacy key.
   useEffect(() => {
-    if (!isScopeVerified) {
-      setCurrentBalances({});
-      setLoaded(false);
-      return;
-    }
+    if (!canReadLocalData) return;
+
+    const token = scopeToken;
+    const generation = authGeneration;
     let cancelled = false;
+    const isCurrent = () =>
+      !cancelled &&
+      canReadLocalData &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
+
     (async () => {
       // First, migrate any old localStorage data into IDB
       try {
+        if (!isCurrent()) return;
         const saved = localStorage.getItem('current_balances');
         if (saved) {
           const parsed = JSON.parse(saved);
           if (typeof parsed === 'object' && parsed !== null) {
             for (const [accountId, entry] of Object.entries(parsed) as [string, { value: number; updatedAt: number; useSubSplit?: boolean; subSplits?: { id: string; label: string; amount: number }[] }][]) {
+              if (!isCurrent()) return;
               if (entry && typeof entry.value === 'number') {
                 await upsertBalanceSnapshot(accountId, {
                   value: entry.value,
                   useSubSplit: entry.useSubSplit,
                   subSplits: entry.subSplits,
                 });
+                if (!isCurrent()) return;
               }
             }
           }
           // Clear localStorage after successful migration
+          if (!isCurrent()) return;
           localStorage.removeItem('current_balances');
         }
       } catch {
         // migration failed, will try again next mount
       }
 
+      // A caught migration failure must not bypass the fence before the read.
+      if (!isCurrent()) return;
+
       // Load from IDB
       try {
         const loaded = await getBalanceSnapshots();
-        if (!cancelled) {
-          setCurrentBalances(loaded);
-          setLoaded(true);
-        }
+        if (!isCurrent()) return;
+        setBucketState((previous) =>
+          previous.token === token
+            ? { ...previous, balances: loaded, phase: 'ready' }
+            : previous,
+        );
       } catch {
-        if (!cancelled) setLoaded(true);
+        if (!isCurrent()) return;
+        setBucketState((previous) =>
+          previous.token === token ? { ...previous, phase: 'ready' } : previous,
+        );
       }
     })();
-    return () => { cancelled = true; };
-  }, [isScopeVerified]);
 
-  // Persist to IDB on every change (for sync across devices)
+    return () => { cancelled = true; };
+  }, [scopeToken, canReadLocalData, authGeneration]);
+
+  // Persist to IDB on every change (for sync across devices). Only a ready,
+  // still-authorized bucket may write, and each entry is fenced individually.
   useEffect(() => {
-    if (!loaded || !isScopeVerified) return; // don't write during initial load
+    if (phase !== 'ready' || !canReadLocalData) return; // don't write during initial load
+    const token = scopeToken;
+    const generation = authGeneration;
+    const isCurrent = () =>
+      canReadLocalData &&
+      isScopeCurrent(token, generation, scopeTokenRef.current);
+
+    if (!isCurrent()) return;
     // ponytail: upsert all — the overhead is tiny for < 10 accounts
     for (const [accountId, entry] of Object.entries(currentBalances)) {
+      if (!isCurrent()) return;
       upsertBalanceSnapshot(accountId, {
         value: entry.value,
         useSubSplit: entry.useSubSplit,
         subSplits: entry.subSplits,
       }).catch(() => {}); // fire-and-forget, best-effort persistence
     }
-  }, [currentBalances, loaded, isScopeVerified]);
+  }, [phase, currentBalances, scopeToken, canReadLocalData, authGeneration]);
+
   const [cashUseDenominations, setCashUseDenominations] = useState(true);
   // ponytail: toggling plain→denomination mode abandons the plain-number value
   // (denomination grid re-mounts from IDB). Fix: write plain value back to IDB on toggle,
   // or pass it as initial value to the denomination grid.
 
+  // Expected balances are derived from context rows only while the local cache
+  // is authorized; retained rows during a locked transition are not ownership
+  // proof and must not be turned into financial output.
   const expectedRows = useMemo<ExpectedBalanceRow[]>(
-    () => calculateExpectedBalances(transactions, accounts, getToday()),
-    [transactions, accounts]
+    () =>
+      canReadLocalData
+        ? calculateExpectedBalances(transactions, accounts, getToday())
+        : [],
+    [canReadLocalData, transactions, accounts]
   );
 
-  // ponytail: stable callbacks via useCallback — functional updater avoids closure deps
+  // Shared generation rejects identity-stale callbacks before React rerenders;
+  // the bucket token also rejects callbacks captured before verification flips.
   const handleCurrentChange = useCallback((accountId: string, value: string) => {
+    if (!canReadLocalData || getAuthGeneration() !== authGeneration) {
+      return;
+    }
     const num = parseFloat(value);
-    setCurrentBalances((prev) => ({
-      ...prev,
+    updateBucketBalances(scopeToken, (balances) => ({
+      ...balances,
       [accountId]: { value: isNaN(num) ? 0 : num, updatedAt: Date.now() },
     }));
-  }, []);
+  }, [canReadLocalData, scopeToken, authGeneration, updateBucketBalances]);
 
   const handleCashTotalChange = useCallback((total: number) => {
-    setCurrentBalances((prev) => ({
-      ...prev,
+    if (!canReadLocalData || getAuthGeneration() !== authGeneration) {
+      return;
+    }
+    updateBucketBalances(scopeToken, (balances) => ({
+      ...balances,
       [CASH_ACCOUNT_ID]: { value: total, updatedAt: Date.now() },
     }));
-  }, []);
+  }, [canReadLocalData, scopeToken, authGeneration, updateBucketBalances]);
 
   // ponytail: sub-split handlers — stable via useCallback, functional updater avoids closure deps
   const handleSubSplitToggle = useCallback((accountId: string) => {
-    setCurrentBalances((prev) => {
-      const entry = prev[accountId];
+    if (!canReadLocalData || getAuthGeneration() !== authGeneration) {
+      return;
+    }
+    updateBucketBalances(scopeToken, (balances) => {
+      const entry = balances[accountId];
       if (entry?.useSubSplit) {
         // Toggle OFF: keep last computed value, strip sub-split data
-        const { useSubSplit, subSplits, ...rest } = entry;
-        return { ...prev, [accountId]: rest };
+        const rest = { ...entry };
+        delete rest.useSubSplit;
+        delete rest.subSplits;
+        return { ...balances, [accountId]: rest };
       }
       // Toggle ON: initialize with 3 empty rows, value will be recomputed
       return {
-        ...prev,
+        ...balances,
         [accountId]: {
           ...(entry ?? { value: 0, updatedAt: Date.now() }),
           value: 0,
@@ -140,13 +275,16 @@ export default function AvailableBalancePage() {
         },
       };
     });
-  }, []);
+  }, [canReadLocalData, scopeToken, authGeneration, updateBucketBalances]);
 
   const handleSubSplitChange = useCallback(
     (accountId: string, subId: string, field: 'label' | 'amount', value: string) => {
-      setCurrentBalances((prev) => {
-        const entry = prev[accountId];
-        if (!entry?.useSubSplit || !entry.subSplits) return prev;
+      if (!canReadLocalData || getAuthGeneration() !== authGeneration) {
+        return;
+      }
+      updateBucketBalances(scopeToken, (balances) => {
+        const entry = balances[accountId];
+        if (!entry?.useSubSplit || !entry.subSplits) return balances;
         const newSubSplits = entry.subSplits.map((s) =>
           s.id === subId
             ? { ...s, [field]: field === 'amount' ? parseFloat(value) || 0 : value }
@@ -154,20 +292,23 @@ export default function AvailableBalancePage() {
         );
         const sum = newSubSplits.reduce((a, s) => a + s.amount, 0);
         return {
-          ...prev,
+          ...balances,
           [accountId]: { ...entry, subSplits: newSubSplits, value: sum, updatedAt: Date.now() },
         };
       });
     },
-    []
+    [canReadLocalData, scopeToken, authGeneration, updateBucketBalances]
   );
 
   const handleAddSubSplit = useCallback((accountId: string) => {
-    setCurrentBalances((prev) => {
-      const entry = prev[accountId];
-      if (!entry?.useSubSplit) return prev;
+    if (!canReadLocalData || getAuthGeneration() !== authGeneration) {
+      return;
+    }
+    updateBucketBalances(scopeToken, (balances) => {
+      const entry = balances[accountId];
+      if (!entry?.useSubSplit) return balances;
       return {
-        ...prev,
+        ...balances,
         [accountId]: {
           ...entry,
           subSplits: [...(entry.subSplits ?? []), { id: crypto.randomUUID(), label: '', amount: 0 }],
@@ -175,22 +316,27 @@ export default function AvailableBalancePage() {
         },
       };
     });
-  }, []);
+  }, [canReadLocalData, scopeToken, authGeneration, updateBucketBalances]);
 
   const handleRemoveSubSplit = useCallback((accountId: string, subId: string) => {
-    setCurrentBalances((prev) => {
-      const entry = prev[accountId];
-      if (!entry?.useSubSplit || !entry.subSplits) return prev;
+    if (!canReadLocalData || getAuthGeneration() !== authGeneration) {
+      return;
+    }
+    updateBucketBalances(scopeToken, (balances) => {
+      const entry = balances[accountId];
+      if (!entry?.useSubSplit || !entry.subSplits) return balances;
       const newSubSplits = entry.subSplits.filter((s) => s.id !== subId);
       const sum = newSubSplits.reduce((a, s) => a + s.amount, 0);
       return {
-        ...prev,
+        ...balances,
         [accountId]: { ...entry, subSplits: newSubSplits, value: sum, updatedAt: Date.now() },
       };
     });
-  }, []);
+  }, [canReadLocalData, scopeToken, authGeneration, updateBucketBalances]);
 
-  if (isLoading) {
+  // While local access is unauthorized, reuse the existing non-financial
+  // loading branch: header only, no account rows, amounts or child editors.
+  if (isLoading || !canReadLocalData) {
     return (
       <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
         <Header title="Available Balance" />
@@ -231,8 +377,9 @@ export default function AvailableBalancePage() {
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-20 pt-6 sm:px-6 sm:pb-0 sm:pt-8">
 
-        {/* Reconciliation table — desktop */}
-        <div className="hidden lg:block">
+        {/* Reconciliation table — desktop. Keyed by scope so no child editor
+            instance (denomination input) survives an identity transition. */}
+        <div key={`desktop-${scopeKey}`} className="hidden lg:block">
           <div className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -406,8 +553,8 @@ export default function AvailableBalancePage() {
           </div>
         </div>
 
-        {/* Reconciliation cards — mobile */}
-        <div className="space-y-3 lg:hidden">
+        {/* Reconciliation cards — mobile. Keyed by scope for the same reason. */}
+        <div key={`mobile-${scopeKey}`} className="space-y-3 lg:hidden">
           {expectedRows.map((row) => {
             const current = currentBalances[row.accountId]?.value ?? 0;
             const difference = row.expected - current;
