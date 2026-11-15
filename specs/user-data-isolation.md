@@ -1,8 +1,9 @@
 # Spec: User Data Isolation (per-user scoping)
 
-**Status:** ✅ Client-side safety fix verified — unowned safety-only caches fail
-closed (§5). Server protocol limits remain; this is not a Phase 3B or release
-approval.
+**Status:** 🟡 Local client-side checks pass; one public anonymous A/B
+cross-user observation recorded (2026-11-15). Same-user recovery and fixture
+cleanup remain unverified. Server protocol limits remain; this is not a Phase 3B
+or release approval.
 
 > **Current behavior (Phase 3A):** `lastUserId` is an ownership check, not a
 > cache-wipe trigger. Sign-out, unauthenticated state, a different account, or
