@@ -29,6 +29,13 @@ export default defineConfig({
     port: PORT,
     reuseExistingServer: false,
     timeout: 300_000,
+    // This suite drives local-only behavior. Blank the public Supabase values
+    // so a developer's `.env.local` cannot switch the export into an auth build
+    // where every journey lands on /login.
+    env: {
+      NEXT_PUBLIC_SUPABASE_URL: '',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: '',
+    },
   },
 
   projects: [
