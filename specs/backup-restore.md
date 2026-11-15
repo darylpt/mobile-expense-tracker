@@ -19,20 +19,16 @@ One-click export of every store as a single portable JSON file.
 
 ### Stores included
 
-| Store | Records |
-|---|---|
-| `transactions` | All Transaction records |
-| `accounts` | All Account records |
-| `categories` | All Category records |
-| `cashDenominations` | All CashDenomination snapshots |
-| `payouts` | All Payout records |
-| `budgetTargets` | All BudgetTarget records |
+Every IndexedDB store the app owns (13 at DB v15): the ten financial stores —
+`transactions`, `accounts`, `categories`, `cashDenominations`, `payouts`,
+`budgetTargets`, `balanceSnapshots`, `stocks`, `stockTransactions`, `dividends`
+— plus the safety stores `syncQueue`, `syncDeletions`, and `datasetMarkers`.
 
 ### File format
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "exportedAt": "2026-07-02T...",
   "data": {
     "transactions": [ ... ],
@@ -40,15 +36,26 @@ One-click export of every store as a single portable JSON file.
     "categories": [ ... ],
     "cashDenominations": [ ... ],
     "payouts": [ ... ],
-    "budgetTargets": [ ... ]
+    "budgetTargets": [ ... ],
+    "balanceSnapshots": [ ... ],
+    "stocks": [ ... ],
+    "stockTransactions": [ ... ],
+    "dividends": [ ... ],
+    "syncQueue": [ ... ],
+    "syncDeletions": [ ... ],
+    "datasetMarkers": [ ... ]
   }
 }
 ```
 
+`data` is keyed by store name. Files written before 0.19.8 used `version: 1`
+with six camelCase fields; `normalizeBackup()` maps them onto the same store
+names, so old files still import.
+
 ### Implementation
 
 - **`exportAllData()`** in `src/lib/idb.ts` — single `readonly` transaction
-  across all 6 stores, returns a `BackupData` object.
+  across every store, returns a `BackupData` object.
 - Settings UI: **Export All (JSON)** button triggers a browser download
   (`<a download>` + `URL.createObjectURL`).
 
@@ -79,13 +86,16 @@ Full restore from a previously exported JSON file.
 
 1. User picks a `.json` file via native file picker.
 2. Confirmation dialog: *"Import will REPLACE all current data. Are you sure?"*
-3. On confirm: single `readwrite` transaction clears every store, then bulk-adds
-   the records from the backup file.
-4. User is prompted to reload the page for changes to take effect.
+3. On confirm: single `readwrite` transaction replaces exactly the stores the
+   file carries, then bulk-adds their records. A legacy six-store file therefore
+   cannot wipe the outbox or deletion archive it never captured.
+4. Restored financial records are re-enqueued for upload.
+5. User is prompted to reload the page for changes to take effect.
 
 ### Implementation
 
-- **`importAllData(backup)`** in `src/lib/idb.ts` — atomic clear-and-replace.
+- **`importAllData(backup)`** in `src/lib/idb.ts` — atomic clear-and-replace of
+  the stores present in the file; `normalizeBackup()` accepts version 1 and 2.
 - Settings UI: **Import from file…** button triggers a hidden `<input type="file" accept=".json">`.
 
 ---

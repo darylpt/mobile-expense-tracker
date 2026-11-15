@@ -251,9 +251,8 @@ Closed by the outbox slice:
 - A background cycle never retries paused entries, so a failing server cannot
   loop forever.
 
-Still open: `syncDeletions` is not part of the JSON backup/export, `resyncAll()`
-clears the queue before re-enqueueing, and same-user sign-out → sign-in recovery
-has not been exercised in a browser. No authenticated two-client run has been
+Still open: `resyncAll()` clears the queue before re-enqueueing, and same-user
+sign-out → sign-in recovery has not been exercised in a browser. No authenticated two-client run has been
 performed.
 
 Sync completion is now reported honestly: `last_sync_time` advances only when the

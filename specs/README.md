@@ -18,7 +18,7 @@ Single source of truth for what's built, what's in progress, and what's next. Up
 | Budget targets seed data | ✅ Done | Removed with seed data cleanup. Budget targets are set manually or imported via CSV import. |
 | Transactions tab | ✅ Done | `/transactions` route created, tab added to Header nav, removed from dashboard. |
 | SonarQube code quality fixes | ✅ Done | 0 ESLint errors, 0 TS errors, 109/109 tests passing. |
-| [`backup-restore.md`](./backup-restore.md) | ✅ Done | JSON export/import of all 6 stores + CSV transaction export. Settings UI. |
+| [`backup-restore.md`](./backup-restore.md) | ✅ Done | JSON export/import of every store (13 at DB v15: ten financial stores plus `syncQueue`, `syncDeletions`, `datasetMarkers`) + CSV transaction export. Version-1 six-store files still import and replace only the stores they carry. Settings UI. |
 | [`csv-import.md`](./csv-import.md) | ✅ Done | Atomic six-store replacement plus durable marker, retained account IDs, explicit missing-account review, local/cloud replacement status, and first-open generation hydration before any write is stamped. The `#orphan-review` deep link hydrates from a post-mount effect and scrolls the review into view. |
 | Dataset replacement generation fence | ✅ Done | Read-only generation RLS, managed-write RPC, exact generation fence, idempotent replacement, paginated reconciliation, conflict surfacing. Migration `007_dataset_generation.sql`. |
 | Empty state / onboarding flow | ✅ Done | See the [onboarding contract](./ui-accessibility-onboarding.md#empty-states). |
