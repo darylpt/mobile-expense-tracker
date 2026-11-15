@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Scratch clones kept outside version control; they must not affect local
+    // gate results that CI (a clean checkout) never sees.
+    ".opencode-local/**",
   ]),
 ]);
 

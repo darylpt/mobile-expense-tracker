@@ -5,16 +5,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
 <!-- END:nextjs-agent-rules -->
 
 <!-- BEGIN:delegation-rules -->
-# Delegation Enforcement (HARD RULE)
+# Implementation and review
 
-The Builder MUST NOT directly edit source code files (`src/**`, `lib/**`, `components/**`, etc.) for any non-trivial change. The ONLY exceptions where Builder may edit directly:
-- `specs/*.yaml`, `specs/*.md` (state files, specs)
-- `CLAUDE.md`, `AGENTS.md` (config files)
-- Trivially obvious one-liners (typo fixes, version bumps)
+Edit source directly. Dispatch one read-only review agent over the checkpoint diff
+before the commit, and treat that review as independent: it reads the diff, not
+the intent behind it.
 
-For ALL other code changes, the Builder MUST invoke `@coder` via the Task tool for implementation and `@critic` via the Task tool for review. This is the 8-step build-epic cycle per `docs/WORKFLOW-SOP-v2.md`.
-
-VIOLATION: If Builder writes source code directly (outside the exceptions above), the output is considered non-compliant and must be reverted and redone through the proper cycle.
+The lead owns staging, commits, verification runs and the integration result.
+Never stage another agent's unfinished work, and never treat a worker's success
+report as proof of behavior.
 <!-- END:delegation-rules -->
 
 <!-- BEGIN:documentation-rules -->
@@ -38,15 +37,12 @@ VIOLATION: A commit that adds or modifies a feature without a matching documenta
 
 Every commit that changes source code (`src/**`, `lib/**`, `components/**`, etc.) or `specs/` MUST include a version bump. No exceptions.
 
-Files to keep in sync:
-- `package.json` — `version` field
-- `src/lib/version.ts` — `APP_VERSION` constant
-- `specs/state.yaml` — `version` field
+`npm run version:bump [patch|minor|major]` updates every file at once; `npm run check:version` fails when they disagree, and CI runs it. Do not hand-edit individual version files.
 
 Bump rules:
 - **Bug fix** → patch (`0.x.Y` → `0.x.Y+1`)
 - **New feature / story complete** → minor (`0.X.y` → `0.X+1.0`)
 - **Breaking change** → major (`X.y.z` → `X+1.0.0`)
 
-VIOLATION: Any commit touching source or specs without a matching version bump in all three files is non-compliant and must be amended.
+VIOLATION: Any commit touching source or specs without a matching version bump across every file the script writes is non-compliant and must be amended.
 <!-- END:versioning-rules -->

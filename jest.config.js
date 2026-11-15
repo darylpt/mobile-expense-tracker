@@ -1,5 +1,5 @@
 module.exports = {
-  testPathIgnorePatterns: ['/node_modules/', '/.next/', '/e2e/'],
+  testPathIgnorePatterns: ['/node_modules/', '/.next/', '/e2e/', '/.opencode-local/'],
   transform: {
     '^.+\.(js|jsx|ts|tsx)$': ['ts-jest', {
       tsconfig: 'tsconfig.jest.json'
