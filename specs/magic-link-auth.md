@@ -149,10 +149,10 @@ SHA-256 via `crypto.subtle`. Constant-time comparison prevents timing attacks.
 
 ### Sign-out behavior
 
-- Clears local IndexedDB data (`clearAllLocalData()`)
-- Removes `lastUserId` from localStorage
-- Calls `supabase.auth.signOut()`
-- Resets `isLocked` to `false`
+- Retains local IndexedDB data, queued operations, and the `lastUserId` marker; hides them while unauthenticated
+- Clears the saved transaction-filter mirror from localStorage
+- Calls `supabase.auth.signOut()` and releases the local lock
+- Does not guarantee pending work reached Supabase
 
 ---
 

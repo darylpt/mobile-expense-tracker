@@ -184,10 +184,11 @@ $$;
 
 - Supabase not configured → `state = 'disabled'`, app works fully offline
 - Google OAuth is the primary sign-in method; magic link is fallback (invite-only, `shouldCreateUser: false`)
-- Authenticated → `lastUserId` localStorage marker prevents unnecessary cache wipe on same-user refresh
-- User switch detected → `clearAllLocalData()` + discard sync queue + re-pull
-- Sign-out → tries `backgroundSync()` first, warns if queue non-empty
-- Route guard uses `useRouter().replace()` in `useEffect` (not `redirect()` mid-render)
+- Authenticated → `lastUserId` marker names the cache owner; only the owning account gets a verified scope
+- Cache, outbox, and marker are retained across sign-out and account switches; no automatic wipe or reassignment
+- Unmarked cache holding records → fails closed: hidden, not exported, never claimed by the signing-in account
+- Sign-out → hides cached rows; queued work stays on disk and syncs only under the verified owner
+- Route guard recognises only the exact `/login` and `/login/` public paths and renders nothing private while unauthenticated
 - **App lock:** optional local PIN-based privacy lock (PBKDF2-hashed, stored in localStorage). When enabled + authenticated, a full-screen PIN overlay blocks app content until unlocked. Settings → App Lock for enable/disable/change.
 
 ### UX Flow
@@ -308,8 +309,8 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `src/lib/utils.test.ts` | Category breakdown aggregation, percentages, and ordering |
 | `src/lib/dividends.test.ts` | Legacy/expanded dividend sync compatibility |
 | `src/components/summary/PortfolioSummaryCard.test.tsx` | Portfolio summary rerender behavior and empty-state handling |
-| `src/context/AuthContext.test.tsx` | Auth lifecycle, identity isolation, sign-out cleanup, PIN remount, and filter mirror gates |
-| `src/context/TransactionContext.test.tsx` | Visible-resume refresh, current-user completion filter, hidden visibility behavior, and online reconnect behavior |
+| `src/context/AuthContext.test.tsx` | Auth lifecycle, identity generations, sign-out recovery, PIN remount, and filter mirror gates |
+| `src/context/TransactionContext.test.tsx` | Startup read barrier, cached-identity verification, stale read/error/loading fences, and sync lifecycle |
 | `src/lib/transaction-filters.test.ts` | Persistable filter allowlist and query canonicalization |
 | `src/components/summary/TransactionList.test.tsx` | Add dialog toggle render isolation; StrictMode restore/settlement; empty-URL/stale-router settlement; stale-router and view-only URL projection; consecutive filter updates and stale-page normalization; auth-gated persistence, identity-switch provenance, and server-rendered hydration restore |
 | `src/components/forms/DividendForm.test.tsx` | Dividend fields, validation, computed amounts, and loading state |
@@ -377,8 +378,8 @@ Recorded validation metrics: [`state.yaml` metrics](./state.yaml).
 | `useAccounts`/`useCategories` not generic | Meaningful differences between them. Generic adds more code than it saves. |
 | `redirect()` replaced with `router.replace()` | Next.js 16 throws mid-render, corrupts hooks ordering. |
 | Payout doesn't create ledger transactions | Calculator only. Phase 1 scope. User confirmed. |
-| Sync queue discarded on user switch | Intentional: unsynced offline changes from another user should not pollute new user's queue. |
-| `lastUserId` localStorage marker | Prevents full cache wipe + re-pull on same-user page refresh. |
+| Cache retained on sign-out and user switch | Unsynced offline work belongs to the owner; wiping it lost data. A mismatched or unmarked cache fails closed instead of being reassigned. |
+| `lastUserId` localStorage marker | Names the cache owner so the verdict can be bound to a specific identity, not a boolean. |
 | Monotonic counter for sync ordering | `Date.now()` collides during bulk import. `++syncSeqCounter` guarantees FIFO. |
 | Managed writes require an RPC | Direct PostgREST writes cannot prove the current generation |
 | Full paginated reconciliation on generation change | Supabase caps selects at 1000 rows; partial replacement loses rows |

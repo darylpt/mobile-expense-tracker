@@ -1,15 +1,24 @@
 # Spec: User Data Isolation (per-user scoping)
 
-**Status:** ✅ Done
+**Status:** 🟡 Identity-scope fencing landed; outbox, pull and deletion safety pending.
 
-> **Implementation notes (Jul 2026):** A `lastUserId` localStorage marker prevents
-> unnecessary cache wiping on same-user page refresh — only clears local data when
-> the signed-in user actually changes. Sync queue entries from the old user are
-> discarded on user switch (intentional — unsynced changes from another user should
-> not pollute the new user's queue). The sync layer stamps `userId` on every
-> outgoing payload. `pullStore()` now scopes queries with `.eq('user_id', userId)`.
-> Migration 003 (`sort_order` column) was added later to fix a 400 error caused by
-> the sync code sending `sort_order` to tables that didn't have the column yet.
+> **Current behavior:** `lastUserId` is an ownership check, not a cache-wipe
+> trigger. Sign-out, unauthenticated state, a different account, or local data
+> with unknown ownership in any local store hides records and retains them on
+> disk. Every read and write is admitted only under a verified, current scope;
+> a stale continuation cannot republish rows or errors into a later identity.
+> The outbox and pull path still use the pre-Phase-3A protocol, so entries are
+> pushed under whichever account currently holds the verified scope, and retry
+> exhaustion still drops queued work. See [§7](#7-known-gaps) for the gaps.
+>
+> **Ownership check:** an unmarked cache counts as empty only when every local
+> store is empty. A cache with no marker that still holds records is retained,
+> hidden, and left unassigned rather than claimed by the next sign-in.
+>
+> **Sync-layer notes (Jul 2026):** `pullStore()` scopes queries with
+> `.eq('user_id', userId)` and every outgoing payload is stamped with `userId`.
+> Migration 003 (`sort_order`) fixed a 400 caused by sending a column a table
+> did not have yet.
 
 ---
 
@@ -106,7 +115,7 @@ Used by the auth lifecycle in TransactionContext (step 4). Separate from the mig
 
 ### Sync queue note
 
-`STORES.SYNC_QUEUE` is included in the clear. Any unsynced local changes from the previous user are discarded on sign-out — they were never pushed to Supabase and belong to a different user. This is intentional: offline-created records that haven't synced yet are lost on user switch.
+`clearAllLocalData()` still exists and clears every store, but the auth lifecycle no longer calls it on sign-out, account switch, or unauthenticated startup. Queued work is retained with the cache and pushed only while a verified scope owns it; nothing in the current client moves it to another account.
 
 ---
 
@@ -137,42 +146,47 @@ For saved transaction filter isolation, see the [filter persistence contract](tr
 ## 4. Auth lifecycle (`TransactionContext.tsx`)
 
 ### Current behavior
-On mount: seeds data (removed), runs `refreshTransactions()`, triggers `backgroundSync()` if online. Listens for `online` events.
-
-### New behavior
-Consume `useAuth()` and track auth transitions:
+The provider binds a verdict to the exact rendered identity: `verifiedAuth`
+holds the `{state, userId, generation}` that passed every ownership check, and
+`isScopeVerified` is true only while the current render matches it. A new
+identity therefore renders unverified immediately, before the startup effect
+runs. Every IndexedDB read captures the rendered identity plus the shared
+`auth-scope` token; only the newest read for the current scope may publish rows,
+errors, or settle loading.
 
 ```typescript
-// localStorage key for tracking which user's data is cached
+// localStorage key identifying the cached account
 const LAST_USER_KEY = 'lastUserId';
 
-// Current state machine:
-// disabled (no Supabase) → no change, app works offline as before
-// authenticated → check marker against user.id
-// unauthenticated → if marker exists, clear and remove marker
+// disabled (no Supabase) → local-only owner; verification is granted to the
+//   rendered identity of this run
+// loading → no verdict, no rows
+// unauthenticated → hidden, retained; verdict cleared
+// authenticated → marker/user/emptiness checks decide, then verify
 ```
 
 **On mount (authenticated):**
-1. Read `lastUserId` from localStorage
-2. If marker exists and `marker !== user.id` → `clearAllLocalData()` (user switch detected)
-3. Set `lastUserId = user.id`
-4. Run `backgroundSync()` then `refreshTransactions()`
+1. Read `lastUserId`
+2. Marker names another account → fail closed: no rows, no marker write, no sync
+3. No marker → `hasAnyLocalData()` decides: any record in any store fails
+   closed; a truly empty database is claimed by writing the marker
+4. Marker matches → verify, publish the local cache, settle loading, then run
+   `backgroundSync()` and refresh from IndexedDB if the identity is still current
 
-**On SIGNED_OUT event (via onAuthStateChange):**
-1. `clearAllLocalData()`
-2. `localStorage.removeItem(LAST_USER_KEY)`
-3. `refreshTransactions()` → renders empty state
+**On sign-out / unauthenticated:**
+1. Hide transactions, accounts, and categories; clear the verdict
+2. Keep IndexedDB, the outbox, and the `lastUserId` marker on disk
+3. Render nothing private (`AuthGuard` handles routing)
 
-**On mount (unauthenticated):**
-1. Read `lastUserId` from localStorage
-2. If marker exists → `clearAllLocalData()`, remove marker, `refreshTransactions()`
-3. This handles the case where a user signed out, then refreshed the page
+**On sign-in as a different account while a cache exists:** the marker mismatch
+keeps the scope unverified, so the new account sees no rows and cannot export,
+mutate, or sync the retained cache. The owner must sign back in as the account
+that owns the cache; the app never reassigns it.
 
-**On mount (disabled):**
-1. No auth — app works as today. No cache clearing.
-
-### Why localStorage marker?
-Without it, refreshing the page as the same user would trigger a clear + full re-pull on every reload. The marker persists across refreshes and only differs when a different user signs in.
+### Why the marker?
+It names the account that owns the cache. Case-folding ownership into a boolean
+would let a later identity inherit a previous session's verdict, so the verdict
+is bound to the rendered identity instead.
 
 ---
 
@@ -180,14 +194,15 @@ Without it, refreshing the page as the same user would trigger a clear + full re
 
 | Case | Behavior |
 |---|---|
-| **Same user refreshes page** | Marker matches → no wipe. `backgroundSync()` pulls latest data. |
-| **User A signs out, User B signs in** | Auth fires SIGNED_OUT → wipe + remove marker. Then auth fires authenticated (B) → marker empty / differs → wipe (already clean), set marker to B, pull B's data. |
-| **Offline + cached session** | `getUser()` returns cached user. Normal flow. |
-| **Offline + no session** | `getUser()` errors → bail. User sees login page. |
-| **Supabase not configured** | `state === 'disabled'` — no auth lifecycle runs. App works offline. |
-| **Unsaved changes on sign-out** | Sync queue entries for the old user are discarded (cleared with everything else). Acceptable for 2-user household — unsaved changes are lost on user switch. |
-| **First sign-in (fresh install)** | No marker, no local data. `backgroundSync()` pulls their (empty) Supabase data. User starts clean. |
-| **First sign-in after migration (existing install)** | DB v8 migration clears old shared cache. No marker. `backgroundSync()` pulls their (empty) Supabase data (TRUNCATE wiped everything). User starts clean. |
+| **Same user refreshes page** | Marker matches → verified immediately; `backgroundSync()` pulls latest data. |
+| **User A signs out, User B signs in** | A's cache, outbox, and marker stay on disk, hidden from B. B's scope stays unverified, so no rows render and no sync or export runs. A signing back in restores A's view. |
+| **Offline + cached session** | `getUser()` returns the cached user; ownership checks still run against IndexedDB. |
+| **Offline + no session** | `getUser()` errors → the app renders nothing private and routes to `/login`. |
+| **Supabase not configured** | `state === 'disabled'` — local-only owner; reads and writes are admitted for the rendered identity without a marker. |
+| **Unsaved changes on sign-out** | Queued entries and their payloads stay in `syncQueue`; they are pushed only under the verified owner's scope. |
+| **Unmarked cache with records** | Fails closed: retained, hidden, not exported, never reassigned to the signed-in account. |
+| **First sign-in (fresh install)** | No marker and every store empty → the cache is claimed, then `backgroundSync()` pulls that account's data. |
+| **First sign-in after migration (existing install)** | DB v8 migration clears the pre-isolation shared cache; ownership is decided as above. |
 
 ---
 
@@ -195,9 +210,10 @@ Without it, refreshing the page as the same user would trigger a clear + full re
 
 - All existing IDB CRUD functions (`addAccount`, `getAllTransactions`, etc.) — they read/write local cache, no user awareness needed
 - `src/types/index.d.ts` — interfaces stay the same (no `userId` field in local types)
-- UI components — no changes; data comes from the same hooks/context
+- UI routing and screens — unchanged; the same hooks and context feed them
 - Offline-first — IDB is the source of truth for UI; sync is background
 - `src/context/AuthContext.tsx` — clears the saved transaction filter mirror at identity boundaries
+- The sync protocol itself — push, pull, retry counting, and remote tombstones behave as before; see §7
 
 ---
 
@@ -207,3 +223,40 @@ Without it, refreshing the page as the same user would trigger a clear + full re
 2. Deploy updated app code (DB v8 migration clears local caches)
 3. Users sign in → each sees their own empty data
 4. Import/enter data per user
+
+---
+
+## 8. Known gaps
+
+These are still the pre-Phase-3A protocol on `main`, and the identity-scope work
+does not change them:
+
+- **Retry exhaustion drops work.** `src/lib/sync.ts` deletes a queue entry once
+  `retryCount >= 5`; the payload and error history are lost.
+- **Pull can overwrite pending local edits.** `pullStore()` merges remote rows
+  without consulting the outbox, so a newer remote row can replace an unpushed
+  local change.
+- **Remote tombstones remove local rows without an archive.** Nothing keeps a
+  recoverable snapshot of a record deleted because the cloud row was deleted.
+- **Acknowledgement is optimistic.** A write is treated as applied without a
+  read-back comparison against the intended payload.
+- **The optimistic local delete removes the row before the server agrees**, and
+  no per-record baseline is stored, so a later push cannot detect a remote edit.
+- **No owner stamp on queued work.** Entries are pushed under whichever account
+  currently holds the verified scope; a second account never inherits them only
+  because its scope stays unverified.
+- **No server-managed revisions, atomic receipts, or older-client protection.**
+  RLS scopes rows; it does not make concurrent writes safe.
+
+Same-user sign-out → sign-in recovery has not been exercised in a browser, and
+no authenticated two-client run has been performed against this integration.
+
+## 9. Regression coverage
+
+- `src/lib/auth-scope.test.ts` — generation publication, exact scope capture, invalidation
+- `src/context/AuthContext.test.tsx` — identity generations, filter-mirror clearing, sign-out recovery
+- `src/context/TransactionContext.test.tsx` — startup barrier, stale read/error/loading publication fences, sync lifecycle
+- `src/hooks/useAccounts.scope.test.tsx`, `useCategories.scope.test.tsx`, `useStocks.scope.test.tsx` — render-time bucket reset, cached-callback inertness, admission-time write gates
+- `src/app/available-balance/page.scope.test.tsx`, `page.provider-scope.test.tsx` — balance and denomination reads/writes under verified, revoked, and transitioning scopes
+- `src/app/stocks/page.scope.test.tsx` and `src/lib/stock-prices.test.ts` — the live scope predicate reaching every price write
+- `src/components/auth/AuthGuard.test.tsx` — public login paths, failure-closed rendering, PIN precedence

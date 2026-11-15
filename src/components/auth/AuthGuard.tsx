@@ -6,12 +6,13 @@
 // 2. Loading spinner
 // 3. App lock → PinScreen overlay
 // 4. Unauthenticated → redirect to /login, rendering no private content
-// 5. Authenticated on a public login path → redirect to /
+// 5. Authenticated on /login → redirect to /
+// 6. Authenticated app subtree keyed by auth generation (remount on transition)
 // ============================================================
 
 'use client';
 
-import { useContext, useEffect, type ReactNode } from 'react';
+import { Fragment, useContext, useEffect, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { AuthContext } from '@/context/AuthContext';
 import { PinScreen } from '@/components/auth/PinScreen';
@@ -26,7 +27,7 @@ function isPublicLoginRoute(pathname: string): boolean {
 export function AuthGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { state, isLocked } = useContext(AuthContext);
+  const { state, isLocked, authGeneration = 0 } = useContext(AuthContext);
   const onPublicLoginRoute = isPublicLoginRoute(pathname);
 
   // Navigate on state change via useEffect, not inline redirect() which
@@ -54,5 +55,9 @@ export function AuthGuard({ children }: { children: ReactNode }) {
     // may render. Private children must never flash for a signed-out identity.
     return onPublicLoginRoute ? <>{children}</> : null;
   }
-  return <>{children}</>;
+
+  // A new identity generation (sign-out → sign-in, including the same user)
+  // remounts the app subtree so previous-generation component state cannot
+  // survive the transition.
+  return <Fragment key={authGeneration}>{children}</Fragment>;
 }
