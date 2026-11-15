@@ -33,6 +33,7 @@ const RECORDS: Record<string, Record<string, unknown>> = {
   [STORES.DIVIDENDS]: { id: 'div-1', stockId: 'stock-1', date: '2026-01-01', qty: 1, rate: 1, fee: 0, amount: 1, createdAt: 1, updatedAt: 1 },
   [STORES.SYNC_QUEUE]: { id: 'q-1', storeName: STORES.ACCOUNTS, recordId: 'acct-1', operation: 'create', payload: {}, timestamp: 1, retryCount: 0 },
   [STORES.SYNC_DELETIONS]: { id: 'del-1', storeName: STORES.ACCOUNTS, recordId: 'gone', payload: {}, deletedAt: 1, reason: 'remote-tombstone', remoteDeletedAt: null },
+  [STORES.SYNC_META]: { id: 'meta-1', storeName: STORES.ACCOUNTS, recordId: 'acct-1', ownerId: 'user-1', baselineRevision: 'rev-1', updatedAt: 1 },
   [STORES.DATASET_MARKERS]: { userId: 'user-1', generation: 1, snapshotId: 's', status: 'applied', snapshot: null, remoteGeneration: 1, attempts: 0, lastError: null, updatedAt: 1 },
 };
 

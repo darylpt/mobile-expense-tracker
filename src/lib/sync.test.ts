@@ -85,6 +85,7 @@ jest.mock('./supabase', () => {
   function createQuery(table: string): MockQuery {
     let updatePayload: Record<string, unknown> | null = null;
     let idFilter: unknown = null;
+    const filters: Record<string, unknown> = {};
     let rangeFrom = 0;
     let rangeTo = Number.MAX_SAFE_INTEGER;
 
@@ -95,6 +96,7 @@ jest.mock('./supabase', () => {
       },
       eq(column: string, value: unknown) {
         if (column === 'id') idFilter = value;
+        filters[column] = value;
         return query;
       },
       order(_column: string) {
@@ -117,6 +119,12 @@ jest.mock('./supabase', () => {
       },
       upsert(payload: Record<string, unknown>, options: unknown) {
         state.upserts.push({ table, payload, options });
+        // Reflect the write so the client's read-back can observe it.
+        const row = { ...(payload as Record<string, unknown>) };
+        state.pulls[table] = [
+          ...(state.pulls[table] ?? []).filter((item) => item.id !== row.id),
+          row,
+        ];
         return Promise.resolve({ error: null });
       },
       then<TResult1 = unknown, TResult2 = never>(
@@ -128,7 +136,20 @@ jest.mock('./supabase', () => {
         }
         const finish = async () => {
           if (state.onSelect) await state.onSelect(table);
-          const rows = state.pulls[table] ?? [];
+          let rows = [...(state.pulls[table] ?? [])];
+          // Apply a filter only when the rows define that column: older
+          // fixtures model rows without user_id/updated_at, and the client
+          // filters on those columns.
+          for (const [column, value] of Object.entries(filters)) {
+            if (!rows.some((row) => row[column] !== undefined)) continue;
+            rows = rows.filter((row) => row[column] === value);
+          }
+          if (updatePayload) {
+            rows = rows.map((row) => ({ ...row, ...updatePayload }));
+            state.pulls[table] = [...(state.pulls[table] ?? [])].map((row) =>
+              row.id === idFilter ? { ...row, ...updatePayload } : row,
+            );
+          }
           return { data: rows.slice(rangeFrom, rangeTo + 1), error: null };
         };
         return finish().then(onfulfilled, onrejected);

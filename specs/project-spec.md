@@ -46,9 +46,11 @@ A **local-first personal finance PWA** that replaces a Google Sheets budget trac
 | `stockTransactions` | UUID | Buy/sell transaction log |
 | `dividends` | UUID | Dividend records (cash and stock) |
 | `syncQueue` | auto-increment | Pending outbound sync entries (FIFO by monotonic counter) |
+| `syncDeletions` | id | Recoverable snapshots of rows a pull purged (tombstone or stale generation) |
+| `syncMeta` | `storeName:recordId` | Last observed server revision per record, used as the compare-and-set token |
 | `datasetMarkers` | userId | Durable CSV replacement snapshot/state (`local` when cloud is disabled) |
 
-**DB version:** 14 (current). Migrations v2→v14 handled in `idb.ts` upgrade callback.
+**DB version:** 16 (current). Migrations v2→v16 handled in `idb.ts` upgrade callback.
 
 ### 3.2 Transaction Record
 
@@ -301,6 +303,7 @@ Date,Amount,Description,Type,Category,From Account,To Account
 | `src/lib/dataset-replacement.test.ts` | Account identity, ID retention, generation sequencing |
 | `src/lib/orphans.test.ts` | Missing-account grouping, safe labels, reference-only relinking |
 | `src/lib/sync.test.ts` | Replacement retry/idempotency, auth-rejection lock recovery, user-tagged completion events, stale cache-owner pull rejection, managed-write RPC, generation gate, and fenced-push conflict retention |
+| `src/lib/outbox-safety.test.ts` | Owner stamping and adoption, foreign-owner blocking, pause/retry, read-back acknowledgement, baseline compare-and-set, tombstone archive, queued-row pull protection, and nondestructive resync |
 | `src/lib/csv-import.test.ts` | CSV parsing, date detection, amount parsing, carry-over logic |
 | `src/lib/reconciliation.test.ts` | Expected balance computation |
 | `src/hooks/useTransactions.test.ts` | Transaction add/delete through the hook |
