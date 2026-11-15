@@ -200,6 +200,9 @@ export async function processSyncQueue(generation: number): Promise<void> {
   let managedFailure: unknown = null;
 
   for (const entry of allEntries) {
+    // Paused work waits for an explicit retry; it must not be attempted or
+    // dropped by an automatic cycle.
+    if (entry.state === 'paused') continue;
     try {
       const tableName = storeNameToTable(entry.storeName);
       const managed = isManagedStore(entry.storeName);
@@ -293,9 +296,17 @@ export async function processSyncQueue(generation: number): Promise<void> {
       }
       console.warn('[Sync] Failed to sync entry, retrying later:', entry.id, err);
       entry.retryCount++;
+      entry.lastError =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'object' && err !== null && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : String(err);
       if (entry.retryCount >= 5) {
-        console.warn('[Sync] Dropping queue entry after 5 retries:', entry.id);
-        drops.push(entry.id);
+        // Never delete work because it failed: pause it with its payload so the
+        // user can retry or export it.
+        console.warn('[Sync] Pausing queue entry after 5 failed attempts:', entry.id);
+        retries.push({ ...entry, state: 'paused' });
         try {
           const prev = parseInt(localStorage.getItem('sync_failed_count') ?? '0', 10);
           localStorage.setItem('sync_failed_count', String(prev + 1));
@@ -367,7 +378,12 @@ export async function pullStore(
   };
 
   const db = await getDB();
-  const tx = db.transaction(managed ? [storeName, STORES.DATASET_MARKERS, STORES.SYNC_QUEUE] : [storeName], 'readwrite');
+  const tx = db.transaction(
+    managed
+      ? [storeName, STORES.DATASET_MARKERS, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS]
+      : [storeName, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS],
+    'readwrite',
+  );
   if (managed) {
     const current = await tx.objectStore(STORES.DATASET_MARKERS).get(userId);
     if (!current || current.status !== 'applied' || current.generation !== generation) {
@@ -375,10 +391,13 @@ export async function pullStore(
       throw new StaleSyncCycleError('Local dataset changed during pull.');
     }
   }
-  const pendingIds = new Set(managed
-    ? (await tx.objectStore(STORES.SYNC_QUEUE).getAll())
-      .filter((entry) => entry.storeName === storeName).map((entry) => entry.recordId)
-    : []);
+  // Every store's pending work is preserved, managed or not: a queued row is
+  // newer than whatever the pull would write over it.
+  const pendingIds = new Set(
+    (await tx.objectStore(STORES.SYNC_QUEUE).getAll())
+      .filter((entry) => entry.storeName === storeName)
+      .map((entry) => entry.recordId),
+  );
   const localStore = tx.objectStore(storeName);
   const localRecords = await localStore.getAll();
 
@@ -424,8 +443,25 @@ export async function pullStore(
     return;
   }
 
-  // Apply: delete purged, write merged
+  // Apply: archive purged rows, delete them, write merged
+  const deletionStore = tx.objectStore(STORES.SYNC_DELETIONS);
+  const localById = new Map(localRecords.map((record) => [String(record.id), record]));
   for (const id of toDeleteIds) {
+    const record = localById.get(id);
+    const remote = remoteRecords.find((row) => row.id === id);
+    if (record) {
+      // The local copy is the only remaining evidence of this record. Keep a
+      // recoverable snapshot rather than deleting it irreversibly.
+      await deletionStore.put({
+        id: `remote-delete:${storeName}:${id}:${Date.now()}`,
+        storeName,
+        recordId: id,
+        payload: record,
+        deletedAt: Date.now(),
+        reason: remote?.deleted_at ? 'remote-tombstone' : 'stale-dataset-generation',
+        remoteDeletedAt: (remote?.deleted_at as string) ?? null,
+      });
+    }
     await localStore.delete(id);
   }
   for (const record of toWrite) {
@@ -1105,13 +1141,33 @@ export function preparePayloadForRemote(
   return converted;
 }
 
-/** Number of sync entries that were dropped after max retries. */
+/** Number of sync entries paused after repeated failures (never dropped). */
 export function getFailedSyncCount(): number {
   try {
     return parseInt(localStorage.getItem('sync_failed_count') ?? '0', 10);
   } catch {
     return 0;
   }
+}
+
+/**
+ * Re-arm paused entries for the next cycle. Payloads are untouched, so this
+ * cannot lose work; it only clears the failure counter.
+ */
+export async function retryPausedEntries(): Promise<number> {
+  const db = await getDB();
+  const tx = db.transaction(STORES.SYNC_QUEUE, 'readwrite');
+  const queue = tx.objectStore(STORES.SYNC_QUEUE);
+  const all = await queue.getAll();
+  let resumed = 0;
+  for (const entry of all) {
+    if (entry.state !== 'paused') continue;
+    await queue.put({ ...entry, state: 'pending', retryCount: 0 });
+    resumed += 1;
+  }
+  await tx.done;
+  if (resumed > 0) clearFailedSyncCount();
+  return resumed;
 }
 
 /** Clear the failed sync counter (call after retry). */

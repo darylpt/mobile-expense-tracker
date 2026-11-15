@@ -43,6 +43,25 @@ export interface SyncQueueEntry {
   retryCount: number;
   /** Applied dataset generation when the entry was enqueued. */
   datasetGeneration?: number;
+  /**
+   * `paused` means automatic retries stopped after repeated failures. The entry
+   * and its payload stay on disk until the user retries it; it is never deleted
+   * for failing.
+   */
+  state?: 'pending' | 'paused';
+  /** Last failure message, kept for the paused/retry UI and export. */
+  lastError?: string | null;
+}
+
+/** Durable snapshot of a record removed because the cloud row was deleted. */
+export interface SyncDeletionSnapshot {
+  id: string;
+  storeName: string;
+  recordId: string;
+  payload: unknown;
+  deletedAt: number;
+  reason: 'remote-tombstone' | 'stale-dataset-generation' | 'local-delete';
+  remoteDeletedAt: string | null;
 }
 
 // ============================================================
@@ -105,6 +124,13 @@ export interface ExpenseTrackerDB {
     value: SyncQueueEntry;
     indexes: {
       byTimestamp: number;
+    };
+  };
+  [STORES.SYNC_DELETIONS]: {
+    key: string;
+    value: SyncDeletionSnapshot;
+    indexes: {
+      storeName: string;
     };
   };
   [STORES.DATASET_MARKERS]: {
@@ -211,6 +237,12 @@ async function openHydratedDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
       if (!db.objectStoreNames.contains(STORES.SYNC_QUEUE)) {
         const sqStore = db.createObjectStore(STORES.SYNC_QUEUE, { keyPath: 'id' });
         sqStore.createIndex('byTimestamp', 'timestamp', { unique: false });
+      }
+
+      // ── New store added in v15 (recoverable deletion archive) ──
+      if (!db.objectStoreNames.contains(STORES.SYNC_DELETIONS)) {
+        const delStore = db.createObjectStore(STORES.SYNC_DELETIONS, { keyPath: 'id' });
+        delStore.createIndex('storeName', 'storeName', { unique: false });
       }
 
       // ── New store added in v14 (durable dataset replacement marker) ──

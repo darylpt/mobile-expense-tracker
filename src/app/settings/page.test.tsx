@@ -22,15 +22,23 @@ jest.mock('@/hooks/useCategories', () => ({
 jest.mock('@/hooks/useStocks', () => ({
   useStocks: () => ({ stocks: mockRecords, isLoading: false }),
 }));
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn() }) }));
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/settings',
+}));
 jest.mock('@/components/layout/Header', () => ({ Header: () => null }));
 jest.mock('@/components/stocks/ManageTickers', () => ({ ManageTickers: () => null }));
 jest.mock('@/lib/idb', () => ({
   getDatasetReplacementMarker: async () => mockMarker,
   getOrphanAccountGroups: async () => [],
   getAutoBackup: () => null,
+  getSyncQueueCount: async () => 0,
 }));
-jest.mock('@/lib/sync', () => ({ backgroundSync: jest.fn(), resolveReplacementConflict: jest.fn() }));
+jest.mock('@/lib/sync', () => ({
+  backgroundSync: jest.fn(),
+  resolveReplacementConflict: jest.fn(),
+  retryPausedEntries: jest.fn(async () => 2),
+}));
 
 beforeEach(() => {
   window.history.replaceState(null, '', '/settings');
@@ -90,3 +98,18 @@ it.each(['Data Tools', 'Import / Export Data'])(
     await waitFor(() => expect(panel.queryByRole('status')).toBeNull());
   }
 );
+
+it('re-arms paused uploads from the cloud sync controls', async () => {
+  const { retryPausedEntries, backgroundSync } = jest.requireMock('@/lib/sync') as {
+    retryPausedEntries: jest.Mock;
+    backgroundSync: jest.Mock;
+  };
+
+  render(<SettingsPage />);
+  fireEvent.click(screen.getAllByRole('button', { name: /Preferences/ })[0]);
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry paused uploads' }));
+
+  await waitFor(() => expect(retryPausedEntries).toHaveBeenCalledTimes(1));
+  await screen.findByText('Paused work synced.');
+  expect(backgroundSync).toHaveBeenCalled();
+});
