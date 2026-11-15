@@ -213,8 +213,8 @@ These are current constraints, not guarantees:
 - Authenticated startup verifies cache ownership, publishes the local IndexedDB snapshot, and settles initial loading before starting online background sync. After the attempt settles (including `false` or rejection), it refreshes from IndexedDB only if the identity is still current; online/foreground lifecycle events cannot bypass the initial-read barrier. Offline and disabled startup remain local-only.
 - Within one provider and auth generation, only the newest authorized IndexedDB read may publish rows, errors, or loading completion. A same-user `User` object replacement does not restart initialization.
 - These are client-side UI guards; they do not provide server-managed revisions, atomic operation receipts, exactly-once effects, or cross-tab request ordering.
-- `AuthGuard` renders no private children while unauthenticated and remounts the authenticated subtree when the generation changes.
-- Route guard uses `useRouter().replace()` in `useEffect` (not `redirect()` mid-render)
+- `AuthGuard` recognizes only the exact `/login` and `/login/` public paths; all other paths render no private children while unauthenticated. The authenticated subtree is keyed by generation.
+- Route decisions use `useRouter().replace()` in `useEffect` (not `redirect()` mid-render); the same exact route predicate controls the unauthenticated render gate and both redirects.
 - **App lock:** optional local PIN-based privacy lock (PBKDF2-hashed, stored in localStorage). When enabled + authenticated, a full-screen PIN overlay blocks app content until unlocked. Settings → App Lock for enable/disable/change.
 
 ### UX Flow
@@ -240,7 +240,7 @@ Invite-only model — no sign-up form. Users invited via Supabase dashboard.
 
 | Route | Purpose | Key Features |
 |---|---|---|
-| `/login` | Sign-in (Google OAuth + magic link) | Google primary, magic link fallback, invite-only, disabled when Supabase not configured |
+| `/login`, `/login/` | Sign-in (Google OAuth + magic link) | Google primary, magic link fallback, invite-only, disabled when Supabase not configured; both exact path spellings are public to unauthenticated users |
 | `/` | Summary / Dashboard | Month nav, 4 metric cards, per-account summary (starting balance, inflow, outflow, ending balance, TOTAL footer) at every viewport, Income/Expenses breakdowns with budget targets, Category/Account breakdown charts. Mobile: the accounts table stays visible and scrolls horizontally inside its card, grouped CategoryBreakdown with progress bars sits below it, collapsed Quick Add whose closed panel is inert |
 | `/transactions` | Transaction List | URL search-param filtering (type, month, account, category, text), date grouping toggle, pagination (50/page), edit modal, inline delete. Query persistence is owned by the private `useTransactionFilterState` hook and follows the [transaction filter contract](transaction-filters.md). Mobile: card layout. Desktop: table layout |
 | `/available-balance` | Cash Reconciliation | Per-account expected balance to user-selected date. **Current** field computable from sub-split amounts (toggle via layers icon). Cash: denomination breakdown grid (₱1000→₱1). Difference column. Read-only |
@@ -350,7 +350,7 @@ financial stores and three safety stores are optional.
 | `src/lib/auth-scope.test.ts` | Identity generations, exact scope tokens, and abort-on-invalidation registration |
 | `src/lib/sync.test.ts` / `src/lib/phase3a-sync.test.ts` | Outbox preservation, CAS readback, empty-pull quarantine, unchanged acknowledgment after restore or queue mutation, and auth-generation fencing for in-flight push and pull |
 | `src/context/TransactionContext.test.tsx` / `TransactionContext.phase3a.test.tsx` | Cache ownership, sign-out hiding, and stale read/error/loading/refresh publication fences |
-| `src/components/auth/AuthGuard.test.tsx` | Fail-closed unauthenticated rendering, PIN gate order, and generation-keyed subtree remount |
+| `src/components/auth/AuthGuard.test.tsx` | Fail-closed unauthenticated rendering for both login path spellings and protected routes, PIN gate order, and generation-keyed subtree remount |
 | `src/lib/transaction-filters.test.ts` | Persistable filter allowlist and query canonicalization |
 | `src/components/summary/TransactionList.test.tsx` | Add dialog toggle render isolation; StrictMode restore/settlement; empty-URL/stale-router settlement; stale-router and view-only URL projection; consecutive filter updates and stale-page normalization; auth-gated persistence and identity-switch provenance |
 | `src/components/forms/DividendForm.test.tsx` | Dividend fields, validation, computed amounts, and loading state |
@@ -480,6 +480,7 @@ Portfolio dividend totals retain the expanded `qty × rate − fee` calculation 
 - Bare ticker, no `.PS` suffix
 - Batch fetch from `/stocks.json`, matched against user's portfolio
 - Fetch on button press only (no polling)
+- Manual price override for funds (type = `'fund'`)
 - `refreshAllPrices(isCurrent)` requires the Stocks page's live scope
   predicate. The service rechecks it before starting, after the local read,
   after the network and JSON awaits, and immediately before each stock write;
@@ -491,7 +492,6 @@ Portfolio dividend totals retain the expanded `qty × rate − fee` calculation 
   predicate. A write already admitted before invalidation may still settle;
   this is admission-time protection, not rollback or server concurrency
   control. See [User Data Isolation §4](./user-data-isolation.md#4-auth-lifecycle-transactioncontexttsx).
-- Manual price override for funds (type = `'fund'`)
 
 ### 13.3 Screens
 

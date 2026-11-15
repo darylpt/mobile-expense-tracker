@@ -149,10 +149,10 @@ SHA-256 via `crypto.subtle`. Constant-time comparison prevents timing attacks.
 
 ### Sign-out behavior
 
-- Clears local IndexedDB data (`clearAllLocalData()`)
-- Removes `lastUserId` from localStorage
-- Calls `supabase.auth.signOut()`
-- Resets `isLocked` to `false`
+- After successful sign-out, local IndexedDB data, queued operations, and deletion snapshots are retained and hidden while unauthenticated.
+- Removes persisted transaction filters from localStorage.
+- Calls `supabase.auth.signOut()` and releases the local lock.
+- Sign-out does not guarantee pending work reached Supabase.
 
 ---
 
@@ -184,14 +184,18 @@ SHA-256 via `crypto.subtle`. Constant-time comparison prevents timing attacks.
 
 ### Logic
 
-```
-if (authState === 'loading')  → <FullPageSpinner />           // checking
-if (isLocked)                 → <PinScreen />                  // privacy lock (local, works offline too)
-if (authState === 'disabled') → <>{children}</>               // no auth (lock enforced above)
-if (unauthenticated && !/login) → navigate /login
-if (authenticated && /login && !locked) → navigate /
+if (authState === 'loading') → <FullPageSpinner /> // checking
+if (isLocked) → <PinScreen /> // privacy lock takes precedence, including on /login
+if (authState === 'disabled') → <>{children}</> // no auth (lock enforced above)
+const isLoginRoute = pathname === '/login' || pathname === '/login/'
+if (unauthenticated && !isLoginRoute) → replace('/login') and render no children
+if (unauthenticated && isLoginRoute) → render the public login page
+if (authenticated && isLoginRoute && !locked) → replace('/')
 else → <>{children}</>
-```
+
+With `trailingSlash: true`, Next.js can report `/login/`; only the exact
+`/login` and `/login/` paths are public. Login-like prefixes and descendants
+remain protected.
 
 Lock state initializes eagerly when Supabase is absent so a configured PIN
 still gates the app offline. Authenticated users get lock state resolved
@@ -199,8 +203,8 @@ atomically with session to prevent a fail-open flash. User identity changes
 re-engage the lock so a different user cannot inherit an unlocked state.
 
 **Important:** Navigation uses `router.replace()` inside a `useEffect`, not
-`redirect()` mid-render. The login page remains accessible when locked (user
-can sign out from the PIN screen).
+`redirect()` mid-render. The PIN gate takes precedence on locked routes; the
+PIN screen provides the "Sign out instead" action.
 
 ---
 

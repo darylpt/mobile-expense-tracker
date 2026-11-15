@@ -188,9 +188,10 @@ For saved transaction filter isolation, see the [filter persistence contract](tr
   its own asynchronous stock + outbox transaction, so the guarantee is
   admission-time only. There is no transaction-time cancellation or
   server-side concurrency guarantee.
-- `AuthGuard` renders no private children while unauthenticated (the redirect
-  effect runs first) and keys the authenticated subtree by generation, forcing a
-  remount on every identity transition.
+- Only the exact public login routes `/login` and `/login/` render children
+  while unauthenticated. Other paths render no private children and replace to
+  `/login`; the authenticated subtree is keyed by generation, forcing a remount
+  on every identity transition.
 - Legacy queue entries with unknown ownership are preserved as quarantined work.
 
 The app has no automatic local-data transfer between users. The owner must sign
@@ -274,9 +275,34 @@ Focused tests assert this client behavior:
   navigation away, response release, and return leaves the stock and outbox
   unchanged.
 
-These tests describe local client behavior only. They do not add server-managed
-revisions, atomic operation receipts, or a guarantee that older clients respect
-the same ownership check. Phase 3B server protocol work remains outstanding.
+### Public anonymous A/B observation (2026-11-15)
+
+One manual check ran against the dedicated non-production Supabase project with
+two anonymous users (A and B) signed in through separate isolated browser
+contexts of the static export. It created exactly one synthetic zero-balance
+account, named for the run, and no other records.
+
+- The app accepted A as the local cache owner, and the created row was readable
+  by A with `user_id = A`.
+- B's UI showed no A account, B's direct Supabase query returned no A row, and
+  A's row was still present after B's check.
+
+Limits of this observation:
+
+- Coverage is one account row; no transaction, cash, stock, budget-target, or
+  balance-snapshot record was exercised across users.
+- Same-user sign-out → sign-in recovery was not exercised.
+- Fixture cleanup was not confirmed. The app's delete control left the remote
+  row active after the sync wait, and the run's browser sessions ended before a
+  retry, so the synthetic row and both anonymous Auth users were removed by the
+  project owner outside the app. The repository does not verify the
+  `ON DELETE CASCADE` effect on that row.
+- Anonymous sign-ins were enabled only for this run.
+
+These tests and the observation above describe local client behavior plus one
+sampled public check. They do not add server-managed revisions, atomic
+operation receipts, or a guarantee that older clients respect the same
+ownership check. Phase 3B server protocol work remains outstanding.
 
 ---
 
