@@ -19,10 +19,10 @@ One-click export of every store as a single portable JSON file.
 
 ### Stores included
 
-Every IndexedDB store the app owns (13 at DB v15): the ten financial stores —
+Every IndexedDB store the app owns (14 at DB v16): the ten financial stores —
 `transactions`, `accounts`, `categories`, `cashDenominations`, `payouts`,
 `budgetTargets`, `balanceSnapshots`, `stocks`, `stockTransactions`, `dividends`
-— plus the safety stores `syncQueue`, `syncDeletions`, and `datasetMarkers`.
+— plus the safety stores `syncQueue`, `syncDeletions`, `syncMeta`, and `datasetMarkers`.
 
 ### File format
 
@@ -43,6 +43,7 @@ Every IndexedDB store the app owns (13 at DB v15): the ten financial stores —
     "dividends": [ ... ],
     "syncQueue": [ ... ],
     "syncDeletions": [ ... ],
+    "syncMeta": [ ... ],
     "datasetMarkers": [ ... ]
   }
 }

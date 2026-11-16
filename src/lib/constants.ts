@@ -4,7 +4,7 @@
 
 /** IDB database configuration */
 export const DB_NAME = 'expense-tracker-db';
-export const DB_VERSION = 15;
+export const DB_VERSION = 16;
 
 /** localStorage key identifying which account's data is cached locally. */
 export const LAST_USER_STORAGE_KEY = 'lastUserId';
@@ -21,6 +21,8 @@ export const STORES = {
   SYNC_QUEUE: 'syncQueue',
   /** Recoverable snapshots of records removed by a pull or replacement. */
   SYNC_DELETIONS: 'syncDeletions',
+  /** Per-record server revision observed at the last successful sync. */
+  SYNC_META: 'syncMeta',
   STOCKS: 'stocks',
   STOCK_TRANSACTIONS: 'stockTransactions',
   DIVIDENDS: 'dividends',

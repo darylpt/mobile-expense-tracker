@@ -6,7 +6,7 @@
 
 import { openDB, type IDBPDatabase, type IDBPObjectStore } from 'idb';
 import type { Transaction, Account, Category, CashDenomination, Payout, BudgetTarget, Stock, StockTransaction, Dividend, BalanceSnapshot } from '@/types';
-import { DB_NAME, DB_VERSION, STORES } from './constants';
+import { DB_NAME, DB_VERSION, STORES, LAST_USER_STORAGE_KEY } from './constants';
 import { generateId } from './utils';
 import { parseCsv, type ParsedCsv } from './csv-import';
 import {
@@ -44,11 +44,17 @@ export interface SyncQueueEntry {
   /** Applied dataset generation when the entry was enqueued. */
   datasetGeneration?: number;
   /**
+   * Account that produced this mutation. `null`/absent means ownership is
+   * unproven: the entry is never replayed for a different account.
+   */
+  ownerId?: string | null;
+  /**
    * `paused` means automatic retries stopped after repeated failures. The entry
    * and its payload stay on disk until the user retries it; it is never deleted
-   * for failing.
+   * for failing. `blocked` means it must not be attempted under the current
+   * account (ownership mismatch or a server revision it cannot prove).
    */
-  state?: 'pending' | 'paused';
+  state?: 'pending' | 'paused' | 'blocked';
   /** Last failure message, kept for the paused/retry UI and export. */
   lastError?: string | null;
 }
@@ -62,6 +68,22 @@ export interface SyncDeletionSnapshot {
   deletedAt: number;
   reason: 'remote-tombstone' | 'stale-dataset-generation' | 'local-delete';
   remoteDeletedAt: string | null;
+}
+
+/**
+ * Server revision a record had at its last successful sync. Used as the
+ * compare-and-set token on the next write and to detect a remote change made by
+ * another client.
+ */
+export interface SyncMetaEntry {
+  /** `${storeName}:${recordId}` */
+  id: string;
+  storeName: string;
+  recordId: string;
+  ownerId: string | null;
+  /** Raw server `updated_at` (or immutable `created_at`) of that row. */
+  baselineRevision: string | null;
+  updatedAt: number;
 }
 
 // ============================================================
@@ -129,6 +151,13 @@ export interface ExpenseTrackerDB {
   [STORES.SYNC_DELETIONS]: {
     key: string;
     value: SyncDeletionSnapshot;
+    indexes: {
+      storeName: string;
+    };
+  };
+  [STORES.SYNC_META]: {
+    key: string;
+    value: SyncMetaEntry;
     indexes: {
       storeName: string;
     };
@@ -243,6 +272,12 @@ async function openHydratedDB(): Promise<IDBPDatabase<ExpenseTrackerDB>> {
       if (!db.objectStoreNames.contains(STORES.SYNC_DELETIONS)) {
         const delStore = db.createObjectStore(STORES.SYNC_DELETIONS, { keyPath: 'id' });
         delStore.createIndex('storeName', 'storeName', { unique: false });
+      }
+
+      // ── New store added in v16 (per-record server baseline) ──
+      if (!db.objectStoreNames.contains(STORES.SYNC_META)) {
+        const metaStore = db.createObjectStore(STORES.SYNC_META, { keyPath: 'id' });
+        metaStore.createIndex('storeName', 'storeName', { unique: false });
       }
 
       // ── New store added in v14 (durable dataset replacement marker) ──
@@ -559,8 +594,69 @@ export async function enqueueSyncEntry<T>(
     timestamp: seq,
     retryCount: 0,
     datasetGeneration: activeDatasetGeneration,
-  });
+    // Ownership is captured at write time. Without a marker the cache is
+    // local-only or unowned, and the entry is never replayed for a signed-in
+    // account until the cache is explicitly claimed.
+    ownerId: readOwnerMarker(),
+    state: 'pending',
+  } satisfies SyncQueueEntry);
   requestSync(); // fire-and-forget, debounced
+}
+
+/** Account that owns the local cache, or null when no marker is present. */
+function readOwnerMarker(): string | null {
+  try {
+    return localStorage.getItem(LAST_USER_STORAGE_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Claim work written before the cache had an owner. Only call this after the
+ * cache is verified for `userId`, and only for entries with no owner: entries
+ * stamped for another account are never reassigned.
+ */
+export async function adoptUnownedQueueEntries(userId: string): Promise<number> {
+  const db = await getDB();
+  const tx = db.transaction(STORES.SYNC_QUEUE, 'readwrite');
+  const queue = tx.objectStore(STORES.SYNC_QUEUE);
+  const all = await queue.getAll();
+  let adopted = 0;
+  for (const entry of all) {
+    if (entry.ownerId) continue;
+    await queue.put({ ...entry, ownerId: userId });
+    adopted += 1;
+  }
+  await tx.done;
+  return adopted;
+}
+
+/** Server revision observed for a record at its last successful sync. */
+export async function getSyncBaseline(
+  storeName: string,
+  recordId: string,
+): Promise<SyncMetaEntry | undefined> {
+  const db = await getDB();
+  return db.get(STORES.SYNC_META, `${storeName}:${recordId}`);
+}
+
+/** Record the revision the server now holds for a record. */
+export async function putSyncBaseline(
+  storeName: string,
+  recordId: string,
+  ownerId: string | null,
+  baselineRevision: string | null,
+): Promise<void> {
+  const db = await getDB();
+  await db.put(STORES.SYNC_META, {
+    id: `${storeName}:${recordId}`,
+    storeName,
+    recordId,
+    ownerId,
+    baselineRevision,
+    updatedAt: Date.now(),
+  } satisfies SyncMetaEntry);
 }
 
 // ============================================================
@@ -1728,41 +1824,40 @@ export async function ensureUuids(): Promise<void> {
  * Clears the queue first, then enqueues in dependency order:
  * accounts → categories → cash denominations → payouts → budget targets → transactions.
  */
-export async function resyncAll(): Promise<void> {
+export async function resyncAll(): Promise<{ enqueued: number; skipped: number }> {
   const db = await getDB();
 
-  // Read all current data
-  const accounts = await db.getAll(STORES.ACCOUNTS);
-  const categories = await db.getAll(STORES.CATEGORIES);
-  const transactions = await db.getAll(STORES.TRANSACTIONS);
-  const cashDenominations = await db.getAll(STORES.CASH_DENOMINATIONS);
-  const payouts = await db.getAll(STORES.PAYOUTS);
-  const budgetTargets = await db.getAll(STORES.BUDGET_TARGETS);
+  // Existing work is never discarded. Paused entries, conflicts and delete
+  // operations carry payloads a rebuild from local rows cannot reproduce.
+  const queued = new Set(
+    (await db.getAll(STORES.SYNC_QUEUE)).map((entry) => `${entry.storeName}:${entry.recordId}`),
+  );
 
-  // Clear existing queue
-  const tx = db.transaction(STORES.SYNC_QUEUE, 'readwrite');
-  await tx.store.clear();
-  await tx.done;
+  // Dependency order: parents before the records that reference them.
+  const ordered: Array<[string, Array<{ id: string }>]> = [
+    [STORES.ACCOUNTS, await db.getAll(STORES.ACCOUNTS)],
+    [STORES.CATEGORIES, await db.getAll(STORES.CATEGORIES)],
+    [STORES.CASH_DENOMINATIONS, await db.getAll(STORES.CASH_DENOMINATIONS)],
+    [STORES.PAYOUTS, await db.getAll(STORES.PAYOUTS)],
+    [STORES.BUDGET_TARGETS, await db.getAll(STORES.BUDGET_TARGETS)],
+    [STORES.TRANSACTIONS, await db.getAll(STORES.TRANSACTIONS)],
+  ];
 
-  // Enqueue in dependency order: accounts before transactions that reference them
-  for (const record of accounts) {
-    await enqueueSyncEntry(STORES.ACCOUNTS, record.id, 'create', record);
+  let enqueued = 0;
+  let skipped = 0;
+  for (const [storeName, records] of ordered) {
+    for (const record of records) {
+      const key = `${storeName}:${record.id}`;
+      if (queued.has(key)) {
+        skipped += 1;
+        continue;
+      }
+      await enqueueSyncEntry(storeName, record.id, 'create', record);
+      queued.add(key);
+      enqueued += 1;
+    }
   }
-  for (const record of categories) {
-    await enqueueSyncEntry(STORES.CATEGORIES, record.id, 'create', record);
-  }
-  for (const record of cashDenominations) {
-    await enqueueSyncEntry(STORES.CASH_DENOMINATIONS, record.id, 'create', record);
-  }
-  for (const record of payouts) {
-    await enqueueSyncEntry(STORES.PAYOUTS, record.id, 'create', record);
-  }
-  for (const record of budgetTargets) {
-    await enqueueSyncEntry(STORES.BUDGET_TARGETS, record.id, 'create', record);
-  }
-  for (const record of transactions) {
-    await enqueueSyncEntry(STORES.TRANSACTIONS, record.id, 'create', record);
-  }
+  return { enqueued, skipped };
 }
 
 // ============================================================

@@ -172,8 +172,9 @@ syncQueue {
     timestamp: number;       // monotonic counter (syncSeqCounter)
     retryCount: number;
     datasetGeneration?: number; // managed writes carry the hydrated generation
-    state?: 'pending' | 'paused'; // paused work waits for an explicit retry
+    state?: 'pending' | 'paused' | 'blocked';
     lastError?: string | null;    // retained with the payload
+    ownerId?: string | null;      // account that produced the mutation
   }
   indexes: { byTimestamp: number }
 }
@@ -188,6 +189,24 @@ skip it, and Settings → Cloud Sync → “Retry paused uploads” resets it to
 replacement marker is `applied`. A pending, failed, or conflicting replacement
 is reported instead of “Synced!”, so an empty queue never by itself claims the
 cloud state is settled.
+
+### Ownership and proof before acknowledgement
+
+- Every queued entry records the account that produced it (`ownerId`, taken from
+  the `lastUserId` marker at write time). An entry stamped for a different
+  account is moved to `state: 'blocked'` and never replayed; an unstamped entry
+  is claimed only when the verified marker already names the signed-in account.
+- Managed stores already proved their write through `apply_managed_write` plus a
+  read-back. Non-managed stores now do the same: compare-and-set against the
+  recorded baseline on `updated_at`, then read the row back and compare it before
+  the entry is acknowledged. A write the server did not persist stays queued.
+- `STORES.SYNC_META` (DB v16) holds each record's last observed server revision
+  (`baselineRevision`). Pulls record it; a mutation whose CAS matches nothing is
+  moved to `blocked` with its payload, because retrying cannot fix it.
+- “Retry paused uploads” re-arms both `paused` and `blocked` entries; the
+  ownership and revision gates still apply on the next push.
+- `resyncAll()` no longer clears the queue. It enqueues only records that have no
+  queued entry, so paused, blocked and delete operations survive a rebuild.
 
 ### Deletion archive
 

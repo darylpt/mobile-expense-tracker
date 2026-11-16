@@ -228,17 +228,17 @@ is bound to the rendered identity instead.
 
 ## 8. Known gaps
 
-Still pre-Phase-3A on this branch:
+Still open:
 
-- **Acknowledgement is optimistic.** A write is treated as applied without a
-  read-back comparison against the intended payload.
-- **The optimistic local delete removes the row before the server agrees**, and
-  no per-record baseline is stored, so a later push cannot detect a remote edit.
-- **No owner stamp on queued work.** Entries are pushed under whichever account
-  currently holds the verified scope; a second account never inherits them only
-  because its scope stays unverified.
-- **No server-managed revisions, atomic receipts, or older-client protection.**
-  RLS scopes rows; it does not make concurrent writes safe.
+- **Server-managed revisions are prepared, not applied.** Migration
+  `008_record_revisions.sql` adds per-row revisions and an operation-receipt
+  table, but the client does not use them yet; until both land, concurrency is
+  still last-write-wins on `updated_at`.
+- **Older clients can bypass the ownership and baseline checks** because they
+  speak the direct REST protocol.
+- **The local delete still lands before the server agrees.** The payload and the
+  deletion intent stay queued (and a tombstone archives the local row), but the
+  list no longer shows the record while the server catches up.
 
 Closed by the outbox slice:
 
@@ -250,6 +250,11 @@ Closed by the outbox slice:
   `syncDeletions` store before removing it, so the record is recoverable.
 - A background cycle never retries paused entries, so a failing server cannot
   loop forever.
+- Queued work carries its owner; another account can neither replay nor adopt it.
+- Non-managed writes are verified by compare-and-set plus read-back before they
+  are acknowledged, and every record keeps the server revision it last saw.
+- `resyncAll()` no longer clears the queue, so paused or blocked payloads survive
+  a rebuild.
 
 Still open: `resyncAll()` clears the queue before re-enqueueing, and same-user
 sign-out → sign-in recovery has not been exercised in a browser. No authenticated two-client run has been

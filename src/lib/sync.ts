@@ -25,8 +25,11 @@ import {
   getDatasetReplacementMarker,
   prepareConflictReplacement,
   setActiveDatasetGeneration,
+  adoptUnownedQueueEntries,
+  getSyncBaseline,
+  putSyncBaseline,
 } from './idb';
-import { STORES } from './constants';
+import { STORES, LAST_USER_STORAGE_KEY } from './constants';
 import { normalizeDividendRecord } from './dividends';
 import {
   LOCAL_DATASET_OWNER,
@@ -122,6 +125,17 @@ class ManagedWriteConflictError extends Error {
   }
 }
 
+/**
+ * The server row changed since the baseline this client recorded. Retrying
+ * cannot fix it: the local mutation must be resolved against the new revision.
+ */
+class RemoteRevisionChangedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RemoteRevisionChangedError';
+  }
+}
+
 function samePersistedValue(left: unknown, right: unknown): boolean {
   if (left === right) return true;
   if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
@@ -174,8 +188,22 @@ export async function processSyncQueue(generation: number): Promise<void> {
   const db = await getDB();
 
   // Read — single read-only transaction  (ponytail: getAllFromIndex preserves FIFO order from the index)
-  const allEntries = await db.getAllFromIndex(STORES.SYNC_QUEUE, 'byTimestamp');
+  let allEntries = await db.getAllFromIndex(STORES.SYNC_QUEUE, 'byTimestamp');
   if (allEntries.length === 0) return;
+
+  // Work written before the cache had an owner can be claimed only when the
+  // verified marker already names this account. Entries stamped for another
+  // account are never reassigned.
+  let cacheOwner: string | null = null;
+  try {
+    cacheOwner = localStorage.getItem(LAST_USER_STORAGE_KEY);
+  } catch { /* unavailable */ }
+  if (cacheOwner === user.id) {
+    const adopted = await adoptUnownedQueueEntries(user.id);
+    if (adopted > 0) {
+      allEntries = await db.getAllFromIndex(STORES.SYNC_QUEUE, 'byTimestamp');
+    }
+  }
 
   // A replacement transaction clears managed entries atomically, so an
   // older-generation entry that still exists was enqueued afterwards by a tab
@@ -203,6 +231,27 @@ export async function processSyncQueue(generation: number): Promise<void> {
     // Paused work waits for an explicit retry; it must not be attempted or
     // dropped by an automatic cycle.
     if (entry.state === 'paused') continue;
+
+    // Ownership must be provable. Unstamped work is claimed only through the
+    // marker-matched adoption above; anything still unowned or stamped for
+    // another account is blocked in place, never replayed under this one.
+    if (!entry.ownerId || entry.ownerId !== user.id) {
+      if (entry.state !== 'blocked') {
+        await db.put(STORES.SYNC_QUEUE, {
+          ...entry,
+          state: 'blocked',
+          lastError: entry.ownerId
+            ? 'Queued work belongs to a different account'
+            : 'Queued work has no proven owner',
+        });
+        try {
+          const prev = parseInt(localStorage.getItem('sync_failed_count') ?? '0', 10);
+          localStorage.setItem('sync_failed_count', String(prev + 1));
+        } catch { /* localStorage unavailable */ }
+      }
+      continue;
+    }
+
     try {
       const tableName = storeNameToTable(entry.storeName);
       const managed = isManagedStore(entry.storeName);
@@ -249,11 +298,50 @@ export async function processSyncQueue(generation: number): Promise<void> {
               );
             }
           } else {
-            const { error: upsertError } = await supabase.from(tableName).upsert(remotePayload, {
-              onConflict: 'id',
-              ignoreDuplicates: false,
-            });
-            if (upsertError) throw upsertError;
+            // These stores have no server-side generation check, so the client
+            // proves its own write: compare-and-set against the recorded
+            // baseline, then read the row back before acknowledging.
+            const baseline = await getSyncBaseline(entry.storeName, entry.recordId);
+            if (entry.operation === 'update' && baseline?.baselineRevision) {
+              const { data, error } = await supabase
+                .from(tableName)
+                .update(remotePayload)
+                .eq('id', entry.recordId)
+                .eq('user_id', user.id)
+                .eq('updated_at', baseline.baselineRevision)
+                .select('*');
+              if (error) throw error;
+              if (!data || data.length === 0) {
+                throw new RemoteRevisionChangedError(
+                  'Remote row changed since the recorded baseline; local edit kept in the queue.',
+                );
+              }
+            } else {
+              const { error: upsertError } = await supabase.from(tableName).upsert(remotePayload, {
+                onConflict: 'id',
+                ignoreDuplicates: false,
+              });
+              if (upsertError) throw upsertError;
+            }
+
+            const { data: persisted, error: readError } = await supabase
+              .from(tableName)
+              .select('*')
+              .eq('id', entry.recordId)
+              .eq('user_id', user.id);
+            if (readError) throw readError;
+            const row = persisted?.[0];
+            if (!row || row.deleted_at) {
+              throw new Error('Server did not confirm the write; local change kept in the queue.');
+            }
+            await putSyncBaseline(
+              entry.storeName,
+              entry.recordId,
+              user.id,
+              (row.updated_at as string | undefined) ??
+                (row.created_at as string | undefined) ??
+                null,
+            );
           }
           break;
         }
@@ -269,14 +357,27 @@ export async function processSyncQueue(generation: number): Promise<void> {
             if (error) throw error;
             assertManagedWriteApplied(data, 'delete');
           } else {
-            // Soft-delete: set deleted_at + updated_at instead of hard DELETE
+            // Soft-delete: set deleted_at + updated_at instead of hard DELETE,
+            // pinned to the baseline so a changed remote row is surfaced rather
+            // than overwritten.
+            const baseline = await getSyncBaseline(entry.storeName, entry.recordId);
             const now = new Date().toISOString();
             const update: Record<string, unknown> = { deleted_at: now, updated_at: now };
-            const { error: deleteError } = await supabase
+            let query = supabase
               .from(tableName)
               .update(update)
-              .eq('id', entry.recordId);
-            if (deleteError) throw deleteError;
+              .eq('id', entry.recordId)
+              .eq('user_id', user.id);
+            if (baseline?.baselineRevision) {
+              query = query.eq('updated_at', baseline.baselineRevision);
+            }
+            const { data, error } = await query.select('*');
+            if (error) throw error;
+            if (!data || data.length === 0) {
+              throw new RemoteRevisionChangedError(
+                'Remote row changed before the delete; local delete kept in the queue.',
+              );
+            }
           }
           break;
         }
@@ -286,6 +387,16 @@ export async function processSyncQueue(generation: number): Promise<void> {
       drops.push(entry.id);
     } catch (err) {
       if (err instanceof StaleSyncCycleError) throw err;
+      if (err instanceof RemoteRevisionChangedError) {
+        // Not retryable: the local mutation needs reconciling with the row the
+        // server now holds. Keep it, blocked, with its payload.
+        retries.push({ ...entry, state: 'blocked', lastError: err.message });
+        try {
+          const prev = parseInt(localStorage.getItem('sync_failed_count') ?? '0', 10);
+          localStorage.setItem('sync_failed_count', String(prev + 1));
+        } catch { /* localStorage unavailable */ }
+        continue;
+      }
       if (err instanceof ManagedWriteConflictError) {
         conflict = err;
         break;
@@ -469,6 +580,21 @@ export async function pullStore(
   }
 
   await tx.done;
+
+  // Baselines come from what the server just showed us. Rows with queued local
+  // work keep their old baseline: their CAS must still fail if the cloud moved.
+  for (const remote of remoteRecords) {
+    const id = String(remote.id ?? '');
+    if (!id || remote.deleted_at || isStale(remote) || pendingIds.has(id)) continue;
+    await putSyncBaseline(
+      storeName,
+      id,
+      cacheBelongsToUser ? userId : null,
+      (remote.updated_at as string | undefined) ??
+        (remote.created_at as string | undefined) ??
+        null,
+    );
+  }
 }
 
 // ============================================================
@@ -1161,7 +1287,9 @@ export async function retryPausedEntries(): Promise<number> {
   const all = await queue.getAll();
   let resumed = 0;
   for (const entry of all) {
-    if (entry.state !== 'paused') continue;
+    // Blocked entries are re-armed too: ownership and revision gates still
+    // apply on push, so this cannot replay another account's work.
+    if (entry.state !== 'paused' && entry.state !== 'blocked') continue;
     await queue.put({ ...entry, state: 'pending', retryCount: 0 });
     resumed += 1;
   }
