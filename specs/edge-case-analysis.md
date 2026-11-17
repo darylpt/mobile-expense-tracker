@@ -51,7 +51,7 @@ Migration v8 clears all stores including syncQueue. But:
 
 ### 2.2 resyncAll vs. backgroundSync race — GUARDED
 
-`syncInFlight` guard prevents concurrent cycles. `resyncAll` clears queue then re-enqueues — if called while `syncInFlight` is true, the new entries won't be processed until the current cycle finishes. **No gap.**
+`syncInFlight` guard prevents concurrent cycles. `resyncAll` no longer clears the queue; it appends entries only for records that have none, so a concurrent cycle still sees every payload. If called while `syncInFlight` is true, the new entries wait for the next cycle. **No gap.**
 
 ### 2.3 Soft-delete + LWW trigger interaction — SUBTLE
 

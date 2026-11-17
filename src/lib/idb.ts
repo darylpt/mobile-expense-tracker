@@ -55,6 +55,8 @@ export interface SyncQueueEntry {
    * account (ownership mismatch or a server revision it cannot prove).
    */
   state?: 'pending' | 'paused' | 'blocked';
+  /** Why automatic replay is refused: another account's work, or a conflict. */
+  blockReason?: 'ownership' | 'revision';
   /** Last failure message, kept for the paused/retry UI and export. */
   lastError?: string | null;
 }
@@ -574,7 +576,12 @@ function enqueueSyncEntryInTx(
     timestamp: seq,
     retryCount: 0,
     datasetGeneration: activeDatasetGeneration,
-  });
+    // Same ownership contract as enqueueSyncEntry: the normal CRUD path must
+    // preserve the account that produced the mutation, not rely on later
+    // adoption.
+    ownerId: readOwnerMarker(),
+    state: 'pending',
+  } satisfies SyncQueueEntry);
 }
 
 export async function enqueueSyncEntry<T>(

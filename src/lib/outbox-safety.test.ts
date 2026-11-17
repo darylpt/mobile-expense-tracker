@@ -14,11 +14,17 @@ if (typeof globalThis.structuredClone !== 'function') {
 import { STORES } from './constants';
 import {
   getFailedSyncCount,
+  getSyncFailureSummary,
   processSyncQueue,
+  preparePayloadForRemote,
   pullStore,
+  resolveRevisionBlockedUploads,
   retryPausedEntries,
 } from './sync';
 import {
+  addAccount,
+  addCashDenomination,
+  deleteCashDenominationsByDate,
   enqueueSyncEntry,
   getDB,
   getSyncQueueCount,
@@ -26,6 +32,7 @@ import {
   getSyncBaseline,
   putSyncBaseline,
   resyncAll,
+  setActiveDatasetGeneration,
 } from './idb';
 
 const USER = 'user-1';
@@ -33,6 +40,8 @@ const GENERATION = 3;
 
 interface MockState {
   failWrites: boolean;
+  /** Model `prevent_older_update()` skipping the write: return the old row. */
+  skipUpdates: boolean;
   /** Accept the write but do not reflect it back (server dropped it). */
   dropWrites: boolean;
   pulls: Record<string, Record<string, unknown>[]>;
@@ -40,10 +49,11 @@ interface MockState {
 }
 
 jest.mock('./supabase', () => {
-  const state: MockState = { failWrites: false, dropWrites: false, pulls: {}, upserts: [] };
+  const state: MockState = { failWrites: false, dropWrites: false, skipUpdates: false, pulls: {}, upserts: [] };
 
   function createQuery(table: string) {
     let idFilter: unknown = null;
+    let updatePayload: Record<string, unknown> | null = null;
     const filters: Record<string, unknown> = {};
     const query = {
       select() { return query; },
@@ -55,7 +65,10 @@ jest.mock('./supabase', () => {
       order() { return query; },
       range() { return query; },
       maybeSingle() { return Promise.resolve({ data: { generation: 3 }, error: null }); },
-      update() { return query; },
+      update(payload: Record<string, unknown>) {
+        updatePayload = payload;
+        return query;
+      },
       upsert(payload: Record<string, unknown>) {
         state.upserts.push({ table, payload });
         if (state.failWrites) return Promise.resolve({ error: { message: 'network down' } });
@@ -68,6 +81,18 @@ jest.mock('./supabase', () => {
         ];
         return Promise.resolve({ error: null });
       },
+      insert(payload: Record<string, unknown>) {
+        state.upserts.push({ table, payload });
+        if (state.failWrites) return Promise.resolve({ error: { message: 'network down' } });
+        if (state.dropWrites) return Promise.resolve({ error: null });
+        const row = { ...(payload as Record<string, unknown>) };
+        const exists = (state.pulls[table] ?? []).some((item) => item.id === row.id);
+        if (exists) {
+          return Promise.resolve({ error: { code: '23505', message: 'duplicate key' } });
+        }
+        state.pulls[table] = [...(state.pulls[table] ?? []), row];
+        return Promise.resolve({ error: null });
+      },
       then(
         onfulfilled?: ((value: unknown) => unknown) | null,
         onrejected?: ((reason: unknown) => unknown) | null,
@@ -78,6 +103,12 @@ jest.mock('./supabase', () => {
         for (const [column, value] of Object.entries(filters)) {
           if (!rows.some((row) => row[column] !== undefined)) continue;
           rows = rows.filter((row) => row[column] === value);
+        }
+        if (updatePayload && !state.skipUpdates && rows.length > 0) {
+          rows = rows.map((row) => ({ ...row, ...updatePayload }));
+          state.pulls[table] = (state.pulls[table] ?? []).map((row) =>
+            row.id === idFilter ? { ...row, ...updatePayload } : row,
+          );
         }
         return Promise.resolve({ data: rows, error: null }).then(onfulfilled, onrejected);
       },
@@ -126,6 +157,7 @@ beforeEach(async () => {
   Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
   state.failWrites = false;
   state.dropWrites = false;
+  state.skipUpdates = false;
   state.pulls = {};
   state.upserts = [];
   localStorage.clear();
@@ -140,7 +172,7 @@ beforeEach(async () => {
 });
 
 test('pauses failed work instead of deleting it', async () => {
-  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'update', SNAPSHOT);
+  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'create', SNAPSHOT);
   state.failWrites = true;
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -158,7 +190,7 @@ test('pauses failed work instead of deleting it', async () => {
 });
 
 test('an automatic cycle does not retry paused work', async () => {
-  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'update', SNAPSHOT);
+  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'create', SNAPSHOT);
   state.failWrites = true;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     await processSyncQueue(GENERATION);
@@ -175,7 +207,7 @@ test('an automatic cycle does not retry paused work', async () => {
 });
 
 test('retrying paused work re-arms the same payload and then clears it', async () => {
-  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'update', SNAPSHOT);
+  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'create', SNAPSHOT);
   state.failWrites = true;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     await processSyncQueue(GENERATION);
@@ -275,7 +307,7 @@ async function DBLeaveUnownedEntry(): Promise<void> {
     id: 'legacy-entry',
     storeName: STORES.BALANCE_SNAPSHOTS,
     recordId: SNAPSHOT.id,
-    operation: 'update',
+    operation: 'create',
     payload: SNAPSHOT,
     timestamp: 1,
     retryCount: 0,
@@ -283,23 +315,19 @@ async function DBLeaveUnownedEntry(): Promise<void> {
 }
 
 test('a write the server does not persist is not acknowledged', async () => {
-  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'update', SNAPSHOT);
+  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'create', SNAPSHOT);
   state.dropWrites = true;
 
   await processSyncQueue(GENERATION);
 
   expect(await getSyncQueueCount()).toBe(1);
   const [entry] = await getDB().then((db) => db.getAll(STORES.SYNC_QUEUE));
-  expect(entry.lastError).toContain('did not confirm');
+  expect(entry.lastError).toMatch(/did not confirm|did not persist/);
   expect(entry.state).not.toBe('blocked');
 });
 
 test('a successful write records the server revision as the next baseline', async () => {
-  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'update', SNAPSHOT);
-  // The server stamps its own revision.
-  state.pulls.balance_snapshots = [
-    { id: SNAPSHOT.id, user_id: USER, updated_at: '2026-03-01T00:00:00.000Z' },
-  ];
+  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'create', SNAPSHOT);
 
   await processSyncQueue(GENERATION);
 
@@ -385,4 +413,133 @@ test('resync re-enqueues missing work without discarding queued entries', async 
   expect(preserved?.state).toBe('paused');
   expect(preserved?.payload).toEqual({ id: 'gone' });
   expect(entries.some((entry) => entry.storeName === STORES.ACCOUNTS)).toBe(true);
+});
+
+
+test('a real account create stamps the owning account on the queued entry', async () => {
+  await addAccount({ name: 'Ownership fixture', startingBalance: 0, sortOrder: 0 });
+
+  const entries = await getDB().then((db) => db.getAll(STORES.SYNC_QUEUE));
+  const entry = entries.find((item) => item.storeName === STORES.ACCOUNTS);
+  expect(entry?.ownerId).toBe(USER);
+  expect(entry?.state).toBe('pending');
+});
+
+test('a cash deletion follows the managed RPC path', async () => {
+  // Managed entries are fenced to the applied dataset generation.
+  setActiveDatasetGeneration(GENERATION);
+  await addCashDenomination({ date: '2026-01-02', denomination: 100, count: 1 });
+  await deleteCashDenominationsByDate('2026-01-02');
+
+  const rpcCalls: string[] = [];
+  (supabase as unknown as { rpc: jest.Mock }).rpc.mockImplementation(
+    async (name: string, params: Record<string, unknown>) => {
+      rpcCalls.push(`${name}:${String(params.p_store)}:${String(params.p_operation)}`);
+      const record = params.p_record as Record<string, unknown> | null;
+      if (record) {
+        state.pulls.cash_denominations = [
+          ...(state.pulls.cash_denominations ?? []).filter((row) => row.id !== record.id),
+          record,
+        ];
+      } else {
+        state.pulls.cash_denominations = (state.pulls.cash_denominations ?? []).map((row) =>
+          row.id === params.p_record_id
+            ? { ...row, deleted_at: '2026-01-03T00:00:00.000Z' }
+            : row,
+        );
+      }
+      return { data: { status: 'applied', generation: 3 }, error: null };
+    },
+  );
+
+  await processSyncQueue(GENERATION);
+
+  expect(rpcCalls).toContain('apply_managed_write:cash_denominations:delete');
+  expect(await getSyncQueueCount()).toBe(0);
+  setActiveDatasetGeneration(0);
+});
+
+test('an update with no baseline blocks instead of overwriting the remote row', async () => {
+  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'update', SNAPSHOT);
+  state.pulls.balance_snapshots = [
+    { id: SNAPSHOT.id, user_id: USER, actualBalance: 999, updated_at: '2026-07-01T00:00:00.000Z' },
+  ];
+
+  await processSyncQueue(GENERATION);
+
+  expect(state.upserts).toHaveLength(0);
+  const [entry] = await getDB().then((db) => db.getAll(STORES.SYNC_QUEUE));
+  expect(entry.state).toBe('blocked');
+  expect(entry.blockReason).toBe('revision');
+  expect(entry.lastError).toContain('No recorded baseline');
+  expect(entry.payload).toEqual(SNAPSHOT);
+});
+
+test('a delete with no baseline blocks instead of deleting an arbitrary row', async () => {
+  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'delete', SNAPSHOT);
+  state.pulls.balance_snapshots = [
+    { id: SNAPSHOT.id, user_id: USER, updated_at: '2026-07-01T00:00:00.000Z' },
+  ];
+
+  await processSyncQueue(GENERATION);
+
+  const [entry] = await getDB().then((db) => db.getAll(STORES.SYNC_QUEUE));
+  expect(entry.state).toBe('blocked');
+  expect(entry.lastError).toContain('No recorded baseline for this delete');
+});
+
+test('a skipped update is not acknowledged: the stored row differs from the intent', async () => {
+  await putSyncBaseline(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, USER, '2026-07-01T00:00:00.000Z');
+  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'update', SNAPSHOT);
+  state.pulls.balance_snapshots = [
+    { id: SNAPSHOT.id, user_id: USER, actualBalance: 4242, updated_at: '2026-07-01T00:00:00.000Z' },
+  ];
+  state.skipUpdates = true; // prevent_older_update() keeps the existing row
+
+  await processSyncQueue(GENERATION);
+
+  expect(await getSyncQueueCount()).toBe(1);
+  const [entry] = await getDB().then((db) => db.getAll(STORES.SYNC_QUEUE));
+  expect(entry.state).toBe('blocked');
+  expect(entry.lastError).toContain('different row');
+  expect(entry.payload).toEqual(SNAPSHOT);
+});
+
+test('the failure badge counts queue state and retry re-arms only pauses', async () => {
+  const db = await getDB();
+  await db.put(STORES.SYNC_QUEUE, {
+    id: 'paused-1', storeName: STORES.BALANCE_SNAPSHOTS, recordId: 'p1', operation: 'create',
+    payload: {}, timestamp: 1, retryCount: 5, ownerId: USER, state: 'paused',
+  });
+  await db.put(STORES.SYNC_QUEUE, {
+    id: 'blocked-1', storeName: STORES.BALANCE_SNAPSHOTS, recordId: 'b1', operation: 'update',
+    payload: {}, timestamp: 2, retryCount: 0, ownerId: USER, state: 'blocked', blockReason: 'revision',
+  });
+
+  expect(await getSyncFailureSummary()).toEqual({ paused: 1, blocked: 1 });
+  expect(await retryPausedEntries()).toBe(1);
+
+  const entries = await db.getAll(STORES.SYNC_QUEUE);
+  expect(entries.find((entry) => entry.id === 'blocked-1')?.state).toBe('blocked');
+  expect(await getSyncFailureSummary()).toEqual({ paused: 0, blocked: 1 });
+
+  // Resolution re-applies the local payload against the current remote row.
+  state.pulls.balance_snapshots = [
+    { id: 'b1', user_id: USER, updated_at: '2026-08-01T00:00:00.000Z' },
+  ];
+  expect(await resolveRevisionBlockedUploads()).toBe(1);
+  const resolved = await db.get(STORES.SYNC_QUEUE, 'blocked-1');
+  expect(resolved?.state).toBe('pending');
+  const baseline = await getSyncBaseline(STORES.BALANCE_SNAPSHOTS, 'b1');
+  expect(baseline?.baselineRevision).toBe('2026-08-01T00:00:00.000Z');
+});
+
+test('server metadata never travels back as business data', () => {
+  const outbound = preparePayloadForRemote({
+    id: 'row-1',
+    revision: 7,
+    updatedAt: 1000,
+    createdAt: 1000,
+  });
+  expect(outbound).not.toHaveProperty('revision');
 });

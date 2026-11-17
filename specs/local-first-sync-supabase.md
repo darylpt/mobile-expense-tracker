@@ -208,6 +208,35 @@ cloud state is settled.
 - `resyncAll()` no longer clears the queue. It enqueues only records that have no
   queued entry, so paused, blocked and delete operations survive a rebuild.
 
+### Acknowledgement is a comparison, not an assumption
+
+- A non-managed write is acknowledged only when the row the server returns carries
+  every intended business value. A missing field fails the comparison, so a write
+  the server skipped (`prevent_older_update()`) cannot be reported as applied.
+  Server-owned metadata (`revision`, `user_id`, `dataset_generation`) is stripped
+  from outgoing payloads and excluded from that comparison.
+- A create uses `insert`, not `upsert`: an existing id returns `23505`, and the
+  row is then compared instead of overwritten.
+- An update or delete with **no recorded baseline** does not guess. The remote row
+  is read; if it already matches the intent the entry is acknowledged as already
+  satisfied, otherwise the entry becomes `blocked` with `blockReason: 'revision'`
+  and keeps its payload. A missing remote row is a create/recovery decision, not
+  an upsert.
+- A pull writes baselines inside the same transaction that merges its rows, so a
+  crash cannot leave rows updated with stale compare-and-set tokens.
+
+### Blocked work is resolved, not retried
+
+- `blocked` carries `blockReason`: `ownership` (another account produced it) or
+  `revision` (the cloud moved, or no baseline exists). Automatic cycles skip
+  revision conflicts; ownership-blocked entries become attemptable again only
+  when the owning account holds the verified scope.
+- Settings → Cloud Sync shows “Resolve N blocked” only when such entries exist.
+  It re-applies the local payload on top of the current remote row after an
+  explicit confirmation, and refuses entries whose remote row is gone.
+- The header badge is derived from queue state for the displayed account
+  (`paused` + `blocked`), not from an increment/reset counter.
+
 ### Deletion archive
 
 `STORES.SYNC_DELETIONS` (DB v15) keeps a recoverable copy of any local record a

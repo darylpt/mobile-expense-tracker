@@ -136,12 +136,70 @@ class RemoteRevisionChangedError extends Error {
   }
 }
 
+function errorCode(error: unknown): string | null {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    return typeof code === 'string' ? code : null;
+  }
+  return null;
+}
+
 function samePersistedValue(left: unknown, right: unknown): boolean {
   if (left === right) return true;
   if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
   const entries = Object.entries(left);
   return entries.length === Object.keys(right).length && entries.every(([key, value]) =>
     Object.hasOwn(right, key) && samePersistedValue(value, (right as Record<string, unknown>)[key]));
+}
+
+/**
+ * Fields the server owns. They are never part of a business payload and never
+ * part of the acknowledgement comparison: a pulled row carries them, and a
+ * comparison that included them would report a false conflict.
+ */
+const SERVER_METADATA_FIELDS = ['revision', 'user_id', 'dataset_generation'] as const;
+
+function withoutServerMetadata(payload: Record<string, unknown>): Record<string, unknown> {
+  const copy = { ...payload };
+  for (const field of SERVER_METADATA_FIELDS) delete copy[field];
+  return copy;
+}
+
+/**
+ * True when the persisted row carries every intended business value. A missing
+ * expected field fails: "the server stored something else" must never read as
+ * success.
+ */
+function persistedMatchesIntended(
+  row: Record<string, unknown>,
+  intended: Record<string, unknown>,
+): boolean {
+  return Object.entries(intended).every(([key, value]) => {
+    if (value === undefined) return true;
+    if (!Object.hasOwn(row, key)) return false;
+    return samePersistedValue(row[key], value);
+  });
+}
+
+/** The compare-and-set token a server row currently carries. */
+function rowRevision(row: Record<string, unknown>): string | null {
+  return ((row.updated_at as string | undefined) ??
+    (row.created_at as string | undefined) ??
+    null);
+}
+
+async function fetchRemoteRow(
+  tableName: string,
+  recordId: string,
+  userId: string,
+): Promise<Record<string, unknown> | undefined> {
+  const { data, error } = await supabase!
+    .from(tableName)
+    .select('*')
+    .eq('id', recordId)
+    .eq('user_id', userId);
+  if (error) throw error;
+  return data?.[0];
 }
 
 function assertManagedWriteApplied(data: unknown, action: 'write' | 'delete'): void {
@@ -228,9 +286,10 @@ export async function processSyncQueue(generation: number): Promise<void> {
   let managedFailure: unknown = null;
 
   for (const entry of allEntries) {
-    // Paused work waits for an explicit retry; it must not be attempted or
-    // dropped by an automatic cycle.
+    // Paused work waits for an explicit retry; revision conflicts wait for an
+    // explicit resolution. Neither is attempted or dropped automatically.
     if (entry.state === 'paused') continue;
+    if (entry.state === 'blocked' && entry.blockReason === 'revision') continue;
 
     // Ownership must be provable. Unstamped work is claimed only through the
     // marker-matched adoption above; anything still unowned or stamped for
@@ -240,6 +299,7 @@ export async function processSyncQueue(generation: number): Promise<void> {
         await db.put(STORES.SYNC_QUEUE, {
           ...entry,
           state: 'blocked',
+          blockReason: 'ownership',
           lastError: entry.ownerId
             ? 'Queued work belongs to a different account'
             : 'Queued work has no proven owner',
@@ -298,11 +358,40 @@ export async function processSyncQueue(generation: number): Promise<void> {
               );
             }
           } else {
-            // These stores have no server-side generation check, so the client
-            // proves its own write: compare-and-set against the recorded
-            // baseline, then read the row back before acknowledging.
+            // Non-managed stores have no server-side generation check. The
+            // client proves the write instead: compare-and-set against the
+            // recorded baseline, then compare the persisted row with what it
+            // intended. A server that stored something else is not an
+            // acknowledgement.
+            const intended = withoutServerMetadata(remotePayload);
             const baseline = await getSyncBaseline(entry.storeName, entry.recordId);
-            if (entry.operation === 'update' && baseline?.baselineRevision) {
+
+            if (entry.operation === 'create') {
+              const { error: insertError } = await supabase.from(tableName).insert(remotePayload);
+              if (insertError && errorCode(insertError) !== '23505') throw insertError;
+            } else if (!baseline?.baselineRevision) {
+              // No trustworthy pre-edit base: an update must not become an
+              // upsert that overwrites whatever is on the server now.
+              const remote = await fetchRemoteRow(tableName, entry.recordId, user.id);
+              if (!remote || remote.deleted_at) {
+                throw new RemoteRevisionChangedError(
+                  'Remote row is gone; the queued edit needs an explicit create or recovery decision.',
+                );
+              }
+              if (!persistedMatchesIntended(remote, intended)) {
+                throw new RemoteRevisionChangedError(
+                  'No recorded baseline for this row; the queued edit needs reconciliation.',
+                );
+              }
+              // Already exactly what the queued edit asks for.
+              await putSyncBaseline(
+                entry.storeName,
+                entry.recordId,
+                user.id,
+                rowRevision(remote),
+              );
+              break;
+            } else {
               const { data, error } = await supabase
                 .from(tableName)
                 .update(remotePayload)
@@ -311,36 +400,51 @@ export async function processSyncQueue(generation: number): Promise<void> {
                 .eq('updated_at', baseline.baselineRevision)
                 .select('*');
               if (error) throw error;
-              if (!data || data.length === 0) {
+              const applied = data?.[0];
+              if (!applied) {
+                const remote = await fetchRemoteRow(tableName, entry.recordId, user.id);
+                if (remote && !remote.deleted_at && persistedMatchesIntended(remote, intended)) {
+                  await putSyncBaseline(
+                    entry.storeName,
+                    entry.recordId,
+                    user.id,
+                    rowRevision(remote),
+                  );
+                  break;
+                }
                 throw new RemoteRevisionChangedError(
-                  'Remote row changed since the recorded baseline; local edit kept in the queue.',
+                  'Remote row changed since the recorded baseline; the queued edit needs reconciliation.',
                 );
               }
-            } else {
-              const { error: upsertError } = await supabase.from(tableName).upsert(remotePayload, {
-                onConflict: 'id',
-                ignoreDuplicates: false,
-              });
-              if (upsertError) throw upsertError;
+              if (!persistedMatchesIntended(applied, intended)) {
+                throw new RemoteRevisionChangedError(
+                  'Server stored a different row than the queued edit; it needs reconciliation.',
+                );
+              }
+              await putSyncBaseline(
+                entry.storeName,
+                entry.recordId,
+                user.id,
+                rowRevision(applied),
+              );
+              break;
             }
 
-            const { data: persisted, error: readError } = await supabase
-              .from(tableName)
-              .select('*')
-              .eq('id', entry.recordId)
-              .eq('user_id', user.id);
-            if (readError) throw readError;
-            const row = persisted?.[0];
+            // Create path: confirm the row exists and matches what was sent.
+            const row = await fetchRemoteRow(tableName, entry.recordId, user.id);
             if (!row || row.deleted_at) {
-              throw new Error('Server did not confirm the write; local change kept in the queue.');
+              throw new Error('Server did not confirm the create; local change kept in the queue.');
+            }
+            if (!persistedMatchesIntended(row, intended)) {
+              throw new RemoteRevisionChangedError(
+                'A different row already uses this id; the queued create needs reconciliation.',
+              );
             }
             await putSyncBaseline(
               entry.storeName,
               entry.recordId,
               user.id,
-              (row.updated_at as string | undefined) ??
-                (row.created_at as string | undefined) ??
-                null,
+              rowRevision(row),
             );
           }
           break;
@@ -357,25 +461,30 @@ export async function processSyncQueue(generation: number): Promise<void> {
             if (error) throw error;
             assertManagedWriteApplied(data, 'delete');
           } else {
-            // Soft-delete: set deleted_at + updated_at instead of hard DELETE,
-            // pinned to the baseline so a changed remote row is surfaced rather
-            // than overwritten.
+            // Soft-delete, pinned to the recorded baseline. Without one, the
+            // delete must not guess which row it is deleting.
+            const remote = await fetchRemoteRow(tableName, entry.recordId, user.id);
+            if (!remote || remote.deleted_at) break; // already satisfied
             const baseline = await getSyncBaseline(entry.storeName, entry.recordId);
-            const now = new Date().toISOString();
-            const update: Record<string, unknown> = { deleted_at: now, updated_at: now };
-            let query = supabase
-              .from(tableName)
-              .update(update)
-              .eq('id', entry.recordId)
-              .eq('user_id', user.id);
-            if (baseline?.baselineRevision) {
-              query = query.eq('updated_at', baseline.baselineRevision);
+            if (!baseline?.baselineRevision) {
+              throw new RemoteRevisionChangedError(
+                'No recorded baseline for this delete; it needs reconciliation.',
+              );
             }
-            const { data, error } = await query.select('*');
+            const now = new Date().toISOString();
+            const { data, error } = await supabase
+              .from(tableName)
+              .update({ deleted_at: now, updated_at: now })
+              .eq('id', entry.recordId)
+              .eq('user_id', user.id)
+              .eq('updated_at', baseline.baselineRevision)
+              .select('*');
             if (error) throw error;
             if (!data || data.length === 0) {
+              const after = await fetchRemoteRow(tableName, entry.recordId, user.id);
+              if (after?.deleted_at) break; // another client already deleted it
               throw new RemoteRevisionChangedError(
-                'Remote row changed before the delete; local delete kept in the queue.',
+                'Remote row changed before the delete; the queued delete needs reconciliation.',
               );
             }
           }
@@ -390,7 +499,7 @@ export async function processSyncQueue(generation: number): Promise<void> {
       if (err instanceof RemoteRevisionChangedError) {
         // Not retryable: the local mutation needs reconciling with the row the
         // server now holds. Keep it, blocked, with its payload.
-        retries.push({ ...entry, state: 'blocked', lastError: err.message });
+        retries.push({ ...entry, state: 'blocked', blockReason: 'revision', lastError: err.message });
         try {
           const prev = parseInt(localStorage.getItem('sync_failed_count') ?? '0', 10);
           localStorage.setItem('sync_failed_count', String(prev + 1));
@@ -491,8 +600,8 @@ export async function pullStore(
   const db = await getDB();
   const tx = db.transaction(
     managed
-      ? [storeName, STORES.DATASET_MARKERS, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS]
-      : [storeName, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS],
+      ? [storeName, STORES.DATASET_MARKERS, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS, STORES.SYNC_META]
+      : [storeName, STORES.SYNC_QUEUE, STORES.SYNC_DELETIONS, STORES.SYNC_META],
     'readwrite',
   );
   if (managed) {
@@ -579,22 +688,26 @@ export async function pullStore(
     await localStore.put(record);
   }
 
-  await tx.done;
-
-  // Baselines come from what the server just showed us. Rows with queued local
-  // work keep their old baseline: their CAS must still fail if the cloud moved.
-  for (const remote of remoteRecords) {
-    const id = String(remote.id ?? '');
-    if (!id || remote.deleted_at || isStale(remote) || pendingIds.has(id)) continue;
-    await putSyncBaseline(
-      storeName,
-      id,
-      cacheBelongsToUser ? userId : null,
-      (remote.updated_at as string | undefined) ??
-        (remote.created_at as string | undefined) ??
-        null,
-    );
+  // Baselines belong to the same transaction as the merge: a crash must not
+  // leave rows updated with stale tokens. Rows with queued local work keep the
+  // baseline they already had, so their CAS still fails if the cloud moved.
+  if (cacheBelongsToUser) {
+    const metaStore = tx.objectStore(STORES.SYNC_META);
+    for (const remote of remoteRecords) {
+      const id = String(remote.id ?? '');
+      if (!id || remote.deleted_at || isStale(remote) || pendingIds.has(id)) continue;
+      await metaStore.put({
+        id: `${storeName}:${id}`,
+        storeName,
+        recordId: id,
+        ownerId: userId,
+        baselineRevision: rowRevision(remote),
+        updatedAt: Date.now(),
+      });
+    }
   }
+
+  await tx.done;
 }
 
 // ============================================================
@@ -1263,6 +1376,8 @@ export function preparePayloadForRemote(
 
   // Strip deleted_at outbound — soft-delete is set via separate update
   delete converted.deleted_at;
+  // Server-owned metadata must never be echoed back as business data.
+  delete converted.revision;
 
   return converted;
 }
@@ -1287,15 +1402,60 @@ export async function retryPausedEntries(): Promise<number> {
   const all = await queue.getAll();
   let resumed = 0;
   for (const entry of all) {
-    // Blocked entries are re-armed too: ownership and revision gates still
-    // apply on push, so this cannot replay another account's work.
-    if (entry.state !== 'paused' && entry.state !== 'blocked') continue;
+    // Only transient pauses are safe to retry. Ownership and revision
+    // conflicts need an explicit resolution, not another automatic attempt.
+    if (entry.state !== 'paused') continue;
     await queue.put({ ...entry, state: 'pending', retryCount: 0 });
     resumed += 1;
   }
   await tx.done;
   if (resumed > 0) clearFailedSyncCount();
   return resumed;
+}
+
+/**
+ * Re-apply revision-blocked work on top of the row the server holds now. This
+ * is the explicit choice to keep the local payload: the current remote revision
+ * becomes the baseline, so the next push can prove that base. Work whose remote
+ * row is gone stays blocked — creating it again is a separate decision.
+ */
+export async function resolveRevisionBlockedUploads(): Promise<number> {
+  const db = await getDB();
+  const all = await db.getAll(STORES.SYNC_QUEUE);
+  let resolved = 0;
+  for (const entry of all) {
+    if (entry.state !== 'blocked' || entry.blockReason !== 'revision') continue;
+    if (!entry.ownerId) continue;
+    const tableName = storeNameToTable(entry.storeName);
+    const remote = await fetchRemoteRow(tableName, entry.recordId, entry.ownerId).catch(() => null);
+    if (!remote || remote.deleted_at) continue;
+    await putSyncBaseline(entry.storeName, entry.recordId, entry.ownerId, rowRevision(remote));
+    await db.put(STORES.SYNC_QUEUE, {
+      ...entry,
+      state: 'pending',
+      retryCount: 0,
+      lastError: null,
+    });
+    resolved += 1;
+  }
+  return resolved;
+}
+
+/** Outstanding failures, derived from durable queue state for one account. */
+export async function getSyncFailureSummary(): Promise<{ paused: number; blocked: number }> {
+  let owner: string | null = null;
+  try {
+    owner = localStorage.getItem(LAST_USER_STORAGE_KEY);
+  } catch { /* unavailable */ }
+  const db = await getDB();
+  const entries = await db.getAll(STORES.SYNC_QUEUE);
+  const summary = { paused: 0, blocked: 0 };
+  for (const entry of entries) {
+    if (!owner || entry.ownerId !== owner) continue;
+    if (entry.state === 'paused') summary.paused += 1;
+    else if (entry.state === 'blocked') summary.blocked += 1;
+  }
+  return summary;
 }
 
 /** Clear the failed sync counter (call after retry). */
