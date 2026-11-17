@@ -326,6 +326,41 @@ change without manual intervention.
 
 ---
 
+## Hosted schema prerequisites
+
+The client cannot verify the hosted schema for itself, and an incomplete
+deployment fails quietly: managed writes queue, retry, and pause, while the UI
+keeps working from IndexedDB.
+
+Run `npm run check:schema` (needs `NEXT_PUBLIC_SUPABASE_URL` and the anon key) to
+probe what the deployed client can actually reach. It reports, per object, the
+migration that supplies it.
+
+Probed 2026-11-17 against the project in `.env.local`:
+
+```text
+ok       table accounts (accounts)
+MISSING  table dataset generations (dataset_generations)  — apply 007_dataset_generation.sql
+MISSING  rpc   managed write (apply_managed_write)        — apply 007_dataset_generation.sql
+absent   rpc   replace dataset (replace_dataset)          — apply 007_dataset_generation.sql
+```
+
+As a result, managed stores (accounts, categories, transactions, cash
+denominations, payouts, budget targets) have not been able to reach this project
+since the dataset-generation routing landed, while non-managed stores (stocks,
+stock transactions, dividends, balance snapshots) still use plain REST.
+
+Ordering, when the gap is closed:
+
+1. Apply `007_dataset_generation.sql` only. Do **not** re-run
+   `002_user_isolation.sql` — it truncates every table.
+2. Apply `008_record_revisions.sql` after that. It is safe on its own once the
+   deployed client strips server metadata (0.19.11 or later).
+3. Re-run `npm run check:schema` and confirm every line reads `ok`.
+4. Run the authenticated acceptance journeys before trusting sync again.
+
+---
+
 ## 3. Network Lifecycle
 
 ### Startup Flow
