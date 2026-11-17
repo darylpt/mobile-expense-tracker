@@ -178,6 +178,11 @@ jest.mock('./supabase', () => {
     from: jest.fn((table: string) => createQuery(table)),
     rpc: jest.fn(async (name: string, params: Record<string, unknown>) => {
       state.rpcCalls.push({ name, params });
+      // This project does not serve the revision RPC; the client must fall back
+      // to its proven write path.
+      if (name === 'apply_revision_write') {
+        return { data: null, error: { code: 'PGRST202', message: 'function not found' } };
+      }
       if (state.rpc) return await state.rpc(params);
       if (name === 'apply_managed_write') {
         const table = params.p_store as string;

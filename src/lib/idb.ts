@@ -85,6 +85,8 @@ export interface SyncMetaEntry {
   ownerId: string | null;
   /** Raw server `updated_at` (or immutable `created_at`) of that row. */
   baselineRevision: string | null;
+  /** Server-owned `revision`, present only once the revision protocol is live. */
+  revision?: number | null;
   updatedAt: number;
 }
 
@@ -654,6 +656,7 @@ export async function putSyncBaseline(
   recordId: string,
   ownerId: string | null,
   baselineRevision: string | null,
+  revision: number | null = null,
 ): Promise<void> {
   const db = await getDB();
   await db.put(STORES.SYNC_META, {
@@ -662,6 +665,7 @@ export async function putSyncBaseline(
     recordId,
     ownerId,
     baselineRevision,
+    revision,
     updatedAt: Date.now(),
   } satisfies SyncMetaEntry);
 }

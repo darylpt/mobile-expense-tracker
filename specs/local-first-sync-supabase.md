@@ -225,6 +225,30 @@ cloud state is settled.
 - A pull writes baselines inside the same transaction that merges its rows, so a
   crash cannot leave rows updated with stale compare-and-set tokens.
 
+### Revision protocol (migration 009)
+
+For the four non-managed stores, the client prefers a transactional RPC:
+`apply_revision_write(p_store, p_operation, p_record_id, p_expected_revision,
+p_record, p_operation_id)`.
+
+- The queue entry id is the operation id, so a retried request is recognisably
+  the same request. The server stores a receipt in the same transaction as the
+  mutation and replays the original result instead of applying twice; reusing an
+  id for a different request is an error.
+- The expected revision comes from `syncMeta`. A mismatch returns `conflict`,
+  which the client records as `blocked` with `blockReason: 'revision'` and keeps
+  the payload.
+- The capability is probed, not configured: the first call that answers
+  `PGRST202` marks the protocol absent for the session and every later write uses
+  the proven legacy path. No error other than "function does not exist" falls
+  back.
+- Managed stores keep `apply_managed_write` and its dataset-generation fence;
+  adopting them is a later gate.
+
+Activation order: this client (inert while the function is absent) → apply 008 →
+apply 009. Applying 009 activates the protocol for new writes; existing rows
+without a numeric revision keep using the legacy path until a pull records one.
+
 ### Blocked work is resolved, not retried
 
 - `blocked` carries `blockReason`: `ownership` (another account produced it) or
@@ -356,7 +380,10 @@ Ordering, when the gap is closed:
    `002_user_isolation.sql` — it truncates every table.
 2. Apply `008_record_revisions.sql` after that. It is safe on its own once the
    deployed client strips server metadata (0.19.11 or later).
-3. Re-run `npm run check:schema` and confirm every line reads `ok`.
+3. Apply `009_revision_write_rpc.sql` last; it activates the transactional
+   revision protocol for stocks, stock transactions, dividends and balance
+   snapshots. Managed stores are unaffected.
+4. Re-run `npm run check:schema` and confirm every line reads `ok`.
 4. Run the authenticated acceptance journeys before trusting sync again.
 
 ---
