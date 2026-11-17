@@ -1,5 +1,5 @@
 project: "mobile-expense-tracker"
-version: "0.19.12"
+version: "0.19.13"
 phase: "build"
 current_epic: "auth-and-security"
 current_story: "ui-accessibility-onboarding"

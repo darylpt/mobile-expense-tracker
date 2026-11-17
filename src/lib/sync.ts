@@ -202,6 +202,80 @@ async function fetchRemoteRow(
   return data?.[0];
 }
 
+
+/**
+ * Stores served by the transactional revision RPC (migration 009). Everything
+ * else keeps its existing path, including the managed generation fence.
+ */
+const REVISION_PROTOCOL_STORES: Record<string, true> = {
+  [STORES.STOCKS]: true,
+  [STORES.STOCK_TRANSACTIONS]: true,
+  [STORES.DIVIDENDS]: true,
+  [STORES.BALANCE_SNAPSHOTS]: true,
+};
+
+type RevisionProtocolState = 'unknown' | 'available' | 'absent';
+let revisionProtocolState: RevisionProtocolState = 'unknown';
+
+interface RevisionWriteResponse {
+  status: 'applied' | 'replayed' | 'conflict';
+  revision: number | null;
+}
+
+function readRevisionWriteResponse(value: unknown): RevisionWriteResponse | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const { status, revision } = value as { status?: unknown; revision?: unknown };
+  if (status !== 'applied' && status !== 'replayed' && status !== 'conflict') return null;
+  return {
+    status,
+    revision: typeof revision === 'number' && Number.isFinite(revision) ? revision : null,
+  };
+}
+
+/**
+ * Try the transactional revision write. Returns false when the server does not
+ * have the RPC yet, so the caller keeps the proven legacy path. Any other error
+ * propagates: a real failure must not silently fall back.
+ */
+/** Test seam: forget the capability-probe result. */
+export function resetRevisionProtocolState(): void {
+  revisionProtocolState = 'unknown';
+}
+
+async function tryRevisionWrite(
+  entry: { id: string; storeName: string; recordId: string; operation: string },
+  userId: string,
+  expectedRevision: number,
+  record: Record<string, unknown> | null,
+): Promise<boolean> {
+  if (revisionProtocolState === 'absent') return false;
+  const { data, error } = await supabase!.rpc('apply_revision_write', {
+    p_store: entry.storeName,
+    p_operation: entry.operation,
+    p_record_id: entry.recordId,
+    p_expected_revision: expectedRevision,
+    p_record: record,
+    p_operation_id: entry.id,
+  });
+  if (error) {
+    if (errorCode(error) === 'PGRST202') {
+      revisionProtocolState = 'absent';
+      return false;
+    }
+    throw error;
+  }
+  revisionProtocolState = 'available';
+  const response = readRevisionWriteResponse(data);
+  if (!response) throw new Error('Revision write returned an unexpected response.');
+  if (response.status === 'conflict') {
+    throw new RemoteRevisionChangedError(
+      'Server revision conflict; the queued edit needs reconciliation.',
+    );
+  }
+  await putSyncBaseline(entry.storeName, entry.recordId, userId, null, response.revision);
+  return true;
+}
+
 function assertManagedWriteApplied(data: unknown, action: 'write' | 'delete'): void {
   const response = readManagedWriteResponse(data);
   if (response?.status === 'conflict') {
@@ -358,13 +432,20 @@ export async function processSyncQueue(generation: number): Promise<void> {
               );
             }
           } else {
-            // Non-managed stores have no server-side generation check. The
-            // client proves the write instead: compare-and-set against the
-            // recorded baseline, then compare the persisted row with what it
-            // intended. A server that stored something else is not an
-            // acknowledgement.
+            // Non-managed stores have no server-side generation check. Where the
+            // server offers the transactional revision RPC, use it; otherwise
+            // prove the write locally: compare-and-set against the recorded
+            // baseline, then compare the persisted row with what it intended.
             const intended = withoutServerMetadata(remotePayload);
             const baseline = await getSyncBaseline(entry.storeName, entry.recordId);
+
+            if (REVISION_PROTOCOL_STORES[entry.storeName]) {
+              const expected = entry.operation === 'create' ? 0 : baseline?.revision;
+              if (typeof expected === 'number') {
+                const handled = await tryRevisionWrite(entry, user.id, expected, remotePayload);
+                if (handled) break;
+              }
+            }
 
             if (entry.operation === 'create') {
               const { error: insertError } = await supabase.from(tableName).insert(remotePayload);
@@ -461,6 +542,13 @@ export async function processSyncQueue(generation: number): Promise<void> {
             if (error) throw error;
             assertManagedWriteApplied(data, 'delete');
           } else {
+            if (REVISION_PROTOCOL_STORES[entry.storeName]) {
+              const baseline = await getSyncBaseline(entry.storeName, entry.recordId);
+              if (typeof baseline?.revision === 'number') {
+                const handled = await tryRevisionWrite(entry, user.id, baseline.revision, null);
+                if (handled) break;
+              }
+            }
             // Soft-delete, pinned to the recorded baseline. Without one, the
             // delete must not guess which row it is deleting.
             const remote = await fetchRemoteRow(tableName, entry.recordId, user.id);
@@ -702,6 +790,7 @@ export async function pullStore(
         recordId: id,
         ownerId: userId,
         baselineRevision: rowRevision(remote),
+        revision: typeof remote.revision === 'number' ? remote.revision : null,
         updatedAt: Date.now(),
       });
     }

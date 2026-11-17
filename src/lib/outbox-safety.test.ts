@@ -18,6 +18,7 @@ import {
   processSyncQueue,
   preparePayloadForRemote,
   pullStore,
+  resetRevisionProtocolState,
   resolveRevisionBlockedUploads,
   retryPausedEntries,
 } from './sync';
@@ -40,6 +41,7 @@ const GENERATION = 3;
 
 interface MockState {
   failWrites: boolean;
+  revisionMode: 'absent' | 'applied' | 'replayed' | 'conflict';
   /** Model `prevent_older_update()` skipping the write: return the old row. */
   skipUpdates: boolean;
   /** Accept the write but do not reflect it back (server dropped it). */
@@ -49,7 +51,14 @@ interface MockState {
 }
 
 jest.mock('./supabase', () => {
-  const state: MockState = { failWrites: false, dropWrites: false, skipUpdates: false, pulls: {}, upserts: [] };
+  const state: MockState = {
+    failWrites: false,
+    revisionMode: 'absent',
+    dropWrites: false,
+    skipUpdates: false,
+    pulls: {},
+    upserts: [],
+  };
 
   function createQuery(table: string) {
     let idFilter: unknown = null;
@@ -120,7 +129,18 @@ jest.mock('./supabase', () => {
     supabase: {
       auth: { getUser: jest.fn(async () => ({ data: { user: { id: 'user-1' } }, error: null })) },
       from: jest.fn((table: string) => createQuery(table)),
-      rpc: jest.fn(async () => ({ data: { status: 'applied', generation: 3 }, error: null })),
+      rpc: jest.fn(async (name: string) => {
+        if (name === 'apply_revision_write') {
+          if (state.revisionMode === 'absent') {
+            return { data: null, error: { code: 'PGRST202', message: 'function not found' } };
+          }
+          if (state.revisionMode === 'conflict') {
+            return { data: { status: 'conflict', revision: 9 }, error: null };
+          }
+          return { data: { status: state.revisionMode, revision: 5 }, error: null };
+        }
+        return { data: { status: 'applied', generation: 3 }, error: null };
+      }),
       __state: state,
     },
   };
@@ -153,9 +173,25 @@ function appliedMarker() {
   };
 }
 
+
+function defaultRpcImplementation(name: string, params: Record<string, unknown>) {
+  if (name === 'apply_revision_write') {
+    if (state.revisionMode === 'absent') {
+      return { data: null, error: { code: 'PGRST202', message: 'function not found' } };
+    }
+    if (state.revisionMode === 'conflict') {
+      return { data: { status: 'conflict', revision: 9 }, error: null };
+    }
+    return { data: { status: state.revisionMode, revision: 5 }, error: null };
+  }
+  const record = params.p_record as Record<string, unknown> | null;
+  return { data: { status: 'applied', generation: 3, record }, error: null };
+}
+
 beforeEach(async () => {
   Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
   state.failWrites = false;
+  state.revisionMode = 'absent';
   state.dropWrites = false;
   state.skipUpdates = false;
   state.pulls = {};
@@ -168,6 +204,8 @@ beforeEach(async () => {
   await db.clear(STORES.BALANCE_SNAPSHOTS);
   await db.clear(STORES.DATASET_MARKERS);
   await db.clear(STORES.SYNC_META);
+  resetRevisionProtocolState();
+  (supabase as unknown as { rpc: jest.Mock }).rpc.mockImplementation(defaultRpcImplementation);
   await putDatasetReplacementMarker(appliedMarker());
 });
 
@@ -542,4 +580,50 @@ test('server metadata never travels back as business data', () => {
     createdAt: 1000,
   });
   expect(outbound).not.toHaveProperty('revision');
+});
+
+
+test('the revision RPC is used when the server offers it', async () => {
+  state.revisionMode = 'applied';
+  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'create', SNAPSHOT);
+
+  await processSyncQueue(GENERATION);
+
+  expect(state.upserts).toHaveLength(0); // no direct REST fallback
+  expect(await getSyncQueueCount()).toBe(0);
+  const baseline = await getSyncBaseline(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id);
+  expect(baseline?.revision).toBe(5);
+});
+
+test('a replayed revision write is acknowledged once', async () => {
+  state.revisionMode = 'replayed';
+  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'create', SNAPSHOT);
+
+  await processSyncQueue(GENERATION);
+
+  expect(await getSyncQueueCount()).toBe(0);
+  expect((await getSyncBaseline(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id))?.revision).toBe(5);
+});
+
+test('a revision conflict blocks the edit and keeps its payload', async () => {
+  state.revisionMode = 'conflict';
+  await putSyncBaseline(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, USER, null, 4);
+  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'update', SNAPSHOT);
+
+  await processSyncQueue(GENERATION);
+
+  const [entry] = await getDB().then((db) => db.getAll(STORES.SYNC_QUEUE));
+  expect(entry.state).toBe('blocked');
+  expect(entry.blockReason).toBe('revision');
+  expect(entry.payload).toEqual(SNAPSHOT);
+});
+
+test('an absent RPC falls back to the proven write path', async () => {
+  state.revisionMode = 'absent';
+  await enqueueSyncEntry(STORES.BALANCE_SNAPSHOTS, SNAPSHOT.id, 'create', SNAPSHOT);
+
+  await processSyncQueue(GENERATION);
+
+  expect(state.upserts).toHaveLength(1);
+  expect(await getSyncQueueCount()).toBe(0);
 });
