@@ -32,7 +32,13 @@ import { formatCurrency, formatImportError } from '@/lib/utils';
 import type { Account, Category, TransactionType } from '@/types';
 import { parseCsv, type ParsedCsv } from '@/lib/csv-import';
 import { getSyncQueueCount, resyncAll } from '@/lib/idb';
-import { backgroundSync, resolveReplacementConflict, retryPausedEntries } from '@/lib/sync';
+import {
+  backgroundSync,
+  resolveReplacementConflict,
+  retryPausedEntries,
+  resolveRevisionBlockedUploads,
+  getSyncFailureSummary,
+} from '@/lib/sync';
 import {
   LOCAL_DATASET_OWNER,
   type DatasetReplacementMarker,
@@ -1588,6 +1594,23 @@ function SyncSection() {
   const router = useRouter();
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [blockedCount, setBlockedCount] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => {
+      getSyncFailureSummary().then(
+        (summary) => setBlockedCount(summary.blocked),
+        () => setBlockedCount(0),
+      );
+    };
+    refresh();
+    window.addEventListener('sync-status-changed', refresh);
+    window.addEventListener('sync-complete', refresh);
+    return () => {
+      window.removeEventListener('sync-status-changed', refresh);
+      window.removeEventListener('sync-complete', refresh);
+    };
+  }, []);
 
   /**
    * An empty queue is not a finished sync: a pending, failed, or conflicting
@@ -1667,6 +1690,32 @@ function SyncSection() {
     }
   };
 
+  const handleResolveBlocked = async () => {
+    if (!window.confirm(
+      `Re-apply ${blockedCount} blocked local edit${blockedCount === 1 ? '' : 's'} on top of the current cloud row? ` +
+      'The cloud version is replaced by your local version.',
+    )) return;
+    setIsSyncing(true);
+    setSyncMsg(null);
+    try {
+      const resolved = await resolveRevisionBlockedUploads();
+      setSyncMsg(
+        resolved > 0
+          ? `Re-queued ${resolved} blocked upload${resolved === 1 ? '' : 's'}.`
+          : 'No blocked uploads can be resolved automatically.',
+      );
+      if (resolved > 0) {
+        await backgroundSync();
+        setBlockedCount((await getSyncFailureSummary()).blocked);
+      }
+    } catch {
+      setSyncMsg('Could not resolve blocked uploads.');
+    } finally {
+      setIsSyncing(false);
+      router.refresh();
+    }
+  };
+
   const handleResync = async () => {
     if (!window.confirm('Re-enqueue all local data for sync? This will clear the current sync queue and push everything again.')) return;
     setIsSyncing(true);
@@ -1712,6 +1761,11 @@ function SyncSection() {
         <Button variant="ghost" size="sm" onClick={handleRetryPaused} disabled={isSyncing}>
           Retry paused uploads
         </Button>
+        {blockedCount > 0 && (
+          <Button variant="ghost" size="sm" onClick={handleResolveBlocked} disabled={isSyncing}>
+            Resolve {blockedCount} blocked
+          </Button>
+        )}
         <Button variant="ghost" size="sm" onClick={handleResync} disabled={isSyncing}
           className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
           Re-sync all

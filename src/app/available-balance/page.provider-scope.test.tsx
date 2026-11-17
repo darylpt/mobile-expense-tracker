@@ -102,6 +102,8 @@ jest.mock('@/lib/sync', () => ({
   retrySyncWork: jest.fn(),
   getFailedSyncCount: jest.fn(() => 0),
   clearFailedSyncCount: jest.fn(),
+  getSyncFailureSummary: jest.fn(async () => ({ paused: 0, blocked: 0 })),
+  resolveRevisionBlockedUploads: jest.fn(async () => 0),
 }));
 
 jest.mock('@/lib/idb', () => ({

@@ -14,7 +14,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useTransactionContext } from '@/context/TransactionContext';
 import { getSyncQueueCount, resyncAll } from '@/lib/idb';
-import { backgroundSync, getFailedSyncCount, clearFailedSyncCount } from '@/lib/sync';
+import { backgroundSync, getSyncFailureSummary, retryPausedEntries } from '@/lib/sync';
 import { APP_VERSION } from '@/lib/version';
 
 interface HeaderProps {
@@ -143,7 +143,11 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
     try { const ts = localStorage.getItem('last_sync_time'); return ts ? parseInt(ts, 10) : null; } catch { return null; }
   });
   const [isSyncing, setIsSyncing] = useState(false);
-  const [failedSyncCount, setFailedSyncCount] = useState(() => getFailedSyncCount());
+  const [failureSummary, setFailureSummary] = useState({ paused: 0, blocked: 0 });
+  const refreshFailures = useCallback(() => {
+    getSyncFailureSummary().then(setFailureSummary, () => setFailureSummary({ paused: 0, blocked: 0 }));
+  }, []);
+  const failedSyncCount = failureSummary.paused + failureSummary.blocked;
   const syncTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
@@ -151,19 +155,25 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
     syncTimer.current = setInterval(() => {
       const ts = localStorage.getItem('last_sync_time');
       if (ts) setLastSync(parseInt(ts, 10));
-      // Also refresh failed sync count
-      setFailedSyncCount(getFailedSyncCount());
+      refreshFailures();
     }, 30000);
     // Listen for sync-time updates from other tabs
     const handler = (e: StorageEvent) => {
       if (e.key === 'last_sync_time' && e.newValue) setLastSync(parseInt(e.newValue, 10));
     };
     window.addEventListener('storage', handler);
+    // Queue-state derived, not a counter: every sync cycle and every manual
+    // retry republishes.
+    window.addEventListener('sync-status-changed', refreshFailures);
+    window.addEventListener('sync-complete', refreshFailures);
+    refreshFailures();
     return () => {
       clearInterval(syncTimer.current);
       window.removeEventListener('storage', handler);
+      window.removeEventListener('sync-status-changed', refreshFailures);
+      window.removeEventListener('sync-complete', refreshFailures);
     };
-  }, []);
+  }, [refreshFailures]);
 
   const handleSync = useCallback(async () => {
     setIsSyncing(true);
@@ -176,11 +186,12 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
   }, []);
 
   const handleRetrySync = useCallback(async () => {
-    clearFailedSyncCount();
-    setFailedSyncCount(0);
-    await resyncAll();
+    // Only transient pauses retry automatically; blocked work needs the
+    // explicit resolution in Settings.
+    await retryPausedEntries();
     await handleSync();
-  }, [handleSync]);
+    refreshFailures();
+  }, [handleSync, refreshFailures]);
 
   const visibleTabs = tabs.filter(t =>
     t.core ||
@@ -231,12 +242,12 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
               <button
                 onClick={handleRetrySync}
                 className="hidden items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 transition-colors hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50 md:inline-flex"
-                title={`${failedSyncCount} sync entries failed. Click to retry.`}
+                title={`${failureSummary.paused} paused, ${failureSummary.blocked} need review. Click to retry paused uploads.`}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-3 w-3">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                 </svg>
-                {failedSyncCount} failed
+                {failedSyncCount} stuck
               </button>
             )}
             {state === 'authenticated' && (
@@ -268,7 +279,7 @@ export function Header({ title = 'Expense Tracker', showTabs = true }: HeaderPro
                   <button
                     onClick={handleRetrySync}
                     className="flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 md:hidden"
-                    title={`${failedSyncCount} sync entries failed. Click to retry.`}
+                    title={`${failureSummary.paused} paused, ${failureSummary.blocked} need review. Click to retry paused uploads.`}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-2.5 w-2.5">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />

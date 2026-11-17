@@ -38,6 +38,8 @@ jest.mock('@/lib/sync', () => ({
   backgroundSync: jest.fn(),
   resolveReplacementConflict: jest.fn(),
   retryPausedEntries: jest.fn(async () => 2),
+  getSyncFailureSummary: jest.fn(async () => ({ paused: 0, blocked: 0 })),
+  resolveRevisionBlockedUploads: jest.fn(async () => 0),
 }));
 
 beforeEach(() => {

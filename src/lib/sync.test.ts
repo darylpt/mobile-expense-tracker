@@ -64,6 +64,7 @@ interface MockQuery {
   maybeSingle(): Promise<{ data: { generation: number }; error: null }>;
   update(payload: Record<string, unknown>): MockQuery;
   upsert(payload: Record<string, unknown>, options: unknown): Promise<{ error: null }>;
+  insert(payload: Record<string, unknown>): Promise<{ error: unknown }>;
   then<TResult1 = unknown, TResult2 = never>(
     onfulfilled?: ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
@@ -125,6 +126,14 @@ jest.mock('./supabase', () => {
           ...(state.pulls[table] ?? []).filter((item) => item.id !== row.id),
           row,
         ];
+        return Promise.resolve({ error: null });
+      },
+      insert(payload: Record<string, unknown>) {
+        state.upserts.push({ table, payload, options: { insert: true } });
+        const row = { ...(payload as Record<string, unknown>) };
+        const exists = (state.pulls[table] ?? []).some((item) => item.id === row.id);
+        if (exists) return Promise.resolve({ error: { code: '23505', message: 'duplicate key' } });
+        state.pulls[table] = [...(state.pulls[table] ?? []), row];
         return Promise.resolve({ error: null });
       },
       then<TResult1 = unknown, TResult2 = never>(

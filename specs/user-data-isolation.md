@@ -231,9 +231,10 @@ is bound to the rendered identity instead.
 Still open:
 
 - **Server-managed revisions are prepared, not applied.** Migration
-  `008_record_revisions.sql` adds per-row revisions and an operation-receipt
-  table, but the client does not use them yet; until both land, concurrency is
-  still last-write-wins on `updated_at`.
+  `008_record_revisions.sql` adds per-row revisions only; the transactional
+  revision/receipt RPC and client adoption are still to come. Until they land,
+  concurrency is last-write-wins on `updated_at`, with the client refusing to
+  overwrite a row it cannot prove it edited.
 - **Older clients can bypass the ownership and baseline checks** because they
   speak the direct REST protocol.
 - **The local delete still lands before the server agrees.** The payload and the
@@ -251,8 +252,9 @@ Closed by the outbox slice:
 - A background cycle never retries paused entries, so a failing server cannot
   loop forever.
 - Queued work carries its owner; another account can neither replay nor adopt it.
-- Non-managed writes are verified by compare-and-set plus read-back before they
-  are acknowledged, and every record keeps the server revision it last saw.
+- Non-managed writes are acknowledged only when the persisted row matches the
+  intended business values; server metadata is excluded from both the payload and
+  the comparison, and every record keeps the server revision it last saw.
 - `resyncAll()` no longer clears the queue, so paused or blocked payloads survive
   a rebuild.
 
